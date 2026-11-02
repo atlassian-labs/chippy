@@ -62,7 +62,6 @@ every change.
 | Adding or changing a bridge capability or snippet | [Bridge and snippet authoring](.agents/references/bridge-authoring.md) |
 | Writing, changing, or reviewing code | [Code quality checks](.agents/references/code-quality.md) |
 | Changing extension files or preparing a Chrome Web Store release | [Extension release](.agents/references/extension-release.md) |
-| Publishing or syncing Chippy to the Atlassian skills registry | [Registry release](.agents/references/skills-registry-release.md) |
 | Proving runtime or extension behavior through manual browser actions | [Manual verification](docs/chippy-manual-verification.md) |
 
 Do not include `links/*` in repository-wide scans. Linked applications are local

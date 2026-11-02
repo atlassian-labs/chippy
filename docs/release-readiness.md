@@ -122,7 +122,7 @@ first screen, and today they cannot.
 | `.agents/skills/playwright-cli/` vendored | Third-party skill checked into the tree | Keep only if the lab needs it; otherwise document it as a dependency |
 | `chippy:install:zip` script | Second install path with `rm -rf ~/.agents/skills/chippy` inline | Replace with the `npx` installer |
 | `FIXME(mine)` / `FIXME(reef)` markers (7) | Private tags; meaning unclear to contributors | Done: all converted to `TODO` |
-| `maintainer: akorzunov` in the registry procedure | Internal registry procedure in a public tree | Move to the Jira-flavoured distribution |
+| `maintainer: akorzunov` in the registry procedure | Internal registry procedure in a public tree | Done: procedure removed from the public tree |
 
 ## Goal 3: tested, easy to scale and maintain
 
@@ -280,8 +280,8 @@ browser project covers stock React only.
 
 - ~~The connection-fallback UI tells users to run the internal skills-registry
   command.~~ It now shows `npx @atlassian/chippy install`.
-- The internal skills-registry procedure (`.agents/references/skills-registry-release.md`,
-  `AGENTS.md`, `docs/releasing.md:34`) belongs in the Jira-flavoured distribution.
+- ~~The internal skills-registry procedure in `.agents/references/`, `AGENTS.md`,
+  and `docs/releasing.md`.~~ Removed; it lives in the internal repository.
 - `'Atlassian Sans'` font stacks in the popup and panel. They fall back to
   `system-ui`, so this is cosmetic.
 - `@atlassian/perf-linting` eslint-disable comments in `detector.tsx`. Harmless,
