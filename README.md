@@ -2,6 +2,8 @@
 
 # Chippy
 
+[![Atlassian license](https://img.shields.io/badge/license-Apache%202.0-blue.svg?style=flat-square)](LICENSE) [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg?style=flat-square)](CONTRIBUTING.md)
+
 **A friend who helps you understand what’s happening, find the cause, and fix it.**
 
 Chippy connects a browser page to a coding agent through a local helper. Work
@@ -118,7 +120,8 @@ it is not yet published to npm. Standalone Avalanche needs no helper or extensio
 | Find the owning module | [Runtime source map](src/README.md) |
 | Add app-specific knowledge | [Plugins](docs/plugins.md) |
 | Use the project identity | [Brand assets](docs/brand/README.md) |
-| Understand page data and helper access | [Trust boundary](SECURITY.md) |
+| Understand page data and helper access | [Trust boundary](docs/trust-boundary.md) |
+| Report a vulnerability | [Security policy](SECURITY.md) |
 | Prepare distribution artifacts | [Release guide](docs/releasing.md) |
 
 The repository combines the reusable Chippy skill and extension with a Storybook
@@ -127,4 +130,7 @@ external-project links are not shipped with the skill.
 
 ## License
 
-Chippy is licensed under the [MIT License](LICENSE).
+Copyright (c) 2026 Atlassian US., Inc.
+Apache 2.0 licensed, see [LICENSE](LICENSE) file.
+
+[![With ❤️ from Atlassian](https://raw.githubusercontent.com/atlassian-internal/oss-assets/master/banner-cheers.png)](https://www.atlassian.com)

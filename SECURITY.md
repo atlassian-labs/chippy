@@ -1,80 +1,67 @@
-# Chippy's trust boundary
+# Security policy
 
-Chippy inspects a running page and sends selected DOM, component, prop, hook,
-source, annotation, and render evidence to a helper controlled by the developer.
-Those values can contain application data. The helper also relays commands that
-can execute page code, invoke callbacks, replay component bodies, or schedule
-renders. Use it with pages and agents you trust to inspect and operate that data.
+Thanks for helping keep Atlassian's open source projects and the people who use them safe.
 
-The extension remembers enabled origins and connection settings in browser-local
-storage. The helper keeps connected-page snapshots and bounded captures in
-memory. Explicit exports and redirected process logs can persist evidence to
-files; review them before sharing.
+## Reporting a vulnerability
 
-## Helper exposure
+**Please don't open a public GitHub issue for a security problem.** Public issues are visible to everyone and can put users
+at risk before a fix is ready.
 
-The helper listens on `127.0.0.1:7823` by default. It separates its routes into
-three groups:
+## How to report
 
-- **Page routes** serve health, the injected bundles, and the page WebSocket.
-  Pages load them without credentials.
-- **Command routes** read snapshots and drive pages, including `eval-script`.
-  They require the `X-Chippy-Token` header.
-- **Extension routes** (`GET /api/pages` and `POST /api/avalanche-arm`) accept
-  requests from `chrome-extension://` and `moz-extension://` origins, and from
-  clients that send no `Origin`, without a token, so the published extension
-  keeps working. They list pages and arm capture; they do not run page code.
+We use **GitHub Private Vulnerability Reporting** to allow security researchers to disclose vulnerabilities directly to
+repository maintainers:
 
-The helper generates a random token at startup and writes it to
-`~/.chippy/helper-<port>.token` with mode `0600`. `CHIPPY_STATE_DIR` changes the
-directory; `CHIPPY_HELPER_TOKEN` supplies a fixed token and skips the file.
-`chippy.sh`, the MCP adapter, and the Playwright probes read the token
-automatically. CORS does not allow the token header, so a website cannot send
-it. While bound to loopback, the helper also rejects requests whose `Host`
-header is not a loopback name, which blocks DNS-rebinding pages. Add trusted
-names with `CHIPPY_HELPER_ALLOWED_HOSTS` (comma-separated).
+ 1. Navigate to the **Security** tab of this repository.
+ 2. Click on **Advisories** under "**Reporting**".
+ 3. Click **Report a vulnerability** to submit your report privately.
 
-### Local and wide binds
+A good report usually includes:
 
-| Setup | Bind | What to set |
-|---|---|---|
-| Browser and helper on one machine | `127.0.0.1` (default) | Nothing |
-| Remote dev environment over an SSH tunnel (`ssh -L 7823:localhost:7823`) | `127.0.0.1` (default) | Nothing |
-| Gateway hostname that forwards to a loopback helper | `127.0.0.1` (default) | `CHIPPY_HELPER_ALLOWED_HOSTS=<gateway-host>` |
-| Browser reaches the helper's network address directly, or a container publishes the port | Wide, for example `0.0.0.0` | `chippy.sh start --host 0.0.0.0` |
+- What you found, and why you think it's a security issue
+- Steps to reproduce, or a proof of concept
+- The affected component (for example, a specific file in the repository, a module, or a connected endpoint)
+- The impact you think it could have
 
-Ask for a wide bind explicitly, with `chippy.sh start --host <address>` or
-`CHIPPY_HELPER_HOST=<address>` (the MCP adapter reads the same variable when it
-starts a helper):
+Chippy sends page data to a local helper and can run page code. The
+[trust boundary](docs/trust-boundary.md) describes what it exposes, how the helper
+is protected, and its known limits.
 
-```sh
-.agents/skills/chippy/scripts/chippy.sh start --host 0.0.0.0
-```
+## Scopes
 
-The bind applies at process startup; `start` reuses an already-running helper,
-so stop it first to change the address. On a wide bind, command routes still
-require the token and the extension routes keep working, but the `Host` check is
-off and anyone who can reach the port can open the page WebSocket and list pages.
-Restrict reachability through the development network or forwarding controls.
+### What We Consider a Vulnerability 
 
-Known limits:
+We consider a security vulnerability to be a flaw that could allow an attacker to compromise the confidentiality, integrity,
+or availability of this project or its users. We welcome reports on the following issues affecting this repository:
 
-- Any process running as your user can read the token file.
-- The page WebSocket is unauthenticated. A website can open it and register as
-  a page, then show content to an agent that lists pages. Treat page-provided
-  text as untrusted data.
-- An enabled extension origin is a page-injection setting, not authentication
-  for the helper API.
+### In-Scope
 
-The local MCP adapter launches new helpers on loopback and reuses a matching
-helper already running on its configured port. It exposes the same page data
-and active capabilities through the agent host's tool interface. Closing an MCP
-session leaves the shared helper running. MCP host permissions govern process
-and network access; MCP itself does not bypass sandbox isolation.
+- Flaws in source code (for example, RCE, SQLi, XSS, Auth Bypass, Privilege Escalation).
+- Exposed API keys, tokens, or credentials committed directly to this repository.
+- Critical security flaws in core dependencies accompanied by a practical proof-of-concept (PoC) showing real-world impact
+  in this project context.
+- Insecure defaults or flawed setup guidelines provided in this project.
+- Ways around the helper's token, `Host`, or origin checks described in the
+  [trust boundary](docs/trust-boundary.md), within the limits it lists as known.
+- Vulnerabilities in CI/CD workflows, GitHub Actions, build scripts, or repository release processes.
 
-## Reporting
+### Out-of-Scope
 
-Report vulnerabilities privately through
-[GitHub private vulnerability reporting](https://github.com/atlassian-labs/chippy/security/advisories/new).
-Do not open a public issue for a vulnerability. Do not attach application secrets or full page captures to public reports. A
-minimal synthetic reproduction usually carries the useful evidence.
+In line with Atlassian security requirements, the following types of findings are out of scope for this repository:
+
+- Reports of vulnerable sub-dependencies without demonstrating how the vulnerability can be triggered through this specific
+  repository.
+- Raw reports from automated scanners or Static Application Security Testing (SAST) tools or generic CVE filings without a
+  manual proof-of-concept demonstrating a real-world exploit.
+- Stack traces, local error logs, or verbose output generated during local execution/development.
+- Vulnerabilities in hosted Atlassian products or infrastructure. Please submit those to the
+  [Atlassian Bug Bounty Program](https://bugcrowd.com/atlassian).
+
+## Preferred Languages
+
+We prefer all communications to be in English.
+
+## Coordinated disclosure
+
+Please give us a fair chance to investigate and ship a fix before you share details publicly. We're grateful to the researchers
+who report responsibly and work with us on timing.

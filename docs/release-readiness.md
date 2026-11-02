@@ -72,7 +72,7 @@ files. That test found `chippy-skill.zip` predated B1 and lacked
 
 The public repository starts without history, so the internal URL in old commits
 does not ship. The project owner confirmed that the name and assets carry no
-brand restriction. `SECURITY.md` → "Reporting" points at GitHub private
+brand restriction. `SECURITY.md` → "How to report" points at GitHub private
 vulnerability reporting on `atlassian-labs/chippy`.
 
 ## Goal 1: Chippy knows what it can do — done
