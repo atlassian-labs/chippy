@@ -36,21 +36,20 @@ measuring another interaction and `detector.uninstall()` to stop capture and
 remove its listeners. These operations do not require a UI. The detector import
 itself does not install hooks, start capture, or connect to a helper.
 
-`@atlassian/chippy/avalanche` exports `createAvalancheDetector`, `DETECTION_LEVEL`, and the
-TypeScript types `DetectorOptions`, `Report`, `ReportOptions`, and `SortBy`.
 `@atlassian/chippy/bootstrap` intentionally installs a DevTools hook only when one is absent;
 it preserves an existing DevTools integration.
 
-Capture modes are `stats`, `sources`, `amplifiers`, and `full`. Higher-detail modes
-retain more evidence and perform more work. Keep capture bounded, use this for
-development diagnostics, and measure overhead in your application. React internals
-vary by build and version; missing source, owner, replay, or scheduling data is
-not proof that capture failed. ATL metrics are optional evidence supplied by the
-host application. Chippy does not ship or install a React patch.
+`detectionMode: 'sources'` records which components rendered and why. Use
+`'stats'` for the lowest overhead and `'full'` when you need per-fiber detail.
+Capture adds work to every commit, so keep it to development and tests, and
+measure the overhead in your app. React internals vary by build and version;
+missing source or owner data does not mean capture failed.
 
 ## Connect a browser page to an agent
 
-Start the local helper through the installed Chippy agent skill, then:
+Use this for pages the extension cannot reach, such as an embedded browser or a
+test runner. With the helper running (your agent starts it through the Chippy MCP
+server or skill), call:
 
 ```js
 import { connectChippy } from '@atlassian/chippy/browser';
@@ -75,15 +74,15 @@ export default {
 };
 ```
 
-The preset supplies the Chippy manager panels and preview integration. Use an
-ES2022 build target for its top-level await. Agent commands need the local helper
-on port 7823. Storybook, React, and React DOM remain application dependencies;
-standalone Avalanche does not require Storybook.
+The addon adds the Chippy panels to Storybook and connects stories to your agent
+through the same local helper as the extension. If your Storybook build targets
+older browsers, set the build target to `es2022`, for example `build.target` in
+`viteFinal`.
 
 ## Custom builds with plugins
 
-`@atlassian/chippy/plugin` exports the plugin types, `definePlugin`, and the fiber
-helpers plugins use. `npx @atlassian/chippy pack` reads `chippy.config.mjs` and
+To teach Chippy about your own stack, write plugins with `@atlassian/chippy/plugin`
+and ship them as your own skill and extension. `npx @atlassian/chippy pack` reads `chippy.config.mjs` and
 builds a skill and extension that include your plugins, default plugin selection,
 extension name and version, and extra skill documentation. It needs `esbuild` in
 your project. See
@@ -92,15 +91,18 @@ for the config format.
 
 ## MCP
 
-The package also installs `chippy-mcp`, a local stdio MCP executable. Configure
-your agent host to run it; it starts or reuses the Chippy helper on loopback port
-7823. Set `CHIPPY_HELPER_PORT` in that process's environment to select another
-port, and configure your browser integration to match. The helper persists across
-MCP disconnects to preserve browser evidence and other sessions. The executable
-includes its runtime dependencies; no separate skill or helper installation is
-needed for this package path. Agent investigation guidance still lives in the
-Chippy skill. The host needs process/network access to the browser environment.
+The package includes `chippy-mcp`, which connects an agent host to the helper. For
+Claude Code, from your project:
+
+```sh
+claude mcp add chippy -- npx chippy-mcp
+```
+
+Install the skill too (`npx @atlassian/chippy install`) so the agent knows how to
+investigate. See [MCP setup](https://github.com/atlassian-labs/chippy/blob/main/.agents/skills/chippy/references/mcp.md)
+for other hosts and ports.
 
 ## License
 
-MIT. The package contains its own license and does not include React or React DOM.
+Copyright (c) 2026 Atlassian US., Inc. Apache 2.0 licensed, see [LICENSE](LICENSE). The
+package does not include React or React DOM.

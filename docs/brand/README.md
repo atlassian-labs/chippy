@@ -35,6 +35,6 @@ node scripts/sync-chippy-brand.mjs
 ```
 
 The script synchronizes inline page/Storybook copies and renders toolbar PNGs
-with Playwright Chromium. Run `yarn test src/chippy-brand.test.ts` to verify copies
+with Playwright Chromium. Run `yarn test src/__tests__/chippy-brand.test.ts` to verify copies
 and declared icon dimensions. Generated extension assets enter the normal
 [extension release](../releasing.md) process.

@@ -2,9 +2,9 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { spawn, type ChildProcess } from 'node:child_process';
 import { createServer } from 'node:net';
 import { resolve } from 'node:path';
-import { testHelperEnv, withHelperToken } from './test/helper-auth';
+import { testHelperEnv, withHelperToken } from '../test/helper-auth';
 
-const HELPER = resolve(__dirname, '../.agents/skills/chippy/scripts/chippy-helper-server.js');
+const HELPER = resolve(__dirname, '../../.agents/skills/chippy/scripts/chippy-helper-server.js');
 const children: ChildProcess[] = [];
 
 afterEach(() => {

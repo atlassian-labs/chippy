@@ -2,22 +2,22 @@ import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { JSDOM } from 'jsdom';
-import { normalizeProbeAnnotation } from './layout-lab/probe-intent';
+import { normalizeProbeAnnotation } from '../layout-lab/probe-intent';
 
 const PANEL_DOM_SOURCE = readFileSync(
-  resolve(__dirname, '../.agents/skills/chippy/extension/panel-dom.js'),
+  resolve(__dirname, '../../.agents/skills/chippy/extension/panel-dom.js'),
   'utf8',
 );
 const PANEL_SETTINGS_SOURCE = readFileSync(
-  resolve(__dirname, '../.agents/skills/chippy/extension/panel-settings.js'),
+  resolve(__dirname, '../../.agents/skills/chippy/extension/panel-settings.js'),
   'utf8',
 );
 const LAYOUT_LAB_SOURCE = readFileSync(
-  resolve(__dirname, '../.agents/skills/chippy/extension/layout-lab.js'),
+  resolve(__dirname, '../../.agents/skills/chippy/extension/layout-lab.js'),
   'utf8',
 );
 const PAGE_BRIDGE_SOURCE = readFileSync(
-  resolve(__dirname, '../.agents/skills/chippy/extension/chippy-page-bridge.js'),
+  resolve(__dirname, '../../.agents/skills/chippy/extension/chippy-page-bridge.js'),
   'utf8',
 );
 

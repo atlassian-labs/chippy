@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
-const SKILL = resolve(__dirname, '../.agents/skills/chippy');
+const SKILL = resolve(__dirname, '../../.agents/skills/chippy');
 const SHELL = resolve(SKILL, 'scripts/chippy.sh');
 const CORPUS = resolve(SKILL, 'references/recipes.txt');
 const SEARCH = resolve(SKILL, 'scripts/search-recipes.js');

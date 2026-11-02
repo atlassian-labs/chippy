@@ -35,7 +35,7 @@ The fix is in `scripts/helper-access.js` and its callers:
   extension's two routes (`GET /api/pages`, `POST /api/avalanche-arm`) accept
   extension origins without a token, so no extension release is needed.
 - `chippy.sh`, the MCP adapter, and the Playwright probes send the token.
-- `src/chippy-helper-access.test.ts` covers rejection, preflight, the extension
+- `src/__tests__/chippy-helper-access.test.ts` covers rejection, preflight, the extension
   exemption, the Host check, the token file, and `chippy.sh` forwarding.
 
 Follow-ups, not blocking:
@@ -64,7 +64,7 @@ extension easy to install without a build.
 The shipped bundles (`extension/avalanche.*.js`, `scripts/chippy-mcp.cjs`,
 `scripts/avalanche-analyze.cjs`) stay, because the skill installs without a build
 step. Both builds are deterministic. CI rebuilds them and fails on a diff, and
-`src/chippy-shipped-artifacts.test.ts` fails when a zip differs from the tracked
+`src/__tests__/chippy-shipped-artifacts.test.ts` fails when a zip differs from the tracked
 files. That test found `chippy-skill.zip` predated B1 and lacked
 `helper-access.js`; the zip is rebuilt.
 
@@ -202,7 +202,7 @@ directory unless `--force` is given. It prints the load-unpacked extension path,
 console-import fallback, the MCP configuration with the resolved path, and
 whether the helper answers `/__chippy/health`. The usage text reads the package
 name from `package.json`.
-`src/chippy-npx-install.test.ts` covers it.
+`src/__tests__/chippy-npx-install.test.ts` covers it.
 
 Not done: writing MCP configuration for known hosts (`--host <name>`). The
 `chippy:install:zip` script is removed.

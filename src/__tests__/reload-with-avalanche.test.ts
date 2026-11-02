@@ -1,4 +1,4 @@
-import { STORYBOOK_ORIGIN, STORYBOOK_PORT, assertChippyLabIdentity } from './test/chippy-lab-target';
+import { STORYBOOK_ORIGIN, STORYBOOK_PORT, assertChippyLabIdentity } from '../test/chippy-lab-target';
 // Headless verification for chippy.sh reload-with-avalanche.
 //
 // Goal: prove (or disprove) that the helper-side `reload-with-avalanche` flow

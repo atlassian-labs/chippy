@@ -19,10 +19,7 @@ yarn storybook --ci -p 6007
 Storybook runs at `http://127.0.0.1:6007/`. Start the helper separately with
 `.agents/skills/chippy/scripts/chippy.sh start`; it listens on port 7823.
 The lab disables Storybook usage telemetry, targets ES2022 browsers, and uses
-standard React DOM. The isolated browser suite verifies stock React; detector
-unit tests verify the optional host-provided ATL callback contract and both
-callback orders. Chippy does not ship or install a React patch. Changes to the
-ATL adapter also need verification against an externally instrumented host.
+standard React DOM.
 
 ## Find the change owner
 
@@ -49,7 +46,7 @@ growing large modules; preserve measured commit hot paths.
 
 MCP sources live in `src/mcp/`. Run `yarn chippy:mcp:build` after changing them;
 it bundles the official SDK, schema validation, and dependency licenses into the
-portable skill executable. Run `yarn test --project browser src/chippy-mcp.test.ts`
+portable skill executable. Run `yarn test --project browser src/__tests__/chippy-mcp.test.ts`
 for stdio/helper wire coverage and the packed library suite for a real React page.
 
 Run the tests relevant to your change, then rebuild shipped assets when the
@@ -60,9 +57,9 @@ they share local server ports. If port 6007 belongs to another app, use
 the lab identity before reusing a server:
 
 ```sh
-yarn test src/avalanche/detector.stock-react.test.ts src/chippy-panel.test.ts
+yarn test src/avalanche/detector.stock-react.test.ts src/__tests__/chippy-panel.test.ts
 yarn avalanche:sync
-yarn test src/chippy-stock-react.pw.test.ts
+yarn test src/__tests__/chippy-stock-react.pw.test.ts
 yarn test src/avalanche/detector.lifecycle.pw.test.ts
 yarn build-storybook
 ```
@@ -84,7 +81,7 @@ than the portable consumer skill.
 ## Documentation and assets
 
 The npm library lives in `packages/chippy/`. Run `yarn chippy:library:build`,
-then `yarn test --project browser src/chippy-library.pw.test.ts` to verify a
+then `yarn test --project browser src/__tests__/chippy-library.pw.test.ts` to verify a
 packed artifact installed in a clean consumer. The build reuses runtime sources,
 the existing bootstrap shim, and Storybook addon; do not fork their implementation.
 
@@ -93,9 +90,26 @@ references. Keep local URLs, fixtures, and product-specific investigation findin
 out of consumer procedures.
 Use [brand guidance](docs/brand/README.md) when changing visual assets.
 
-Extension changes require a version bump, regenerated runtime, and a separate
-store release. Follow the [release guide](docs/releasing.md); syncing a bundle
-alone does not update an installed extension.
+Extension changes require a version bump and a regenerated runtime. Users pick
+them up by running the installer again and reloading the unpacked extension; see
+the [release guide](docs/releasing.md).
+
+The ATL adapter's unit tests cover its callback contract with both callback
+orders; changes to it also need a check against a host with instrumented
+react-dom.
+
+## Add a built-in plugin
+
+1. Put the plugin in `src/plugins/<name>/` with focused unit tests, following
+   `src/plugins/jira/context-provider.test.ts` or
+   `src/plugins/atl/commit-metrics-adapter.test.ts`.
+2. Add it to `BUILTIN_PLUGINS` in `src/plugins/index.ts`, to the default plugin
+   options in `.agents/skills/chippy/extension/panel-settings.js`, and to
+   `BUILTIN_PLUGINS` in `packages/chippy/bin/pack.mjs`.
+3. Rebuild the shipped bundles with `yarn avalanche:sync` and the skill archive
+   with `yarn chippy:zip`.
+4. If the plugin changes what agents see, such as a new boundary kind, document it
+   in the skill's references.
 
 ## Contributor License Agreement
 

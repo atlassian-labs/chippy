@@ -3,7 +3,7 @@ import {
   commitSpan,
   describeCommitAction,
   groupCommitRows,
-} from '../.storybook/chippy-addon/avalanche-panel-model.js';
+} from '../../.storybook/chippy-addon/avalanche-panel-model.js';
 
 function row(commitId: number, collateral = 8, action = 'click') {
   return {

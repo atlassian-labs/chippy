@@ -6,7 +6,7 @@ import { resolve } from 'node:path';
 // The committed zips let users install without a build. This test fails when
 // they drift from the tracked sources; run `yarn chippy:zip` and
 // `yarn chippy:extension:zip` to refresh them.
-const ROOT = resolve(__dirname, '..');
+const ROOT = resolve(__dirname, '../..');
 const SKIPPED = new Set(['.DS_Store', '.gaps', '.provenance']);
 
 function trackedFiles(directory: string) {

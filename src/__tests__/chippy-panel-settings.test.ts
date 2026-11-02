@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { JSDOM } from 'jsdom';
 
-const EXTENSION_DIR = resolve(__dirname, '../.agents/skills/chippy/extension');
+const EXTENSION_DIR = resolve(__dirname, '../../.agents/skills/chippy/extension');
 const SETTINGS_SOURCE = readFileSync(resolve(EXTENSION_DIR, 'panel-settings.js'), 'utf8');
 const CONTENT_SCRIPT_SOURCE = readFileSync(resolve(EXTENSION_DIR, 'content-script.js'), 'utf8');
 const POPUP_HTML = readFileSync(resolve(EXTENSION_DIR, 'popup.html'), 'utf8');

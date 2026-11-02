@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { atlCommitMetricsAdapter } from './plugins/atl/commit-metrics-adapter';
-import { createAvalancheDetector } from './avalanche/detector';
+import { atlCommitMetricsAdapter } from '../plugins/atl/commit-metrics-adapter';
+import { createAvalancheDetector } from '../avalanche/detector';
 
 describe('createAvalancheDetector.debugHook replay contracts', () => {
   it('preserves supported hook return contracts for callback, sync-external-store, and id', () => {

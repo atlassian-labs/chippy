@@ -3,7 +3,7 @@ import { spawn, type ChildProcess } from 'node:child_process';
 import { readFileSync, renameSync, existsSync, cpSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
-import { testHelperEnv } from './test/helper-auth';
+import { testHelperEnv } from '../test/helper-auth';
 
 /**
  * Contract for serving EXTENSION_ROOT assets (avalanche.iife.js, avalanche.es.js,
@@ -14,7 +14,7 @@ import { testHelperEnv } from './test/helper-auth';
  * hard to diagnose. It must instead be a 404 with a resolved path + actionable hint.
  */
 
-const SKILL = resolve(__dirname, '../.agents/skills/chippy');
+const SKILL = resolve(__dirname, '../../.agents/skills/chippy');
 const HELPER = resolve(SKILL, 'scripts/chippy-helper-server.js');
 
 describe('helper extension-asset serving (source contract)', () => {

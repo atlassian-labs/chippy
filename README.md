@@ -6,17 +6,14 @@
 
 **A friend who helps you understand what’s happening, find the cause, and fix it.**
 
-Chippy connects a browser page to a coding agent through a local helper. Work
-from either side: ask the agent to find and inspect components, drive interactions,
-and capture renders, or drag a probe onto an element and attach an intent and
-comment to direct the agent from the UI. Both routes expose components, owners,
-props, hooks, and source locations. Avalanche captures show which components
-rendered and distinguish update sources from collateral.
+Chippy lets your coding agent see the React app running in your browser: which
+component drew an element, its props and state, where it lives in source, and
+what re-rendered during a slow interaction. Ask the agent, or point at an element
+on the page and leave it a note.
 
-Chippy works with standard React; no React or React DOM package patch is required.
-Development builds provide the richest evidence. Production builds expose less
-source and hook detail; each result reports what was actually available.
-See [React compatibility](docs/react-compatibility.md) for capture and replay limits.
+Chippy works with standard React and needs no patched packages. Development
+builds give the most detail; production builds show less, and every answer says
+what was available. See [React compatibility](docs/react-compatibility.md).
 
 ## What you can ask
 
@@ -27,97 +24,100 @@ See [React compatibility](docs/react-compatibility.md) for capture and replay li
 
 ## Install
 
-For an MCP-capable agent host, configure the [local Chippy MCP server](.agents/skills/chippy/references/mcp.md)
-after installing the skill. It starts or reuses the helper automatically and
-exposes typed inspection, profiling, and UI annotation tools. The host must run
-it where the browser can reach its helper; MCP does not remove network isolation.
+You need Node.js 22.12 or later and Chrome or another Chromium browser.
 
-You need Node.js 22.12 or later and a Chromium browser. Install the skill with
-the package's installer:
+1. Install the agent skill:
 
-```sh
-npx @atlassian/chippy install
-```
+   ```sh
+   npx @atlassian/chippy install
+   ```
 
-This installs the self-contained agent skill at `~/.agents/skills/chippy` and
-replaces an earlier Chippy install. Pass `--dir <path>` to install elsewhere; the
-installer refuses to replace a directory that is not a Chippy skill unless you
-pass `--force`. It then prints the extension link, the MCP configuration with the
-resolved path, and whether the helper is running. `./install-chippy-skill.sh`
-remains as a copy-only alternative for a checkout.
+   This copies the skill to `~/.agents/skills/chippy` (run it again to update)
+   and prints the next steps with the exact paths for your machine.
 
-Install the browser extension: turn on developer mode on your browser's
-extensions page, choose **Load unpacked**, and select the `extension` folder of
-the installed skill (`~/.agents/skills/chippy/extension` by default) or
-`.agents/skills/chippy/extension` in a checkout.
+2. Load the browser extension: open `chrome://extensions`, turn on
+   **Developer mode**, choose **Load unpacked**, and select the `extension`
+   folder the installer printed (`~/.agents/skills/chippy/extension` by
+   default). The folder picker hides dot-folders, so paste the path instead of
+   browsing: press **Cmd+Shift+G** on macOS or **Ctrl+L** on Linux, or use the
+   address bar on Windows.
 
-The agent uses the installed [skill](.agents/skills/chippy/SKILL.md) to start the
-helper, select the connected page, and read probe evidence. Helper commands are
-also available directly:
+3. Connect your agent. For Claude Code:
 
-```sh
-~/.agents/skills/chippy/scripts/chippy.sh start
-~/.agents/skills/chippy/scripts/chippy.sh health
-~/.agents/skills/chippy/scripts/chippy.sh pages
-```
+   ```sh
+   claude mcp add chippy -- node ~/.agents/skills/chippy/scripts/chippy-mcp.cjs
+   ```
 
-Enable Chippy for the page's origin in the extension popup. Then choose your
-starting point:
+   Other MCP hosts take the JSON configuration the installer printed; see
+   [MCP setup](.agents/skills/chippy/references/mcp.md). Agents without MCP use
+   the skill's `chippy.sh` script, which needs bash (macOS, Linux, or WSL on
+   Windows).
 
-- **From the agent:** ask it to use Chippy on the connected page. It can find
-  components by name, text, test ID, source file, or prop, inspect their runtime
-  state, drive interactions, and capture renders without a manually placed probe.
-- **From the UI:** open the small Chippy button and drag P1 or P2 onto an element.
-  Attach an explain, investigate, or change intent and a comment. Ask the agent to
-  read the annotation, or to wait for new annotations while you work in the page.
+4. Open your app, click the Chippy extension icon, and enable Chippy for the
+   page's origin.
 
-For a page without the extension, import the helper's module in the browser console:
+5. Ask your agent to use Chippy on the page.
+
+You don't start anything yourself: the agent starts a local helper on
+`127.0.0.1:7823` when it needs one. A sandboxed agent asks for permission to
+reach it; approve the prompt or allow the Chippy MCP server or `chippy.sh`. If
+your agent runs in a container or a remote machine, see
+[MCP setup](.agents/skills/chippy/references/mcp.md) for reaching the helper.
+
+## Two ways to start
+
+- **From the agent:** ask it about the page. It finds components by name, text,
+  test ID, source file, or prop, reads their state, clicks through the page, and
+  records renders.
+- **From the page:** click the Chippy button in the page corner and drag a probe
+  marker (P1, or P2 to compare two elements) onto an element. Choose whether you
+  want it explained, investigated, or changed, and add a note. Then ask the agent
+  to read it, or to keep watching for new notes while you click around.
+
+No extension? Once the agent has started the helper, paste this into the page's
+console:
 
 ```js
 import('http://127.0.0.1:7823/__chippy/inject.mjs')
 ```
 
-Import again after a full navigation or reload. Initial-load profiling needs an
-integration installed before React evaluates, such as the enabled extension.
+Repeat it after every reload. Sites with a strict Content Security Policy block
+it, and it can't record the initial page load; use the extension for that.
 
 ## Evidence, then edits
 
-A probe ties the visible element to the rendered React fiber. The agent follows
-that evidence into the reported source instead of guessing from search results.
-Avalanche captures bounded commit windows, while hook replay provides structural
-detail when the renderer exposes the necessary internals.
+The agent works from what actually rendered instead of guessing from a code
+search. Some deep inspections re-run a component's code; if your components have
+side effects during render, say so and the agent uses read-only inspection
+instead. Chippy changes your source only when you ask it to, and checks the fix
+against the same page.
 
-Hook replay executes component and custom-hook bodies. Use fiber-only reads when
-those bodies have render-time side effects. Chippy changes application source only
-as part of an authorized task; verification returns to the same runtime signal.
+## Use Chippy from your own code
 
-## Use Chippy as a library
+Install `@atlassian/chippy` in your project when the extension is not the right fit:
 
-The [Chippy npm package](packages/chippy/README.md) exposes standalone Avalanche
-capture through `@atlassian/chippy/avalanche`, early React integration through
-`@atlassian/chippy/bootstrap`, agent connection through `@atlassian/chippy/browser`, and the addon
-through `@atlassian/chippy/storybook`. Standalone Avalanche needs no helper or extension.
+- **Catch re-render regressions in tests.** Record which components rendered
+  during an interaction, and why, in a test or a script, with no agent, helper, or
+  extension.
+- **Connect pages the extension cannot reach**, such as an embedded browser or a
+  test runner, or connect from your app's startup code so Chippy sees the first
+  render.
+- **Add Chippy to Storybook** as an addon.
+- **Ship your own build** with extra plugins for your stack.
 
-## Explore and contribute
+See the [package documentation](packages/chippy/README.md) for setup.
 
-| Need | Start here |
-| --- | --- |
-| Use Chippy with an agent | [Agent skill](.agents/skills/chippy/SKILL.md) |
-| Find a procedure or command | [Reference chooser](.agents/skills/chippy/references/README.md) |
-| Understand runtime support | [React compatibility](docs/react-compatibility.md) |
-| Build, test, or change Chippy | [Contributing](CONTRIBUTING.md) |
-| See what changed between releases | [Changelog](CHANGELOG.md) |
-| Take part in the project | [Code of conduct](CODE_OF_CONDUCT.md) |
-| Find the owning module | [Runtime source map](src/README.md) |
-| Add app-specific knowledge | [Plugins](docs/plugins.md) |
-| Use the project identity | [Brand assets](docs/brand/README.md) |
-| Understand page data and helper access | [Trust boundary](docs/trust-boundary.md) |
-| Report a vulnerability | [Security policy](SECURITY.md) |
-| Prepare distribution artifacts | [Release guide](docs/releasing.md) |
+## Learn more
 
-The repository combines the reusable Chippy skill and extension with a Storybook
-validation lab. Applications inspected by Chippy are separate from both; local
-external-project links are not shipped with the skill.
+- [Agent skill](.agents/skills/chippy/SKILL.md) and its [references](.agents/skills/chippy/references/README.md)
+- [React compatibility](docs/react-compatibility.md)
+- [Plugins](docs/plugins.md) for app-specific knowledge
+- [Trust boundary](docs/trust-boundary.md): what page data Chippy sees and who can reach the helper
+- [Security policy](SECURITY.md)
+- [Changelog](CHANGELOG.md)
+
+To build, test, or change Chippy, see [Contributing](CONTRIBUTING.md) and the
+[code of conduct](CODE_OF_CONDUCT.md).
 
 ## License
 

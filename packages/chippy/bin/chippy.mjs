@@ -83,10 +83,11 @@ pack     Builds a custom skill and extension with extra plugins from a config
   const mcp = join(skillDir, 'scripts', 'chippy-mcp.cjs');
   process.stdout.write(`Installed the Chippy skill to ${skillDir}
 
-1. Install the browser extension: turn on developer mode on your browser's
-   extensions page, choose Load unpacked, and select
-   ${join(skillDir, 'extension')}
-   Without it, run this in the page's console after the helper starts:
+1. Install the browser extension: open chrome://extensions, turn on Developer
+   mode, choose Load unpacked, and select this folder:
+   ${join(skillDir, 'extension')}${folderPickerHint(skillDir)}
+   Without the extension, once your agent has started the helper, run this in
+   the page's console:
    import('http://127.0.0.1:7823/__chippy/inject.mjs')
 
 2. Connect your agent over MCP (optional; agents can also run ${join(skillDir, 'scripts', 'chippy.sh')}).
@@ -99,6 +100,18 @@ ${JSON.stringify(mcpConfig(skillDir), null, 2).replace(/^/gm, '   ')}
 
 Helper: ${await helperStatus()}
 `);
+}
+
+// The skill lives in a dot-folder, which folder pickers hide by default.
+const FOLDER_PICKER_HINT = {
+  darwin: 'The folder is hidden in Finder: press Cmd+Shift+G in the picker and paste the path.',
+  win32: 'Paste the path into the picker\'s address bar.',
+  linux: 'The folder is hidden: press Ctrl+L in the picker and paste the path.',
+};
+
+function folderPickerHint(skillDir) {
+  if (!skillDir.split(/[\\/]/).some((part) => part.startsWith('.'))) return '';
+  return `\n   ${FOLDER_PICKER_HINT[process.platform] ?? FOLDER_PICKER_HINT.linux}`;
 }
 
 async function pack(configPath) {

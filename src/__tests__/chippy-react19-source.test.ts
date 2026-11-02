@@ -4,7 +4,7 @@ import { JSDOM } from 'jsdom';
 import { describe, expect, it } from 'vitest';
 
 const PAGE_BRIDGE_SOURCE = readFileSync(
-  resolve(__dirname, '../.agents/skills/chippy/extension/chippy-page-bridge.js'),
+  resolve(__dirname, '../../.agents/skills/chippy/extension/chippy-page-bridge.js'),
   'utf8',
 );
 

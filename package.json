@@ -14,7 +14,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit && tsc -p tsconfig.helper.json",
-    "test:chippy-headless": "vitest run src/chippy-capabilities.test.ts",
+    "test:chippy-headless": "vitest run src/__tests__/chippy-capabilities.test.ts",
     "chippy:zip": "node scripts/package-chippy.mjs skill",
     "chippy:extension:zip": "node scripts/package-chippy.mjs extension",
     "chippy:library:build": "node scripts/build-chippy-library.mjs",

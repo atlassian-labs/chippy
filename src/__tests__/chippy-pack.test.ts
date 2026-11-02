@@ -4,11 +4,11 @@ import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { normalizePackConfig, packChippy } from '../packages/chippy/bin/pack.mjs';
-import { writePackWorkspace } from './test/pack-workspace';
+import { normalizePackConfig, packChippy } from '../../packages/chippy/bin/pack.mjs';
+import { writePackWorkspace } from '../test/pack-workspace';
 
-const BIN = resolve(__dirname, '../packages/chippy/bin/chippy.mjs');
-const SKILL = resolve(__dirname, '../.agents/skills/chippy');
+const BIN = resolve(__dirname, '../../packages/chippy/bin/chippy.mjs');
+const SKILL = resolve(__dirname, '../../.agents/skills/chippy');
 const directories: string[] = [];
 
 function scratch() {

@@ -4,11 +4,11 @@ import { resolve } from 'node:path';
 import { JSDOM } from 'jsdom';
 
 const POPUP_SOURCE = readFileSync(
-  resolve(__dirname, '../.agents/skills/chippy/extension/popup.js'),
+  resolve(__dirname, '../../.agents/skills/chippy/extension/popup.js'),
   'utf8',
 );
 const POPUP_HTML = readFileSync(
-  resolve(__dirname, '../.agents/skills/chippy/extension/popup.html'),
+  resolve(__dirname, '../../.agents/skills/chippy/extension/popup.html'),
   'utf8',
 );
 

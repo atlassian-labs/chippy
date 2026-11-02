@@ -1,14 +1,14 @@
 import { defineConfig } from 'vitest/config';
 
 const browserSuites = [
-  'src/chippy-capabilities.test.ts',
-  'src/chippy-headless.test.ts',
-  'src/reload-with-avalanche.test.ts',
+  'src/__tests__/chippy-capabilities.test.ts',
+  'src/__tests__/chippy-headless.test.ts',
+  'src/__tests__/reload-with-avalanche.test.ts',
   'src/avalanche/detector.lifecycle.pw.test.ts',
-  'src/chippy-stock-react.pw.test.ts',
-  'src/chippy-library.pw.test.ts',
-  'src/chippy-pack.pw.test.ts',
-  'src/chippy-mcp.test.ts',
+  'src/__tests__/chippy-stock-react.pw.test.ts',
+  'src/__tests__/chippy-library.pw.test.ts',
+  'src/__tests__/chippy-pack.pw.test.ts',
+  'src/__tests__/chippy-mcp.test.ts',
 ];
 
 export default defineConfig({

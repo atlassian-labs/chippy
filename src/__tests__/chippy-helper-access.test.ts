@@ -6,7 +6,7 @@ import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
-const SCRIPTS = resolve(__dirname, '../.agents/skills/chippy/scripts');
+const SCRIPTS = resolve(__dirname, '../../.agents/skills/chippy/scripts');
 const HELPER = join(SCRIPTS, 'chippy-helper-server.js');
 const access = require(join(SCRIPTS, 'helper-access.js'));
 

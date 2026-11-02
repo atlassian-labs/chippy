@@ -4,9 +4,9 @@ import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { testHelperEnv, withHelperToken } from './test/helper-auth';
+import { testHelperEnv, withHelperToken } from '../test/helper-auth';
 
-const SKILL = resolve(__dirname, '../.agents/skills/chippy');
+const SKILL = resolve(__dirname, '../../.agents/skills/chippy');
 const HELPER = resolve(SKILL, 'scripts/chippy-helper-server.js');
 const SHELL = resolve(SKILL, 'scripts/chippy.sh');
 const children: ChildProcess[] = [];

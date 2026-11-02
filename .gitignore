@@ -13,9 +13,8 @@ debug-storybook.log
 .agents/skills/**/.gaps
 .agents/skills/**/.provenance
 
-# Symlinks to external projects live in links/ — keep the folder, ignore the symlinks
-links/*
-!links/.gitkeep
+# Local symlinks to external projects (maintainer workspaces only)
+links/
 
 # Local helper output
 .agents/chippy-helper.log

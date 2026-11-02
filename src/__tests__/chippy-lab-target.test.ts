@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { assertChippyLabIdentity, resolveChippyLabTarget } from './test/chippy-lab-target';
+import { assertChippyLabIdentity, resolveChippyLabTarget } from '../test/chippy-lab-target';
 
 afterEach(() => vi.unstubAllGlobals());
 

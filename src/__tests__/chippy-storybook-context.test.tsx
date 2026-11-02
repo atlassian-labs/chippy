@@ -4,22 +4,22 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { JSDOM } from 'jsdom';
-import { ContextCard } from '../.storybook/chippy-addon/context-card.jsx';
+import { ContextCard } from '../../.storybook/chippy-addon/context-card.jsx';
 
 const PAGE_BRIDGE_SOURCE = readFileSync(
-  resolve(__dirname, '../.agents/skills/chippy/extension/chippy-page-bridge.js'),
+  resolve(__dirname, '../../.agents/skills/chippy/extension/chippy-page-bridge.js'),
   'utf8',
 );
 const STORYBOOK_MANAGER_SOURCE = readFileSync(
-  resolve(__dirname, '../.storybook/chippy-addon/manager.jsx'),
+  resolve(__dirname, '../../.storybook/chippy-addon/manager.jsx'),
   'utf8',
 );
 const STORYBOOK_PREVIEW_SOURCE = readFileSync(
-  resolve(__dirname, '../.storybook/chippy-addon/preview.js'),
+  resolve(__dirname, '../../.storybook/chippy-addon/preview.js'),
   'utf8',
 );
 const HELPER_SERVER_SOURCE = readFileSync(
-  resolve(__dirname, '../.agents/skills/chippy/scripts/chippy-helper-server.js'),
+  resolve(__dirname, '../../.agents/skills/chippy/scripts/chippy-helper-server.js'),
   'utf8',
 );
 

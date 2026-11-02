@@ -6,15 +6,15 @@ seams let a plugin add knowledge of a particular application:
 
 | Seam | Adds | Built-in plugin |
 | --- | --- | --- |
-| Context provider | Boundary kinds, error-boundary fields, and probe card titles and fields | Jira ownership markers, `src/plugins/jira/` |
-| Commit metrics adapter | Per-commit counters and restart counts from an instrumented react-dom | ATL metrics, `src/plugins/atl/` |
+| Context provider | Boundary kinds, error-boundary fields, and probe card titles and fields | Jira: labels the team-ownership boundaries Jira pages render |
+| Commit metrics adapter | Per-commit counters and restart counts from an instrumented react-dom | ATL: reads counters from Atlassian's instrumented react-dom |
 
 A plugin is an object with an `id`, an optional `label`, and a context provider,
 a commit metrics adapter, or both. The bundle registers both built-in plugins but
 enables neither; [`chippy pack`](#packing-a-custom-build) adds more plugins and
 default selections without forking Chippy. The extension, the console import,
 and `@atlassian/chippy/browser` load that bundle; a page opts in in one of three
-ways:
+ways (both built-in plugins do nothing on other apps):
 
 | Route | When it applies |
 | --- | --- |
@@ -24,7 +24,7 @@ ways:
 
 The page's own selection, from the startup config or `__CHIPPY_PLUGINS`, wins
 over a packed build's defaults. `__AVALANCHE__.listPlugins()` lists the registered
-plugins and which ones run. The registry lives in `src/plugins/index.ts`. The
+plugins and which ones run. The
 standalone detector in `@atlassian/chippy/avalanche` does not include it; a host
 registers the ATL adapter itself.
 
@@ -34,7 +34,7 @@ A context provider reads the probed fiber's ancestry and contributes to the
 marker context that probes, the marker card, and `describeContext` report.
 
 ```ts
-import type { ContextProvider } from '../layout-lab/marker-context';
+import type { ContextProvider } from '@atlassian/chippy/plugin';
 
 export const featureGateProvider: ContextProvider = {
   id: 'feature-gate',
@@ -69,7 +69,7 @@ Register a provider from the bundle, or from the page at runtime:
 __AVALANCHE__.layoutLab.registerContextProvider(featureGateProvider);
 ```
 
-Types and the registry live in `src/layout-lab/marker-context.ts`.
+The `ContextProvider` type in `@atlassian/chippy/plugin` documents each field.
 
 ## Commit metrics adapters
 
@@ -81,7 +81,7 @@ adapter.
 
 Only one adapter is active. `registerCommitMetricsAdapter(adapter)` replaces the
 earlier one and returns an unregister function; it applies to detectors installed
-afterwards. The interface in `src/avalanche/commit-metrics-adapter.ts` documents
+afterwards. The `CommitMetricsAdapter` type in `@atlassian/chippy/plugin` documents
 each method. In short:
 
 - `isAvailable`, `snapshot`, and `measure(before, after, committedComponents, commitId)`
@@ -151,16 +151,3 @@ the helper-served console import, and Playwright sessions all load them, and
 registration happens before the ATL pre-page hook runs. It adds the plugins to
 the panel's settings and makes `defaultPlugins` the extension's initial
 selection. To update, bump `@atlassian/chippy` and pack again.
-
-## Adding a built-in plugin
-
-1. Put the plugin in `src/plugins/<name>/` with focused unit tests, following
-   `src/plugins/jira/context-provider.test.ts` or
-   `src/plugins/atl/commit-metrics-adapter.test.ts`.
-2. Add it to `BUILTIN_PLUGINS` in `src/plugins/index.ts`, to the default plugin
-   options in `.agents/skills/chippy/extension/panel-settings.js`, and to
-   `BUILTIN_PLUGINS` in `packages/chippy/bin/pack.mjs`.
-3. Rebuild the shipped bundles with `yarn avalanche:sync` and the skill archive
-   with `yarn chippy:zip`.
-4. If the plugin changes what agents see, such as a new boundary kind, document it
-   in the skill's references.

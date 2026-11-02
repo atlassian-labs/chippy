@@ -39,7 +39,7 @@ afterEach(async () => {
 describe('src/iife.ts startup behavior', () => {
   it('publishes marker context inspection and the provider registry through layoutLab', async () => {
     delete (globalThis as any).__AVALANCHE__;
-    const mod = await import('./iife');
+    const mod = await import('../iife');
     expect(mod.default.layoutLab.describeContext).toBeTypeOf('function');
     expect(mod.default.layoutLab.registerContextProvider).toBeTypeOf('function');
     // Deprecated alias read by pre-0.4.23 bridges.
@@ -56,7 +56,7 @@ describe('src/iife.ts startup behavior', () => {
     (globalThis as any).__CHIPPY_STARTUP_CONFIG = { plugins: ['atl'] };
     (globalThis as any).__CHIPPY_PLUGINS = ['jira'];
     try {
-      const mod = await import('./iife');
+      const mod = await import('../iife');
       expect(mod.default.layoutLab.getContextProviders().map((p) => p.id)).toContain('jira');
       expect(mod.default.status().metricsAdapter).toBe('atl');
     } finally {
@@ -67,7 +67,7 @@ describe('src/iife.ts startup behavior', () => {
   it('starts a packed plugin the startup config enabled, and skips build defaults then', async () => {
     delete (globalThis as any).__AVALANCHE__;
     (globalThis as any).__CHIPPY_STARTUP_CONFIG = { plugins: ['gate'] };
-    const mod = await import('./iife');
+    const mod = await import('../iife');
     mod.default.registerPlugin({ id: 'gate', contextProvider: { id: 'gate', describe: () => null } });
     expect(mod.default.enableDefaultPlugins(['jira'])).toEqual(['gate']);
     expect(mod.default.listPlugins().filter((p) => p.enabled).map((p) => p.id)).toEqual(['gate']);
@@ -76,20 +76,20 @@ describe('src/iife.ts startup behavior', () => {
   it('applies build defaults when the page made no plugin selection', async () => {
     delete (globalThis as any).__AVALANCHE__;
     delete (globalThis as any).__CHIPPY_STARTUP_CONFIG;
-    const mod = await import('./iife');
+    const mod = await import('../iife');
     expect(mod.default.enableDefaultPlugins(['jira'])).toEqual(['jira']);
   });
 
   it('publishes declarative boundary chain and page inspection through the bundled bridge API', async () => {
     delete (globalThis as any).__AVALANCHE__;
-    const mod = await import('./iife');
+    const mod = await import('../iife');
     expect(mod.default.bridge.inspectDeclarativeBoundaryChain).toBeTypeOf('function');
     expect(mod.default.bridge.inspectPageDeclarativeBoundaries).toBeTypeOf('function');
   });
 
   it('publishes the cross-version fiber source resolver through both bundled APIs', async () => {
     delete (globalThis as any).__AVALANCHE__;
-    const mod = await import('./iife');
+    const mod = await import('../iife');
     expect(mod.default.layoutLab.describeFiberSource).toBeTypeOf('function');
     expect(mod.default.layoutLab.resolveFiberSource).toBeTypeOf('function');
     expect(mod.default.bridge.describeFiberSource).toBeTypeOf('function');
@@ -102,7 +102,7 @@ describe('src/iife.ts startup behavior', () => {
     (globalThis as any).__CHIPPY_STARTUP_CONFIG = { plugins: ['atl'] };
     delete (globalThis as any).__AVALANCHE_AI__;
 
-    const mod = await import('./iife');
+    const mod = await import('../iife');
 
     expect(mod.default).toBeTruthy();
     // Devtools hook is still installed eagerly (React reads it at module eval time).
@@ -121,7 +121,7 @@ describe('src/iife.ts startup behavior', () => {
     delete (globalThis as any).__AVALANCHE__;
     delete (globalThis as any).__ATL_REACT_METRICS;
     delete (globalThis as any).__CHIPPY_STARTUP_CONFIG;
-    const mod = await import('./iife');
+    const mod = await import('../iife');
     expect(mod.default.runPrePageHooks({ enabled: true })).toBeNull();
     expect(Object.getOwnPropertyDescriptor(globalThis, '__ATL_REACT_METRICS')).toBeUndefined();
   });
@@ -130,7 +130,7 @@ describe('src/iife.ts startup behavior', () => {
     delete (globalThis as any).__AVALANCHE__;
     delete (globalThis as any).__ATL_REACT_METRICS;
     (globalThis as any).__CHIPPY_STARTUP_CONFIG = { plugins: ['atl'] };
-    const mod = await import('./iife');
+    const mod = await import('../iife');
     expect(mod.default.registerCommitMetricsAdapter).toBeTypeOf('function');
     expect(mod.default.status().metricsAdapter).toBe('atl');
     // Early bootstrap calls this before the page's React evaluates.
@@ -154,7 +154,7 @@ describe('src/iife.ts startup behavior', () => {
       status: () => ({ installed: true }),
     };
 
-    const mod = await import('./iife');
+    const mod = await import('../iife');
     // Pre-existing __AVALANCHE__ should still report installed: true.
     // Our iife should not have overwritten it or double-installed.
     expect((globalThis as any).__AVALANCHE__.status().installed).toBe(true);

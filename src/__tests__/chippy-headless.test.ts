@@ -1,4 +1,4 @@
-import { STORYBOOK_ORIGIN, STORYBOOK_PORT, assertChippyLabIdentity } from './test/chippy-lab-target';
+import { STORYBOOK_ORIGIN, STORYBOOK_PORT, assertChippyLabIdentity } from '../test/chippy-lab-target';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { chromium, type Browser, type Page } from 'playwright';
 import { execFile, spawn, type ChildProcess } from 'node:child_process';

@@ -3,10 +3,10 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { installSkill, mcpConfig } from '../packages/chippy/bin/chippy.mjs';
+import { installSkill, mcpConfig } from '../../packages/chippy/bin/chippy.mjs';
 
-const BIN = resolve(__dirname, '../packages/chippy/bin/chippy.mjs');
-const BUILT_SKILL = resolve(__dirname, '../packages/chippy/dist/mcp-skill');
+const BIN = resolve(__dirname, '../../packages/chippy/bin/chippy.mjs');
+const BUILT_SKILL = resolve(__dirname, '../../packages/chippy/dist/mcp-skill');
 const directories: string[] = [];
 
 function scratch() {

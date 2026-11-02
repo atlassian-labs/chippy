@@ -4,7 +4,7 @@ import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
-const SKILL = resolve(__dirname, '../.agents/skills/chippy');
+const SKILL = resolve(__dirname, '../../.agents/skills/chippy');
 const SHELL = resolve(SKILL, 'scripts/chippy.sh');
 const HELPER = resolve(SKILL, 'scripts/chippy-helper-server.js');
 const BRIDGE = resolve(SKILL, 'extension/chippy-page-bridge.js');

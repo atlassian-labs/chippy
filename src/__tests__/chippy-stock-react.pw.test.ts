@@ -3,7 +3,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { chromium, type Browser, type Page } from 'playwright';
 import { readFileSync } from 'node:fs';
-import { startReactCompatibilityFixture } from './test/react-compatibility-fixture';
+import { startReactCompatibilityFixture } from '../test/react-compatibility-fixture';
 
 const extension = '.agents/skills/chippy/extension';
 let fixture: Awaited<ReturnType<typeof startReactCompatibilityFixture>>;

@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import {
   ChippyConnectionFallback,
   shouldShowChippyInstallHint,
-} from '../.storybook/chippy-addon/connection-fallback.jsx';
+} from '../../.storybook/chippy-addon/connection-fallback.jsx';
 
 afterEach(cleanup);
 
