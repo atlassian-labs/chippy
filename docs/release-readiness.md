@@ -165,8 +165,10 @@ Before release:
    bin was started through a symlink.
 2. ~~Add `yarn typecheck` and fix the 73 errors.~~ Done; the CI step is blocking.
 3. ~~Add `// @ts-check` with JSDoc types to the helper and page bridge, or record
-   that as a known follow-up.~~ Recorded as a follow-up after release. A full
-   TypeScript port is not required to release.
+   that as a known follow-up.~~ The helper and the scripts it requires are
+   type-checked by `tsconfig.helper.json` as part of `yarn typecheck`. The page
+   bridge (57 errors under `checkJs`, mostly page globals) stays a follow-up after
+   release. A full TypeScript port is not required to release.
 
 ## Goal 4: documented
 

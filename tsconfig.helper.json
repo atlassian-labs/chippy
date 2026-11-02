@@ -1,0 +1,15 @@
+{
+  // Type-checks the plain-JavaScript helper and the scripts it requires.
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "allowJs": true,
+    "checkJs": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "strict": false,
+    "types": ["node"]
+  },
+  "files": [".agents/skills/chippy/scripts/chippy-helper-server.js"]
+}

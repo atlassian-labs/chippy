@@ -9,6 +9,7 @@ function isMissingPlaywrightError(error) {
 }
 
 function createPlaywrightUnavailableError(cause) {
+  /** @type {Error & { code?: string }} */
   const error = new Error('Playwright is not installed. Chippy helper is running, but Playwright-only automation is unavailable. Install the playwright package to use this command.');
   error.code = PLAYWRIGHT_UNAVAILABLE_CODE;
   error.cause = cause;
@@ -82,6 +83,9 @@ async function captureDescriptor(page, selector) {
   }, selector);
 }
 
+/**
+ * @param {{ browserName?: string, url?: string, descriptor?: unknown, headless?: boolean }} [options]
+ */
 async function launchSession({ browserName = 'chromium', url, descriptor, headless = true } = {}) {
   const playwright = loadPlaywright();
   if (!playwright.ok) throw playwright.error;
