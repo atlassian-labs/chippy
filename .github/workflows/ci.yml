@@ -48,3 +48,24 @@ jobs:
       - run: yarn install --immutable
       - run: yarn playwright install --with-deps chromium
       - run: yarn test --project browser
+
+  package:
+    # Pack the npm package and run its installer the way `npx` does.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: corepack enable
+      - run: yarn install --immutable
+      - run: yarn chippy:library:build
+      - run: npm pack --pack-destination "$RUNNER_TEMP"
+        working-directory: packages/chippy
+      - name: Install the skill from the packed tarball
+        working-directory: ${{ runner.temp }}
+        run: |
+          npx --yes --package ./atlassian-chippy-*.tgz chippy install --dir "$RUNNER_TEMP/skill"
+          test -f "$RUNNER_TEMP/skill/SKILL.md"
+          test -f "$RUNNER_TEMP/skill/extension/manifest.json"
+          test -f "$RUNNER_TEMP/skill/scripts/chippy-mcp.cjs"

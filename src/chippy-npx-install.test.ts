@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { installSkill, mcpConfig } from '../packages/chippy/bin/chippy.mjs';
@@ -53,6 +53,12 @@ describe('npx chippy install', () => {
     const root = scratch();
     expect(() => installSkill({ source: fakeSkill(join(root, 's'), ''), target: process.env.HOME, force: true })).toThrow(/dedicated/);
     expect(() => installSkill({ source: root, target: join(root, 't') })).toThrow(/Bundled skill not found/);
+  });
+
+  it('runs when started through a symlink, as npx starts it', () => {
+    const link = join(scratch(), 'chippy');
+    symlinkSync(BIN, link);
+    expect(execFileSync(process.execPath, [link, '--help'], { encoding: 'utf8' })).toContain('Usage: npx');
   });
 
   it('prints an MCP config that points at the installed server', () => {

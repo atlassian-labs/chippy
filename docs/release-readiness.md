@@ -160,7 +160,9 @@ Audit state:
 Before release:
 
 1. ~~Add CI (GitHub Actions): install, typecheck, unit project, browser project,
-   build-staleness check (B3).~~ Done. A package dry-run is not in CI yet.
+   build-staleness check (B3), package dry-run.~~ Done. The `package` job packs the
+   tarball and runs its installer through `npx`; it caught a silent no-op when the
+   bin was started through a symlink.
 2. ~~Add `yarn typecheck` and fix the 73 errors.~~ Done; the CI step is blocking.
 3. ~~Add `// @ts-check` with JSDoc types to the helper and page bridge, or record
    that as a known follow-up.~~ Recorded as a follow-up after release. A full
