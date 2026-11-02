@@ -5,6 +5,7 @@
 // Keeping that boundary thin is what lets the TypeScript bundle and the
 // extension/import/Storybook integrations share behavior without drift.
 (function installChippyPageBridge(global) {
+  /** @type {ChippyPageRuntime} */
   const chippy = global.__CHIPPY = global.__CHIPPY || {};
   const BRIDGE_VERSION = '0.2.5';
   if (chippy.pageBridge) {
@@ -299,6 +300,7 @@
   // ─── Status overlay ─────────────────────────────────────────────────────
 
   function ensureStatus() {
+    /** @type {HTMLElement | null} */
     let node = global.document.querySelector('[data-chippy-status]');
     if (!node) {
       node = global.document.createElement('div');
@@ -342,6 +344,7 @@
   }
   const extensionConfig = readExtensionConfig();
 
+  /** @type {Record<string, any>} */
   let config = {
     ...DEFAULTS,
     ...extensionConfig,
@@ -1006,6 +1009,7 @@
     };
   }
 
+  /** @param {{ selector?: string, probeId?: string, fiberId?: string, [key: string]: any }} [target] */
   function resolvePageClickTarget(target = {}) {
     if (target == null || typeof target !== 'object') {
       return { ok: false, error: 'target object is required' };
