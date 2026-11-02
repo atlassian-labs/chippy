@@ -26,6 +26,10 @@ must stay compatible with the extension version in the store.
 - CI for unit and browser tests, type checking, and staleness of committed bundles.
 - Jira and ATL support are plugins, off by default. Enable them in the Chippy
   panel's settings or with `__AVALANCHE__.enablePlugins()`. Extension 0.4.24.
+- `npx @atlassian/chippy pack` builds a custom skill and extension with extra
+  plugins, default plugin selections, its own extension identity, and extra skill
+  documentation. `@atlassian/chippy/plugin` exports the plugin types and helpers;
+  the runtime adds `registerPlugin()` and `listPlugins()`.
 
 ### Fixed
 

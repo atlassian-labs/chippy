@@ -64,6 +64,22 @@ describe('src/iife.ts startup behavior', () => {
     }
   });
 
+  it('starts a packed plugin the startup config enabled, and skips build defaults then', async () => {
+    delete (globalThis as any).__AVALANCHE__;
+    (globalThis as any).__CHIPPY_STARTUP_CONFIG = { plugins: ['gate'] };
+    const mod = await import('./iife');
+    mod.default.registerPlugin({ id: 'gate', contextProvider: { id: 'gate', describe: () => null } });
+    expect(mod.default.enableDefaultPlugins(['jira'])).toEqual(['gate']);
+    expect(mod.default.listPlugins().filter((p) => p.enabled).map((p) => p.id)).toEqual(['gate']);
+  });
+
+  it('applies build defaults when the page made no plugin selection', async () => {
+    delete (globalThis as any).__AVALANCHE__;
+    delete (globalThis as any).__CHIPPY_STARTUP_CONFIG;
+    const mod = await import('./iife');
+    expect(mod.default.enableDefaultPlugins(['jira'])).toEqual(['jira']);
+  });
+
   it('publishes declarative boundary chain and page inspection through the bundled bridge API', async () => {
     delete (globalThis as any).__AVALANCHE__;
     const mod = await import('./iife');

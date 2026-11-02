@@ -9,9 +9,12 @@ seams let a plugin add knowledge of a particular application:
 | Context provider | Boundary kinds, error-boundary fields, and probe card titles and fields | Jira ownership markers, `src/plugins/jira/` |
 | Commit metrics adapter | Per-commit counters and restart counts from an instrumented react-dom | ATL metrics, `src/plugins/atl/` |
 
-The bundle ships both built-in plugins but enables neither. The extension, the
-console import, and `@atlassian/chippy/browser` load that bundle; a page opts in
-in one of three ways:
+A plugin is an object with an `id`, an optional `label`, and a context provider,
+a commit metrics adapter, or both. The bundle registers both built-in plugins but
+enables neither; [`chippy pack`](#packing-a-custom-build) adds more plugins and
+default selections without forking Chippy. The extension, the console import,
+and `@atlassian/chippy/browser` load that bundle; a page opts in in one of three
+ways:
 
 | Route | When it applies |
 | --- | --- |
@@ -19,9 +22,11 @@ in one of three ways:
 | Set `window.__CHIPPY_PLUGINS = ['jira', 'atl']` before the bundle loads | Console import and custom builds |
 | Call `__AVALANCHE__.enablePlugins(['jira'])` | Immediately for Jira; for ATL, from the next Avalanche install |
 
-`enableBuiltinPlugins()` in `src/plugins/index.ts` owns the list of built-in ids.
-The standalone detector in `@atlassian/chippy/avalanche` does not include the
-plugin list; a host registers the ATL adapter itself.
+The page's own selection, from the startup config or `__CHIPPY_PLUGINS`, wins
+over a packed build's defaults. `__AVALANCHE__.listPlugins()` lists the registered
+plugins and which ones run. The registry lives in `src/plugins/index.ts`. The
+standalone detector in `@atlassian/chippy/avalanche` does not include it; a host
+registers the ATL adapter itself.
 
 ## Context providers
 
@@ -97,14 +102,64 @@ import { atlCommitMetricsAdapter, registerCommitMetricsAdapter } from '@atlassia
 registerCommitMetricsAdapter(atlCommitMetricsAdapter);
 ```
 
-## Adding a plugin to the bundle
+## Packing a custom build
+
+An organization can ship its own plugins, defaults, and documentation as a
+separate skill and extension built from the published package. Write each plugin
+as a module whose default export is the plugin:
+
+```ts
+// src/feature-gate.ts
+import { definePlugin, getDisplayName } from '@atlassian/chippy/plugin';
+
+export default definePlugin({
+  id: 'feature-gate',
+  contextProvider: {
+    id: 'feature-gate',
+    kinds: [{ kind: 'gate', label: 'gate', accent: '#6554c0' }],
+    describe(fibers) {
+      const index = fibers.findIndex((fiber) => getDisplayName(fiber.type) === 'FeatureGate');
+      return { boundaries: { gate: index < 0 ? null : { distance: index } } };
+    },
+  },
+});
+```
+
+Then describe the build in `chippy.config.mjs`:
+
+```js
+export default {
+  plugins: [{ id: 'feature-gate', label: 'Feature gates', entry: './src/feature-gate.ts' }],
+  // Built-in or packed ids that run until the user saves their own selection.
+  defaultPlugins: ['feature-gate', 'jira'],
+  // Manifest fields. Set `key` to keep a stable extension id across uploads.
+  extension: { name: 'Chippy (Example)', version: '0.4.24.1' },
+  // Files copied onto the skill; `<name>.append.md` appends to `<name>.md`.
+  skill: { overlay: './skill-overlay' },
+  outDir: './chippy-build',
+};
+```
+
+Run `npx @atlassian/chippy pack` with `esbuild` installed in the same project.
+The command writes:
+
+- `chippy-build/chippy/`, the skill with its extension in `extension/`;
+- `chippy-build/chippy-skill.zip` and `chippy-build/chippy-extension.zip`.
+
+The packer appends the bundled plugins to the runtime bundle, so the extension,
+the helper-served console import, and Playwright sessions all load them, and
+registration happens before the ATL pre-page hook runs. It adds the plugins to
+the panel's settings and makes `defaultPlugins` the extension's initial
+selection. To update, bump `@atlassian/chippy` and pack again.
+
+## Adding a built-in plugin
 
 1. Put the plugin in `src/plugins/<name>/` with focused unit tests, following
    `src/plugins/jira/context-provider.test.ts` or
    `src/plugins/atl/commit-metrics-adapter.test.ts`.
-2. Add it to `BUILTIN_PLUGINS` in `src/plugins/index.ts` to make it available to
-   the opt-in routes above, and add a checkbox for it in
-   `.agents/skills/chippy/extension/panel-settings.js`.
+2. Add it to `BUILTIN_PLUGINS` in `src/plugins/index.ts`, to the default plugin
+   options in `.agents/skills/chippy/extension/panel-settings.js`, and to
+   `BUILTIN_PLUGINS` in `packages/chippy/bin/pack.mjs`.
 3. Rebuild the shipped bundles with `yarn avalanche:sync` and the skill archive
    with `yarn chippy:zip`.
 4. If the plugin changes what agents see, such as a new boundary kind, document it

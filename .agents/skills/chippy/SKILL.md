@@ -106,7 +106,7 @@ render/restart counters and dispatch/recompute metrics remain optional evidence.
 The built-in Jira and ATL plugins are off by default. The user enables them in
 the Chippy panel's settings, after which the page must reload; on a page already loaded,
 `__AVALANCHE__.enablePlugins(['jira', 'atl'])` enables Jira for later probes and
-ATL for the next Avalanche install, without initial-load metrics. `status().metricsAdapter` names the active adapter.
+ATL for the next Avalanche install, without initial-load metrics. `status().metricsAdapter` names the active adapter; `listPlugins()` lists the registered plugins and which ones run.
 React must see the DevTools hook when its renderer evaluates for commit capture
 and dispatcher-backed replay; importing Chippy afterward cannot retroactively
 register a renderer. Use fiber-only reads when that integration is unavailable.

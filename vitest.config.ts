@@ -7,6 +7,7 @@ const browserSuites = [
   'src/avalanche/detector.lifecycle.pw.test.ts',
   'src/chippy-stock-react.pw.test.ts',
   'src/chippy-library.pw.test.ts',
+  'src/chippy-pack.pw.test.ts',
   'src/chippy-mcp.test.ts',
 ];
 

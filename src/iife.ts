@@ -57,7 +57,7 @@ import {
   registerContextProvider,
 } from './layout-lab/marker-context';
 import { describeJiraContext } from './plugins/jira/context-provider';
-import { enableBuiltinPlugins } from './plugins';
+import { enableDefaultPlugins, enablePlugins, listPlugins, registerBuiltinPlugins, registerPlugin, selectPlugins } from './plugins';
 import {
   PROBE_INTENTS,
   normalizeProbeAnnotation,
@@ -97,7 +97,7 @@ import {
 import type { DescribeComponentDeps } from './chippy-bridge/describe-component';
 
 type StartupConfig = {
-  /** Built-in plugin ids to enable before React evaluates, e.g. `['jira', 'atl']`. */
+  /** Plugin ids to enable before React evaluates, e.g. `['jira', 'atl']`. */
   plugins?: string[];
   avalanche?: {
     autoStart?: boolean;
@@ -126,7 +126,7 @@ type GlobalWithChippyRuntime = typeof globalThis & {
   // Another Chippy copy may have published this, so its methods are not guaranteed.
   __AVALANCHE__?: Partial<AvalancheApi>;
   __CHIPPY_STARTUP_CONFIG?: StartupConfig;
-  /** Built-in plugin ids for pages that load the bundle without a startup config. */
+  /** Plugin ids for pages that load the bundle without a startup config. */
   __CHIPPY_PLUGINS?: string[];
   __REACT_DEVTOOLS_GLOBAL_HOOK__?: DevtoolsHook;
   top?: typeof globalThis & {
@@ -141,12 +141,17 @@ const runtime = globalThis as GlobalWithChippyRuntime;
 const avalanchePresent = !!runtime.__AVALANCHE__;
 
 // Product-specific recognizers (Jira ownership markers, ATL commit metrics)
-// are plugins. None is enabled unless the page opts in; enabling here, before
-// early bootstrap calls runPrePageHooks(), lets an adapter's pre-page setup run.
-enableBuiltinPlugins([
-  ...(runtime.__CHIPPY_STARTUP_CONFIG?.plugins ?? []),
-  ...(runtime.__CHIPPY_PLUGINS ?? []),
-]);
+// are plugins. None is enabled unless the page opts in or a packed build names
+// it as a default; enabling here, before early bootstrap calls
+// runPrePageHooks(), lets an adapter's pre-page setup run.
+registerBuiltinPlugins();
+{
+  const fromConfig = runtime.__CHIPPY_STARTUP_CONFIG?.plugins;
+  const fromGlobal = runtime.__CHIPPY_PLUGINS;
+  if (Array.isArray(fromConfig) || Array.isArray(fromGlobal)) {
+    selectPlugins([...(fromConfig ?? []), ...(fromGlobal ?? [])]);
+  }
+}
 
 // Do NOT seed a commit metrics adapter's host surface at bundle-load time.
 // The host page owns that surface and defines/deletes it on its own
@@ -201,8 +206,13 @@ type AvalancheApi = {
     metricsAdapter: string | null;
   };
   registerCommitMetricsAdapter: typeof registerCommitMetricsAdapter;
-  /** Enable built-in plugins (`'jira'`, `'atl'`); returns the enabled ids. */
-  enablePlugins: typeof enableBuiltinPlugins;
+  /** Enable plugins by id (built-in: `'jira'`, `'atl'`); returns the running ids. */
+  enablePlugins: typeof enablePlugins;
+  /** Register a plugin; `chippy pack` appends these calls to the bundle. */
+  registerPlugin: typeof registerPlugin;
+  /** Enable a packed build's defaults unless the page chose its own plugins. */
+  enableDefaultPlugins: typeof enableDefaultPlugins;
+  listPlugins: typeof listPlugins;
   runPrePageHooks: typeof runPrePageHooks;
   DETECTION_LEVEL: typeof DETECTION_LEVEL;
   replay: {
@@ -348,7 +358,10 @@ const api: AvalancheApi = {
     return { installed, hasMetricsGlobal, commitCount, integrationMode, metricsAdapter };
   },
   registerCommitMetricsAdapter,
-  enablePlugins: enableBuiltinPlugins,
+  enablePlugins,
+  registerPlugin,
+  enableDefaultPlugins,
+  listPlugins,
   runPrePageHooks,
   DETECTION_LEVEL,
   replay: {

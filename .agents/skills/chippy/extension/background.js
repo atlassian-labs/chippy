@@ -9,6 +9,9 @@
 // the page owner is known and only installs the bridge/probe UI.
 
 const DEFAULT_HELPER = 'http://127.0.0.1:7823';
+// A packed build (`chippy pack`) prepends globalThis.__CHIPPY_BUILD to this file
+// with the plugins it enables until the user saves their own selection.
+const BUILD_DEFAULT_PLUGINS = Array.isArray(globalThis.__CHIPPY_BUILD?.defaultPlugins) ? globalThis.__CHIPPY_BUILD.defaultPlugins : [];
 const CONTENT_SCRIPTS = ['panel-settings.js', 'content-script.js'];
 const EXTENSION_INTEGRATION = Object.freeze({
   kind: 'extension',
@@ -60,7 +63,7 @@ async function getStartupConfig(origin, helperBaseUrl, clientId, plugins) {
     enabled: true,
     helperBaseUrl: helperBaseUrl || DEFAULT_HELPER,
     avalanche: null,
-    // Built-in plugins the user enabled in the popup; the bundle enables none otherwise.
+    // Plugins the user enabled in the panel settings, or the build's defaults.
     plugins: Array.isArray(plugins) ? plugins : [],
     contextUiEnabled: true,
     jiraUiEnabled: true,
@@ -283,7 +286,7 @@ chrome.webNavigation.onCommitted.addListener(async (details) => {
     const tab = await chrome.tabs.get(tabId);
     if (!tab?.url) return;
     const origin = new URL(tab.url).origin;
-    const stored = await chrome.storage.local.get({ helperBaseUrl: DEFAULT_HELPER, enabledOrigins: {}, plugins: [] });
+    const stored = await chrome.storage.local.get({ helperBaseUrl: DEFAULT_HELPER, enabledOrigins: {}, plugins: BUILD_DEFAULT_PLUGINS });
     if (!stored.enabledOrigins?.[origin]) return;
     const clientId = await lookupClientIdForTab(tabId, stored.helperBaseUrl);
     const startupConfig = await getStartupConfig(origin, stored.helperBaseUrl, clientId, stored.plugins);
@@ -307,7 +310,7 @@ chrome.webNavigation.onCommitted.addListener(async (details) => {
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
   if (changeInfo.status !== 'complete' || !tab.url) return;
 
-  chrome.storage.local.get({ helperBaseUrl: DEFAULT_HELPER, enabledOrigins: {}, plugins: [] }, async (stored) => {
+  chrome.storage.local.get({ helperBaseUrl: DEFAULT_HELPER, enabledOrigins: {}, plugins: BUILD_DEFAULT_PLUGINS }, async (stored) => {
     try {
       const origin = new URL(tab.url).origin;
       if (!stored.enabledOrigins?.[origin]) return;

@@ -14,7 +14,7 @@ cd packages/chippy
 npm pack
 ```
 
-Install the resulting `chippy-0.1.0.tgz` in your application. This package is not
+Install the resulting `atlassian-chippy-0.1.0.tgz` in your application. This package is not
 yet published to npm. Node.js 22.12+ is required for the package tooling.
 
 ## Standalone Avalanche
@@ -84,6 +84,16 @@ The preset supplies the Chippy manager panels and preview integration. Use an
 ES2022 build target for its top-level await. Agent commands need the local helper
 on port 7823. Storybook, React, and React DOM remain application dependencies;
 standalone Avalanche does not require Storybook.
+
+## Custom builds with plugins
+
+`@atlassian/chippy/plugin` exports the plugin types, `definePlugin`, and the fiber
+helpers plugins use. `npx @atlassian/chippy pack` reads `chippy.config.mjs` and
+builds a skill and extension that include your plugins, default plugin selection,
+extension name and version, and extra skill documentation. It needs `esbuild` in
+your project. See
+[Plugins](https://github.com/atlassian-labs/chippy/blob/main/docs/plugins.md#packing-a-custom-build)
+for the config format.
 
 ## MCP
 

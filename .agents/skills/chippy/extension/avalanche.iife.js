@@ -612,7 +612,7 @@ this.__AVALANCHE__ = (function() {
       ...report.timing && { timing: report.timing }
     };
   }
-  let active = null;
+  let active$1 = null;
   const REQUIRED_METHODS = ["isAvailable", "snapshot", "measure", "attach", "isAttached", "reattach", "detach"];
   function registerCommitMetricsAdapter(adapter) {
     if (!adapter || typeof adapter.id !== "string" || !adapter.id) {
@@ -623,16 +623,16 @@ this.__AVALANCHE__ = (function() {
         throw new TypeError(`commit metrics adapter ${adapter.id} is missing ${method}()`);
       }
     }
-    active = adapter;
+    active$1 = adapter;
     return () => {
-      if (active === adapter) active = null;
+      if (active$1 === adapter) active$1 = null;
     };
   }
   function getCommitMetricsAdapter() {
-    return active;
+    return active$1;
   }
   function runPrePageHooks(config) {
-    const adapter = active;
+    const adapter = active$1;
     if (!adapter || typeof adapter.prePage !== "function") return null;
     try {
       adapter.prePage(config);
@@ -3644,17 +3644,70 @@ this.__AVALANCHE__ = (function() {
     };
   }
   const atlCommitMetricsAdapter = createATLCommitMetricsAdapter();
-  const BUILTIN_PLUGINS = {
-    jira: () => registerContextProvider(jiraContextProvider),
-    atl: () => registerCommitMetricsAdapter(atlCommitMetricsAdapter)
-  };
-  const enabled = /* @__PURE__ */ new Map();
-  function enableBuiltinPlugins(ids) {
+  const BUILTIN_PLUGINS = [
+    { id: "jira", label: "Jira ownership markers", contextProvider: jiraContextProvider },
+    { id: "atl", label: "ATL commit metrics", commitMetricsAdapter: atlCommitMetricsAdapter }
+  ];
+  const registered = /* @__PURE__ */ new Map();
+  const requested = /* @__PURE__ */ new Set();
+  const active = /* @__PURE__ */ new Map();
+  let explicitSelection = false;
+  function activate(plugin) {
+    const unregister = [
+      plugin.contextProvider && registerContextProvider(plugin.contextProvider),
+      plugin.commitMetricsAdapter && registerCommitMetricsAdapter(plugin.commitMetricsAdapter)
+    ].filter((fn) => typeof fn === "function");
+    active.set(plugin.id, () => {
+      for (const fn of unregister.reverse()) fn();
+    });
+  }
+  function deactivate(id) {
+    var _a2;
+    (_a2 = active.get(id)) == null ? void 0 : _a2();
+    active.delete(id);
+  }
+  function validId(id) {
+    return typeof id === "string" && id.length > 0;
+  }
+  function registerPlugin(plugin) {
+    if (!plugin || !validId(plugin.id)) throw new TypeError("registerPlugin expects a plugin with a non-empty id");
+    deactivate(plugin.id);
+    registered.set(plugin.id, plugin);
+    if (requested.has(plugin.id)) activate(plugin);
+    return () => {
+      if (registered.get(plugin.id) !== plugin) return;
+      deactivate(plugin.id);
+      registered.delete(plugin.id);
+    };
+  }
+  function enablePlugins(ids) {
     for (const id of Array.isArray(ids) ? ids : []) {
-      if (typeof id !== "string" || !Object.hasOwn(BUILTIN_PLUGINS, id) || enabled.has(id)) continue;
-      enabled.set(id, BUILTIN_PLUGINS[id]());
+      if (!validId(id) || requested.has(id)) continue;
+      requested.add(id);
+      const plugin = registered.get(id);
+      if (plugin && !active.has(id)) activate(plugin);
     }
-    return [...enabled.keys()];
+    return [...active.keys()];
+  }
+  function selectPlugins(ids) {
+    explicitSelection = true;
+    return enablePlugins(ids);
+  }
+  function enableDefaultPlugins(ids) {
+    return explicitSelection ? [...active.keys()] : enablePlugins(ids);
+  }
+  function listPlugins() {
+    return [...registered.values()].map((plugin) => ({
+      id: plugin.id,
+      label: plugin.label ?? plugin.id,
+      enabled: active.has(plugin.id)
+    }));
+  }
+  function registerBuiltinPlugins() {
+    const unregister = BUILTIN_PLUGINS.map(registerPlugin);
+    return () => {
+      for (const fn of unregister.reverse()) fn();
+    };
   }
   const PROBE_INTENTS = ["explain", "investigate", "change"];
   const MAX_COMMENT_LENGTH = 2e3;
@@ -5144,10 +5197,14 @@ this.__AVALANCHE__ = (function() {
     };
   }
   const runtime = globalThis;
-  enableBuiltinPlugins([
-    ...((_a = runtime.__CHIPPY_STARTUP_CONFIG) == null ? void 0 : _a.plugins) ?? [],
-    ...runtime.__CHIPPY_PLUGINS ?? []
-  ]);
+  registerBuiltinPlugins();
+  {
+    const fromConfig = (_a = runtime.__CHIPPY_STARTUP_CONFIG) == null ? void 0 : _a.plugins;
+    const fromGlobal = runtime.__CHIPPY_PLUGINS;
+    if (Array.isArray(fromConfig) || Array.isArray(fromGlobal)) {
+      selectPlugins([...fromConfig ?? [], ...fromGlobal ?? []]);
+    }
+  }
   (function installDevtoolsShim() {
     var _a2;
     if (runtime.__REACT_DEVTOOLS_GLOBAL_HOOK__) return;
@@ -5254,7 +5311,10 @@ this.__AVALANCHE__ = (function() {
       return { installed, hasMetricsGlobal, commitCount, integrationMode, metricsAdapter };
     },
     registerCommitMetricsAdapter,
-    enablePlugins: enableBuiltinPlugins,
+    enablePlugins,
+    registerPlugin,
+    enableDefaultPlugins,
+    listPlugins,
     runPrePageHooks,
     DETECTION_LEVEL,
     replay: {
@@ -5330,15 +5390,15 @@ this.__AVALANCHE__ = (function() {
   };
   if (__auto) {
     try {
-      const requested = ((_c = startupConfig == null ? void 0 : startupConfig.avalanche) == null ? void 0 : _c.options) || {};
+      const requested2 = ((_c = startupConfig == null ? void 0 : startupConfig.avalanche) == null ? void 0 : _c.options) || {};
       const existingApi = runtime.__AVALANCHE__;
       const targetApi = existingApi && typeof existingApi.install === "function" ? existingApi : api;
       const alreadyInstalled = !!(targetApi.status && targetApi.status().installed);
       if (!alreadyInstalled) {
         targetApi.install({
-          detectionMode: requested.detectionMode || "sources",
+          detectionMode: requested2.detectionMode || "sources",
           historySize: ((_d = startupConfig == null ? void 0 : startupConfig.avalanche) == null ? void 0 : _d.max) || 1e3,
-          captureFibers: requested.captureFibers !== false
+          captureFibers: requested2.captureFibers !== false
         });
       }
     } catch (e) {

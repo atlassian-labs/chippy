@@ -5,6 +5,14 @@
   try { globalThis.__CHIPPY_PANEL_SETTINGS_RUNTIME__?.destroy?.(); } catch {}
 
   const DEFAULT_HELPER = 'http://127.0.0.1:7823';
+  // A packed build (`chippy pack`) prepends globalThis.__CHIPPY_BUILD to this
+  // file with its plugin list and the plugins it enables by default.
+  const BUILD = globalThis.__CHIPPY_BUILD || {};
+  const PLUGIN_OPTIONS = Array.isArray(BUILD.plugins) ? BUILD.plugins : [
+    { id: 'jira', label: 'Jira ownership markers' },
+    { id: 'atl', label: 'ATL commit metrics' },
+  ];
+  const DEFAULT_PLUGINS = Array.isArray(BUILD.defaultPlugins) ? BUILD.defaultPlugins : [];
   const SETTINGS_SLOT_SELECTOR = '[data-chippy-settings-slot]';
   let observer = null;
   let waitingForDom = false;
@@ -26,6 +34,20 @@
     if (value === '') return null;
     const port = Number(value);
     return Number.isInteger(port) && port >= 1 && port <= 65535 ? port : undefined;
+  }
+
+  function escapeHtml(value) {
+    return String(value).replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
+  }
+
+  function pluginMarkup() {
+    if (PLUGIN_OPTIONS.length === 0) return '';
+    const rows = PLUGIN_OPTIONS.map((plugin) =>
+      `<label><input data-plugin type="checkbox" value="${escapeHtml(plugin.id)}" />${escapeHtml(plugin.label || plugin.id)}</label>`);
+    return `<fieldset>
+          <legend>Plugins · apply on reload</legend>
+          ${rows.join('\n          ')}
+        </fieldset>`;
   }
 
   function settingsMarkup() {
@@ -56,11 +78,7 @@
           <span>Forward to port · optional</span>
           <input data-forward-port type="number" inputmode="numeric" min="1" max="65535" step="1" placeholder="Auto-detect from page URL" />
         </label>
-        <fieldset>
-          <legend>Plugins · apply on reload</legend>
-          <label><input data-plugin type="checkbox" value="jira" />Jira ownership markers</label>
-          <label><input data-plugin type="checkbox" value="atl" />ATL commit metrics</label>
-        </fieldset>
+        ${pluginMarkup()}
         <div class="actions">
           <button type="submit">Save settings</button>
           <div data-status role="status" aria-live="polite"></div>
@@ -72,7 +90,8 @@
   const host = document.createElement('div');
   host.setAttribute('data-chippy-settings-host', 'true');
   host.setAttribute('data-chippy-preserve', 'true');
-  host.style.cssText = 'display:block;min-height:232px;';
+  const pluginRowsHeight = PLUGIN_OPTIONS.length ? 18 + 19 * PLUGIN_OPTIONS.length : 0;
+  host.style.cssText = `display:block;min-height:${176 + pluginRowsHeight}px;`;
   const root = host.attachShadow({ mode: 'closed' });
   const surface = document.createElement('div');
   surface.innerHTML = settingsMarkup();
@@ -92,7 +111,7 @@
   chrome.storage.local.get({
     helperBaseUrl: DEFAULT_HELPER,
     forwardPort: null,
-    plugins: [],
+    plugins: DEFAULT_PLUGINS,
   }).then((stored) => {
     helperInput.value = normalizeBaseUrl(stored.helperBaseUrl);
     forwardPortInput.value = stored.forwardPort || '';

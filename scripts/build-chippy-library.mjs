@@ -12,13 +12,14 @@ await build({
   entryPoints: {
     avalanche: 'packages/chippy/src/avalanche.ts',
     browser: 'packages/chippy/src/browser.ts',
+    plugin: 'packages/chippy/src/plugin.ts',
     bootstrap: '.agents/skills/chippy/extension/devtools-hook-shim.js',
   },
   outdir: output, bundle: true, format: 'esm', platform: 'browser', target: 'es2022',
   sourcemap: true, external: ['react'],
 });
 execFileSync(join(root, 'node_modules/.bin/tsc'), [
-  'packages/chippy/src/avalanche.ts', 'packages/chippy/src/browser.ts',
+  'packages/chippy/src/avalanche.ts', 'packages/chippy/src/browser.ts', 'packages/chippy/src/plugin.ts',
   '--declaration', '--emitDeclarationOnly', '--noCheck', '--skipLibCheck',
   '--target', 'ES2022', '--module', 'ESNext', '--moduleResolution', 'Bundler',
   '--jsx', 'react-jsx', '--esModuleInterop', '--outDir', join(output, 'types'),

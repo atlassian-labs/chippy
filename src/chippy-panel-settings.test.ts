@@ -111,6 +111,40 @@ describe('Chippy embedded extension settings', () => {
     dom.window.close();
   });
 
+  it('lists a packed build\'s plugins and checks its defaults before the user saves', async () => {
+    const dom = new JSDOM('<!doctype html><html><body><div data-chippy-settings-slot></div></body></html>', {
+      url: 'https://example.test/page',
+      runScripts: 'outside-only',
+    });
+    const win = dom.window as unknown as Window & Record<string, any>;
+    let settingsRoot: ShadowRoot | null = null;
+    const attachShadow = win.Element.prototype.attachShadow;
+    win.Element.prototype.attachShadow = function captureClosedRoot(init: ShadowRootInit) {
+      settingsRoot = attachShadow.call(this, init);
+      return settingsRoot;
+    };
+    win.chrome = {
+      storage: {
+        local: {
+          // chrome.storage returns the supplied defaults for keys never saved.
+          get: async (defaults: Record<string, unknown>) => ({ ...defaults }),
+          set: async () => undefined,
+        },
+      },
+    };
+    win.__CHIPPY_BUILD = {
+      plugins: [{ id: 'jira', label: 'Jira' }, { id: 'gate', label: '<Gate>' }],
+      defaultPlugins: ['gate'],
+    };
+
+    win.eval(SETTINGS_SOURCE);
+    await flushTasks();
+    const inputs = Array.from(settingsRoot!.querySelectorAll('[data-plugin]')) as HTMLInputElement[];
+    expect(inputs.map((input) => [input.value, input.checked])).toEqual([['jira', false], ['gate', true]]);
+    expect(settingsRoot!.querySelector('fieldset')?.textContent).toContain('<Gate>');
+    dom.window.close();
+  });
+
   it('keeps one content-script-owned settings host across reinjection', async () => {
     const dom = new JSDOM('<!doctype html><html><body><div data-chippy-settings-slot></div></body></html>', {
       url: 'https://example.test/page',

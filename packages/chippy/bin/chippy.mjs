@@ -1,6 +1,8 @@
 #!/usr/bin/env node
-// Installs the Chippy agent skill from this package and prints the next steps.
+// Installs the Chippy agent skill from this package and prints the next steps,
+// or packs a custom build with extra plugins (see pack.mjs).
 //   npx @atlassian/chippy install [--dir <path>] [--force]
+//   npx @atlassian/chippy pack [--config <file>]
 import { cpSync, existsSync, mkdirSync, readFileSync, realpathSync, rmSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
@@ -49,10 +51,11 @@ async function helperStatus() {
 }
 
 function parseArgs(argv) {
-  const args = { command: argv[0], dir: undefined, force: false };
+  const args = { command: argv[0], dir: undefined, force: false, config: 'chippy.config.mjs' };
   for (let i = 1; i < argv.length; i++) {
     if (argv[i] === '--force') args.force = true;
     else if (argv[i] === '--dir') args.dir = argv[++i];
+    else if (argv[i] === '--config') args.config = argv[++i];
     else throw new Error(`Unknown option: ${argv[i]}`);
   }
   return args;
@@ -61,8 +64,18 @@ function parseArgs(argv) {
 async function main(argv) {
   const { name } = JSON.parse(readFileSync(join(PACKAGE_ROOT, 'package.json'), 'utf8'));
   const args = parseArgs(argv);
+  if (args.command === 'pack') {
+    await pack(args.config);
+    return;
+  }
   if (args.command !== 'install') {
-    process.stdout.write(`Usage: npx ${name} install [--dir <path>] [--force]\n\nInstalls the Chippy agent skill (default ${defaultSkillDir()}).\n`);
+    process.stdout.write(`Usage: npx ${name} install [--dir <path>] [--force]
+       npx ${name} pack [--config <file>]
+
+install  Installs the Chippy agent skill (default ${defaultSkillDir()}).
+pack     Builds a custom skill and extension with extra plugins from a config
+         file (default chippy.config.mjs). See the package README.
+`);
     process.exitCode = args.command === undefined || args.command === '--help' ? 0 : 2;
     return;
   }
@@ -85,6 +98,17 @@ ${JSON.stringify(mcpConfig(skillDir), null, 2).replace(/^/gm, '   ')}
    agent to use Chippy on the page.
 
 Helper: ${await helperStatus()}
+`);
+}
+
+async function pack(configPath) {
+  // Loaded on demand: install must not depend on the packer.
+  const { loadPackConfig, packChippy } = await import('./pack.mjs');
+  const result = await packChippy(await loadPackConfig(resolve(configPath)));
+  process.stdout.write(`Packed Chippy:
+  skill      ${result.skillDir}
+  skill zip  ${result.skillZip}
+  extension  ${result.extensionZip}
 `);
 }
 
