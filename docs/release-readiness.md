@@ -116,11 +116,11 @@ first screen, and today they cannot.
 
 | Item | Why it is hard to explain | Suggested action |
 |---|---|---|
-| Repository and root package named `storybook` | Clone URL and `package.json` describe the lab, not the product | Rename the repo and root package (e.g. `chippy`, private) |
+| Repository and root package named `storybook` | Clone URL and `package.json` describe the lab, not the product | Done: the root package is `chippy` (private); the public repository is `atlassian-labs/chippy` |
 | Tracked `dist/` | See B3 | Delete and ignore (zips stay) |
 | Jira/ATL in core | See "Plugin seams" below | Extracted to `src/plugins/`; live Jira/ATL check pending |
-| `.agents/skills/playwright-cli/` vendored | Third-party skill checked into the tree | Keep only if the lab needs it; otherwise document it as a dependency |
-| `chippy:install:zip` script | Second install path with `rm -rf ~/.agents/skills/chippy` inline | Replace with the `npx` installer |
+| `.agents/skills/playwright-cli/` vendored | Third-party skill checked into the tree | Done: `playwright-local` drives the lab through it; CONTRIBUTING lists it as vendored upstream |
+| `chippy:install:zip` script | Second install path with `rm -rf ~/.agents/skills/chippy` inline | Done: removed; the `npx` installer replaces it |
 | `FIXME(mine)` / `FIXME(reef)` markers (7) | Private tags; meaning unclear to contributors | Done: all converted to `TODO` |
 | `maintainer: akorzunov` in the registry procedure | Internal registry procedure in a public tree | Done: procedure removed from the public tree |
 
@@ -159,11 +159,12 @@ Audit state:
 
 Before release:
 
-1. Add CI (GitHub Actions): install, typecheck, unit project, browser project,
-   build-staleness check (B3), package dry-run.
+1. ~~Add CI (GitHub Actions): install, typecheck, unit project, browser project,
+   build-staleness check (B3).~~ Done. A package dry-run is not in CI yet.
 2. ~~Add `yarn typecheck` and fix the 73 errors.~~ Done; the CI step is blocking.
-3. Add `// @ts-check` with JSDoc types to the helper and page bridge, or record
-   that as a known follow-up. A full TypeScript port is not required to release.
+3. ~~Add `// @ts-check` with JSDoc types to the helper and page bridge, or record
+   that as a known follow-up.~~ Recorded as a follow-up after release. A full
+   TypeScript port is not required to release.
 
 ## Goal 4: documented
 
@@ -179,8 +180,8 @@ Missing for an open-source release:
   maintainer until a dedicated address exists.
 - ~~README order.~~ The README now opens with what you can ask and installation;
   library usage follows, and the install section leads with the `npx` installer.
-- Documentation for the plugin API. The seams exist (`registerContextProvider`,
-  `registerCommitMetricsAdapter`); a contributor-facing guide does not.
+- ~~Documentation for the plugin API.~~ [Plugins](plugins.md) covers both seams
+  and how to add a plugin to the bundle.
 
 ## Goal 5: simple to install
 
@@ -199,8 +200,8 @@ whether the helper answers `/__chippy/health`. The usage text reads the package
 name from `package.json`.
 `src/chippy-npx-install.test.ts` covers it.
 
-Not done: writing MCP configuration for known hosts (`--host <name>`), and the
-`chippy:install:zip` script still exists.
+Not done: writing MCP configuration for known hosts (`--host <name>`). The
+`chippy:install:zip` script is removed.
 
 ## Plugin seams for Jira and ATL
 
@@ -303,7 +304,7 @@ and one sentence saying that context providers can add boundary kinds.
 3. ~~Plugin seams for Jira and ATL.~~ Done; verify on a live Jira/ATL page.
 4. ~~`npx` installer.~~ Done.
 5. ~~Skill description, route-table row for explore, documented MCP gap.~~ Done.
-6. Docs: quick start, changelog, code of conduct, plugin API.
+6. ~~Docs: quick start, changelog, code of conduct, plugin API.~~ Done.
 7. ~~Publication checklist: brand rights, security-reporting destination, code-of-conduct contact, `OWNER/REPO` in the issue template config.~~ Done. When the repository is created, enable private vulnerability reporting in its settings.
 
 ## Feature gaps found during review

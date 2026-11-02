@@ -1,12 +1,11 @@
 {
-  "name": "storybook",
+  "name": "chippy",
   "packageManager": "yarn@4.8.1",
   "engines": {
     "node": ">=22.12.0"
   },
   "scripts": {
     "chippy:install": "/bin/sh ./install-chippy-skill.sh",
-    "chippy:install:zip": "mkdir -p ~/.agents/skills && rm -rf ~/.agents/skills/chippy && unzip -q chippy-skill.zip -d ~/.agents/skills",
     "storybook": "storybook dev -p 6006 --host 0.0.0.0",
     "build-storybook": "storybook build",
     "chippy:helper": "node .agents/skills/chippy/scripts/chippy-helper-server.js",

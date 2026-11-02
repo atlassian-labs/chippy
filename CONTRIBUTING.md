@@ -36,6 +36,9 @@ ATL adapter also need verification against an externally instrumented host.
 | `.agents/skills/chippy/scripts/` | Local helper and public CLI |
 | `.agents/skills/chippy/references/` | Consumer procedures and contracts |
 | `.storybook/chippy-addon/`, Storybook fixtures in `src/` | Local validation integration and scenarios |
+| `src/plugins/` | Optional Jira and ATL integrations behind the [plugin seams](docs/plugins.md) |
+| `.agents/skills/playwright-local/` | Lab automation skill for contributors' agents |
+| `.agents/skills/playwright-cli/` | Upstream `@playwright/cli` skill, vendored because `playwright-local` drives the lab through it |
 
 The [source map](src/README.md) routes to each domain's documentation. Keep bridge
 shims thin: React internals belong in TypeScript domain modules, exposed by

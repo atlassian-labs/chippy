@@ -1984,6 +1984,33 @@ __metadata:
   languageName: node
   linkType: hard
 
+"chippy@workspace:.":
+  version: 0.0.0-use.local
+  resolution: "chippy@workspace:."
+  dependencies:
+    "@babel/core": "npm:^7.27.1"
+    "@babel/plugin-transform-react-jsx-source": "npm:^7.27.1"
+    "@modelcontextprotocol/sdk": "npm:^1.32.1"
+    "@playwright/cli": "npm:^0.1.13"
+    "@storybook/react-vite": "npm:^10.3.3"
+    "@testing-library/dom": "npm:^10.4.1"
+    "@testing-library/jest-dom": "npm:^6.9.1"
+    "@testing-library/react": "npm:^16.3.0"
+    "@types/node": "npm:^22"
+    "@vitejs/plugin-react": "npm:^4.3.4"
+    esbuild: "npm:^0.25.12"
+    jsdom: "npm:^26.1.0"
+    playwright: "npm:^1.58.2"
+    react: "npm:^18.3.1"
+    react-dom: "npm:^18.3.1"
+    storybook: "npm:^10.3.3"
+    typescript: "npm:^5.9.3"
+    vite: "npm:^6.4.1"
+    vitest: "npm:^3.2.4"
+    zod: "npm:^4.6.7"
+  languageName: unknown
+  linkType: soft
+
 "chownr@npm:^3.0.0":
   version: 3.0.0
   resolution: "chownr@npm:3.0.0"
@@ -4239,33 +4266,6 @@ __metadata:
   checksum: 10c0/f61e199dfb11a02be6004a3d72c0ecd062f1770d60d480ecf42a6af8a6c49f9082b17c37fde2eea58ed53de35e7b190c95bcad8c8e4d47f9419d577826e0c00c
   languageName: node
   linkType: hard
-
-"storybook@workspace:.":
-  version: 0.0.0-use.local
-  resolution: "storybook@workspace:."
-  dependencies:
-    "@babel/core": "npm:^7.27.1"
-    "@babel/plugin-transform-react-jsx-source": "npm:^7.27.1"
-    "@modelcontextprotocol/sdk": "npm:^1.32.1"
-    "@playwright/cli": "npm:^0.1.13"
-    "@storybook/react-vite": "npm:^10.3.3"
-    "@testing-library/dom": "npm:^10.4.1"
-    "@testing-library/jest-dom": "npm:^6.9.1"
-    "@testing-library/react": "npm:^16.3.0"
-    "@types/node": "npm:^22"
-    "@vitejs/plugin-react": "npm:^4.3.4"
-    esbuild: "npm:^0.25.12"
-    jsdom: "npm:^26.1.0"
-    playwright: "npm:^1.58.2"
-    react: "npm:^18.3.1"
-    react-dom: "npm:^18.3.1"
-    storybook: "npm:^10.3.3"
-    typescript: "npm:^5.9.3"
-    vite: "npm:^6.4.1"
-    vitest: "npm:^3.2.4"
-    zod: "npm:^4.6.7"
-  languageName: unknown
-  linkType: soft
 
 "strip-bom@npm:^3.0.0":
   version: 3.0.0

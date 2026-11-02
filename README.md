@@ -116,6 +116,7 @@ it is not yet published to npm. Standalone Avalanche needs no helper or extensio
 | See what changed between releases | [Changelog](CHANGELOG.md) |
 | Take part in the project | [Code of conduct](CODE_OF_CONDUCT.md) |
 | Find the owning module | [Runtime source map](src/README.md) |
+| Add app-specific knowledge | [Plugins](docs/plugins.md) |
 | Use the project identity | [Brand assets](docs/brand/README.md) |
 | Understand page data and helper access | [Trust boundary](SECURITY.md) |
 | Prepare distribution artifacts | [Release guide](docs/releasing.md) |
