@@ -54,12 +54,14 @@ async function ensureContentScript(tabId) {
 }
 
 
-async function getStartupConfig(origin, helperBaseUrl, clientId) {
+async function getStartupConfig(origin, helperBaseUrl, clientId, plugins) {
   const helperBase = (helperBaseUrl || DEFAULT_HELPER).replace(/\/+$/, '');
   const config = {
     enabled: true,
     helperBaseUrl: helperBaseUrl || DEFAULT_HELPER,
     avalanche: null,
+    // Built-in plugins the user enabled in the popup; the bundle enables none otherwise.
+    plugins: Array.isArray(plugins) ? plugins : [],
     contextUiEnabled: true,
     jiraUiEnabled: true,
     integration: EXTENSION_INTEGRATION,
@@ -281,10 +283,10 @@ chrome.webNavigation.onCommitted.addListener(async (details) => {
     const tab = await chrome.tabs.get(tabId);
     if (!tab?.url) return;
     const origin = new URL(tab.url).origin;
-    const stored = await chrome.storage.local.get({ helperBaseUrl: DEFAULT_HELPER, enabledOrigins: {} });
+    const stored = await chrome.storage.local.get({ helperBaseUrl: DEFAULT_HELPER, enabledOrigins: {}, plugins: [] });
     if (!stored.enabledOrigins?.[origin]) return;
     const clientId = await lookupClientIdForTab(tabId, stored.helperBaseUrl);
-    const startupConfig = await getStartupConfig(origin, stored.helperBaseUrl, clientId);
+    const startupConfig = await getStartupConfig(origin, stored.helperBaseUrl, clientId, stored.plugins);
     await injectEarlyStartup(tabId, startupConfig);
     if (startupConfig && startupConfig.avalanche && startupConfig.avalanche.autoStart) {
       try {
@@ -305,12 +307,12 @@ chrome.webNavigation.onCommitted.addListener(async (details) => {
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
   if (changeInfo.status !== 'complete' || !tab.url) return;
 
-  chrome.storage.local.get({ helperBaseUrl: DEFAULT_HELPER, enabledOrigins: {} }, async (stored) => {
+  chrome.storage.local.get({ helperBaseUrl: DEFAULT_HELPER, enabledOrigins: {}, plugins: [] }, async (stored) => {
     try {
       const origin = new URL(tab.url).origin;
       if (!stored.enabledOrigins?.[origin]) return;
       const clientId = await lookupClientIdForTab(tabId, stored.helperBaseUrl);
-      const startupConfig = await getStartupConfig(origin, stored.helperBaseUrl, clientId);
+      const startupConfig = await getStartupConfig(origin, stored.helperBaseUrl, clientId, stored.plugins);
       const options = startupConfig.avalanche ? { avalanche: startupConfig.avalanche } : {};
       ensureAll(tabId, stored.helperBaseUrl, options).catch((e) => {
         console.warn(`[chippy-bg] late-inject failed for ${origin} in tab ${tabId}: ${e.message}`);

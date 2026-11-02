@@ -1,6 +1,6 @@
 this.__AVALANCHE__ = (function() {
   "use strict";
-  var _a, _b, _c;
+  var _a, _b, _c, _d;
   const DIGITS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
   const VALUE_OF = new Int8Array(128).fill(-1);
   for (let index = 0; index < DIGITS.length; index += 1) {
@@ -3644,14 +3644,17 @@ this.__AVALANCHE__ = (function() {
     };
   }
   const atlCommitMetricsAdapter = createATLCommitMetricsAdapter();
-  function registerBuiltinPlugins() {
-    const unregister = [
-      registerContextProvider(jiraContextProvider),
-      registerCommitMetricsAdapter(atlCommitMetricsAdapter)
-    ];
-    return () => {
-      for (const fn of unregister.reverse()) fn();
-    };
+  const BUILTIN_PLUGINS = {
+    jira: () => registerContextProvider(jiraContextProvider),
+    atl: () => registerCommitMetricsAdapter(atlCommitMetricsAdapter)
+  };
+  const enabled = /* @__PURE__ */ new Map();
+  function enableBuiltinPlugins(ids) {
+    for (const id of Array.isArray(ids) ? ids : []) {
+      if (typeof id !== "string" || !Object.hasOwn(BUILTIN_PLUGINS, id) || enabled.has(id)) continue;
+      enabled.set(id, BUILTIN_PLUGINS[id]());
+    }
+    return [...enabled.keys()];
   }
   const PROBE_INTENTS = ["explain", "investigate", "change"];
   const MAX_COMMENT_LENGTH = 2e3;
@@ -3929,7 +3932,7 @@ this.__AVALANCHE__ = (function() {
     }
   }
   function evalAvalanche(command, api2, mod) {
-    var _a2, _b2, _c2, _d, _e, _f, _g, _h, _i, _j, _k, _l, _m, _n, _o, _p;
+    var _a2, _b2, _c2, _d2, _e, _f, _g, _h, _i, _j, _k, _l, _m, _n, _o, _p;
     const action = String((command == null ? void 0 : command.action) || "status");
     if (!api2) {
       return { ok: false, available: false, action, error: "__AVALANCHE__ not available" };
@@ -3961,7 +3964,7 @@ this.__AVALANCHE__ = (function() {
           const n = Number.isFinite(count) && count > 0 ? Math.floor(count) : 1;
           let res;
           try {
-            res = (_d = api2.exportLast) == null ? void 0 : _d.call(api2, n);
+            res = (_d2 = api2.exportLast) == null ? void 0 : _d2.call(api2, n);
           } catch (e) {
             return { ok: false, available: true, action, error: (e == null ? void 0 : e.message) || String(e) };
           }
@@ -4953,7 +4956,7 @@ this.__AVALANCHE__ = (function() {
       allChanges.push({ kind: "fiber-removed", fiber: publicFiber(entry), propNames: Object.keys(entry.props) });
     }
     const rankChange = (change) => {
-      var _a2, _b2, _c2, _d, _e, _f, _g;
+      var _a2, _b2, _c2, _d2, _e, _f, _g;
       if (change.kind !== "props-changed") return change.kind === "fiber-added" ? 5 : 4;
       const propRows = [
         ...(((_a2 = change.props) == null ? void 0 : _a2.added) || []).map((row) => row.after),
@@ -4962,7 +4965,7 @@ this.__AVALANCHE__ = (function() {
       ].filter(Boolean);
       const complete = propRows.some((row) => !row.truncated) ? 100 : 0;
       const primitive = propRows.some((row) => ["string", "number", "boolean", "null", "undefined"].includes(row.kind)) ? 40 : 0;
-      const sourced = ((_e = (_d = change.fiber) == null ? void 0 : _d.after) == null ? void 0 : _e.source) || ((_g = (_f = change.fiber) == null ? void 0 : _f.before) == null ? void 0 : _g.source) ? 20 : 0;
+      const sourced = ((_e = (_d2 = change.fiber) == null ? void 0 : _d2.after) == null ? void 0 : _e.source) || ((_g = (_f = change.fiber) == null ? void 0 : _f.before) == null ? void 0 : _g.source) ? 20 : 0;
       return 10 + complete + primitive + sourced;
     };
     allChanges.sort((left, right) => rankChange(right) - rankChange(left));
@@ -5141,7 +5144,10 @@ this.__AVALANCHE__ = (function() {
     };
   }
   const runtime = globalThis;
-  registerBuiltinPlugins();
+  enableBuiltinPlugins([
+    ...((_a = runtime.__CHIPPY_STARTUP_CONFIG) == null ? void 0 : _a.plugins) ?? [],
+    ...runtime.__CHIPPY_PLUGINS ?? []
+  ]);
   (function installDevtoolsShim() {
     var _a2;
     if (runtime.__REACT_DEVTOOLS_GLOBAL_HOOK__) return;
@@ -5169,7 +5175,7 @@ this.__AVALANCHE__ = (function() {
     runtime.__REACT_DEVTOOLS_GLOBAL_HOOK__ = ((_a2 = runtime.top) == null ? void 0 : _a2.__REACT_DEVTOOLS_GLOBAL_HOOK__) || hook;
   })();
   const startupConfig = runtime.__CHIPPY_STARTUP_CONFIG;
-  const __auto = !!((_a = startupConfig == null ? void 0 : startupConfig.avalanche) == null ? void 0 : _a.autoStart);
+  const __auto = !!((_b = startupConfig == null ? void 0 : startupConfig.avalanche) == null ? void 0 : _b.autoStart);
   let detector = null;
   let installed = false;
   const api = {
@@ -5227,7 +5233,7 @@ this.__AVALANCHE__ = (function() {
       return fn(componentName);
     },
     status() {
-      var _a2, _b2, _c2, _d;
+      var _a2, _b2, _c2, _d2;
       let hasMetricsGlobal = false;
       try {
         hasMetricsGlobal = !!((_a2 = getCommitMetricsAdapter()) == null ? void 0 : _a2.isAvailable());
@@ -5244,10 +5250,11 @@ this.__AVALANCHE__ = (function() {
       } catch (_) {
       }
       const integrationMode = detector ? ((_b2 = detector.getIntegrationMode) == null ? void 0 : _b2.call(detector)) ?? "none" : "none";
-      const metricsAdapter = detector ? ((_c2 = detector.getMetricsAdapterId) == null ? void 0 : _c2.call(detector)) ?? null : ((_d = getCommitMetricsAdapter()) == null ? void 0 : _d.id) ?? null;
+      const metricsAdapter = detector ? ((_c2 = detector.getMetricsAdapterId) == null ? void 0 : _c2.call(detector)) ?? null : ((_d2 = getCommitMetricsAdapter()) == null ? void 0 : _d2.id) ?? null;
       return { installed, hasMetricsGlobal, commitCount, integrationMode, metricsAdapter };
     },
     registerCommitMetricsAdapter,
+    enablePlugins: enableBuiltinPlugins,
     runPrePageHooks,
     DETECTION_LEVEL,
     replay: {
@@ -5323,14 +5330,14 @@ this.__AVALANCHE__ = (function() {
   };
   if (__auto) {
     try {
-      const requested = ((_b = startupConfig == null ? void 0 : startupConfig.avalanche) == null ? void 0 : _b.options) || {};
+      const requested = ((_c = startupConfig == null ? void 0 : startupConfig.avalanche) == null ? void 0 : _c.options) || {};
       const existingApi = runtime.__AVALANCHE__;
       const targetApi = existingApi && typeof existingApi.install === "function" ? existingApi : api;
       const alreadyInstalled = !!(targetApi.status && targetApi.status().installed);
       if (!alreadyInstalled) {
         targetApi.install({
           detectionMode: requested.detectionMode || "sources",
-          historySize: ((_c = startupConfig == null ? void 0 : startupConfig.avalanche) == null ? void 0 : _c.max) || 1e3,
+          historySize: ((_d = startupConfig == null ? void 0 : startupConfig.avalanche) == null ? void 0 : _d.max) || 1e3,
           captureFibers: requested.captureFibers !== false
         });
       }

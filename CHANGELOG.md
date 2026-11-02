@@ -24,9 +24,13 @@ must stay compatible with the extension version in the store.
   `source-search --name` finds components by name.
 - `npx @atlassian/chippy install` installs the skill and prints the extension and MCP setup.
 - CI for unit and browser tests, type checking, and staleness of committed bundles.
+- Jira and ATL support are plugins, off by default. Enable them in the Chippy
+  panel's settings or with `__AVALANCHE__.enablePlugins()`. Extension 0.4.24.
 
 ### Fixed
 
 - `avalanche-save` and `avalanche-offline` work with the current export format.
 - The skill archive includes every file the helper needs.
 - `chippy.sh` no longer passes the helper token on the curl command line.
+- `npx @atlassian/chippy install` no longer exits without installing when npx
+  starts it through a symlink.

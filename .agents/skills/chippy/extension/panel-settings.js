@@ -38,6 +38,10 @@
         label span { color: #A9ABAF; font-size: 9px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; }
         input { width: 100%; border: 1px solid rgba(148,163,184,.25); border-radius: 7px; padding: 6px 8px; background: #1F1F21; color: #CECFD2; font: inherit; }
         input:focus { outline: 2px solid #669DF1; outline-offset: 1px; }
+        fieldset { display: grid; gap: 4px; margin: 0; padding: 0; border: 0; }
+        legend { margin-bottom: 3px; padding: 0; color: #A9ABAF; font-size: 9px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; }
+        fieldset label { display: flex; align-items: center; gap: 6px; }
+        fieldset input { width: auto; margin: 0; }
         .actions { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
         button { border: 1px solid rgba(96,165,250,.35); border-radius: 7px; padding: 5px 10px; background: rgba(59,130,246,.2); color: #B8D6FF; font: inherit; font-weight: 700; cursor: pointer; }
         [data-status] { min-height: 15px; color: #86efac; font-size: 10px; text-align: right; }
@@ -52,6 +56,11 @@
           <span>Forward to port · optional</span>
           <input data-forward-port type="number" inputmode="numeric" min="1" max="65535" step="1" placeholder="Auto-detect from page URL" />
         </label>
+        <fieldset>
+          <legend>Plugins · apply on reload</legend>
+          <label><input data-plugin type="checkbox" value="jira" />Jira ownership markers</label>
+          <label><input data-plugin type="checkbox" value="atl" />ATL commit metrics</label>
+        </fieldset>
         <div class="actions">
           <button type="submit">Save settings</button>
           <div data-status role="status" aria-live="polite"></div>
@@ -63,7 +72,7 @@
   const host = document.createElement('div');
   host.setAttribute('data-chippy-settings-host', 'true');
   host.setAttribute('data-chippy-preserve', 'true');
-  host.style.cssText = 'display:block;min-height:176px;';
+  host.style.cssText = 'display:block;min-height:232px;';
   const root = host.attachShadow({ mode: 'closed' });
   const surface = document.createElement('div');
   surface.innerHTML = settingsMarkup();
@@ -72,6 +81,7 @@
   const form = root.querySelector('form');
   const helperInput = root.querySelector('[data-helper-url]');
   const forwardPortInput = root.querySelector('[data-forward-port]');
+  const pluginInputs = Array.from(root.querySelectorAll('[data-plugin]'));
   const statusNode = root.querySelector('[data-status]');
 
   function setStatus(message, isError = false) {
@@ -82,9 +92,12 @@
   chrome.storage.local.get({
     helperBaseUrl: DEFAULT_HELPER,
     forwardPort: null,
+    plugins: [],
   }).then((stored) => {
     helperInput.value = normalizeBaseUrl(stored.helperBaseUrl);
     forwardPortInput.value = stored.forwardPort || '';
+    const plugins = Array.isArray(stored.plugins) ? stored.plugins : [];
+    for (const input of pluginInputs) input.checked = plugins.includes(input.value);
   }).catch((error) => setStatus(error.message || 'Could not load settings.', true));
 
   form.addEventListener('submit', async (event) => {
@@ -101,7 +114,8 @@
     }
 
     try {
-      await chrome.storage.local.set({ helperBaseUrl, forwardPort });
+      const plugins = pluginInputs.filter((input) => input.checked).map((input) => input.value);
+      await chrome.storage.local.set({ helperBaseUrl, forwardPort, plugins });
       document.dispatchEvent(new CustomEvent('chippy-ext-command', {
         detail: { type: 'apply-config', helperBaseUrl, activated: true },
       }));

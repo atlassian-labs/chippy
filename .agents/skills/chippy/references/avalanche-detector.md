@@ -2,8 +2,9 @@
 
 Avalanche works with standard React DOM. Install the DevTools hook before React
 evaluates so the renderer registers and sends commit callbacks. A commit
-metrics adapter can add host-supplied counters; the shipped bundle registers
-the built-in ATL adapter for Atlassian's patched `react-dom`. Its metrics slot
+metrics adapter can add host-supplied counters; the shipped bundle includes
+the built-in ATL adapter for Atlassian's patched `react-dom`, off unless the
+page opts in through the Chippy panel's settings or `enablePlugins(['atl'])`. Its metrics slot
 may be seeded on an unpatched page: DevTools remains the capture owner until an
 adapter commit callback actually fires. Adapter callbacks then provide
 additional counters and own capture without a duplicate DevTools report,

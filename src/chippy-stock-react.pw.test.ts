@@ -43,14 +43,16 @@ describe('Chippy React compatibility', () => {
         const source = report.sources.find((item: any) => item.sourceId.startsWith('StockCounter#'));
         return {
           status: av.status(), commits: report.meta.commits,
-          atlCommits: (window as any).__ATL_REACT_METRICS.totalCommitCount,
+          // The ATL plugin is opt-in, so nothing seeds its metrics slot.
+          atlSlot: '__ATL_REACT_METRICS' in window,
           source: source || null,
           hook: source ? av.debugHook(source.sourceId, 0) : null,
         };
       });
       expect(result.status.integrationMode).toBe('devtools');
       expect(result.commits).toBe(4);
-      expect(result.atlCommits).toBe(0);
+      expect(result.atlSlot).toBe(false);
+      expect(result.status.metricsAdapter).toBeNull();
       expect(result.source).not.toBeNull();
       expect(result.hook).toMatchObject({ ok: true, primitive: 'State' });
     } finally { await page.close(); }

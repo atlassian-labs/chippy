@@ -118,7 +118,7 @@ first screen, and today they cannot.
 |---|---|---|
 | Repository and root package named `storybook` | Clone URL and `package.json` describe the lab, not the product | Done: the root package is `chippy` (private); the public repository is `atlassian-labs/chippy` |
 | Tracked `dist/` | See B3 | Delete and ignore (zips stay) |
-| Jira/ATL in core | See "Plugin seams" below | Extracted to `src/plugins/`; live Jira/ATL check pending |
+| Jira/ATL in core | See "Plugin seams" below | Extracted to `src/plugins/` and off by default; live Jira/ATL check pending |
 | `.agents/skills/playwright-cli/` vendored | Third-party skill checked into the tree | Done: `playwright-local` drives the lab through it; CONTRIBUTING lists it as vendored upstream |
 | `chippy:install:zip` script | Second install path with `rm -rf ~/.agents/skills/chippy` inline | Done: removed; the `npx` installer replaces it |
 | `FIXME(mine)` / `FIXME(reef)` markers (7) | Private tags; meaning unclear to contributors | Done: all converted to `TODO` |
@@ -261,7 +261,7 @@ The ATL plugin is `src/plugins/atl/`:
 
 `early-bootstrap.js` now calls `__AVALANCHE__.runPrePageHooks(cfg)`;
 `avalanche.iife.js` loads before it, so the registry is populated. The extension
-is 0.4.23. The helper routes `GET /api/pages` and `POST /api/avalanche-arm`
+is 0.4.24. The helper routes `GET /api/pages` and `POST /api/avalanche-arm`
 are unchanged. The library build no longer uses ATL by default; it exports
 `atlCommitMetricsAdapter` and `registerCommitMetricsAdapter` for hosts that
 want it.
@@ -303,7 +303,8 @@ and one sentence saying that context providers can add boundary kinds.
 
 1. ~~B1 security fix, with a wire test.~~ Done.
 2. ~~B2 rename to `@atlassian/chippy`; B3 `dist/` cleanup; browser failures; CI; the 73 type errors.~~ Done; typecheck is blocking in CI.
-3. ~~Plugin seams for Jira and ATL.~~ Done; verify on a live Jira/ATL page.
+3. ~~Plugin seams for Jira and ATL.~~ Done; both are opt-in (panel settings or
+   `enablePlugins()`). Verify on a live Jira/ATL page.
 4. ~~`npx` installer.~~ Done.
 5. ~~Skill description, route-table row for explore, documented MCP gap.~~ Done.
 6. ~~Docs: quick start, changelog, code of conduct, plugin API.~~ Done.

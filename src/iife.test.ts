@@ -44,8 +44,24 @@ describe('src/iife.ts startup behavior', () => {
     expect(mod.default.layoutLab.registerContextProvider).toBeTypeOf('function');
     // Deprecated alias read by pre-0.4.23 bridges.
     expect(mod.default.layoutLab.describeJiraContext).toBeTypeOf('function');
-    // The shipped bundle registers the built-in Jira provider.
+    // The shipped bundle enables no built-in plugin unless the page opts in.
+    expect(mod.default.layoutLab.getContextProviders().map((p) => p.id)).not.toContain('jira');
+    expect(mod.default.status().metricsAdapter).toBeNull();
+    expect(mod.default.enablePlugins(['jira'])).toEqual(['jira']);
     expect(mod.default.layoutLab.getContextProviders().map((p) => p.id)).toContain('jira');
+  });
+
+  it('enables the built-in plugins named by the startup config or __CHIPPY_PLUGINS', async () => {
+    delete (globalThis as any).__AVALANCHE__;
+    (globalThis as any).__CHIPPY_STARTUP_CONFIG = { plugins: ['atl'] };
+    (globalThis as any).__CHIPPY_PLUGINS = ['jira'];
+    try {
+      const mod = await import('./iife');
+      expect(mod.default.layoutLab.getContextProviders().map((p) => p.id)).toContain('jira');
+      expect(mod.default.status().metricsAdapter).toBe('atl');
+    } finally {
+      delete (globalThis as any).__CHIPPY_PLUGINS;
+    }
   });
 
   it('publishes declarative boundary chain and page inspection through the bundled bridge API', async () => {
@@ -67,7 +83,7 @@ describe('src/iife.ts startup behavior', () => {
   it('bootstraps devtools hook at load but defers ATL metrics to install()', async () => {
     delete (globalThis as any).__ATL_REACT_METRICS;
     delete (globalThis as any).__REACT_DEVTOOLS_GLOBAL_HOOK__;
-    delete (globalThis as any).__CHIPPY_STARTUP_CONFIG;
+    (globalThis as any).__CHIPPY_STARTUP_CONFIG = { plugins: ['atl'] };
     delete (globalThis as any).__AVALANCHE_AI__;
 
     const mod = await import('./iife');
@@ -85,9 +101,19 @@ describe('src/iife.ts startup behavior', () => {
     mod.default.uninstall();
   });
 
-  it('publishes the commit metrics adapter registry with the built-in ATL adapter', async () => {
+  it('runs no pre-page hook unless the ATL plugin is enabled', async () => {
     delete (globalThis as any).__AVALANCHE__;
     delete (globalThis as any).__ATL_REACT_METRICS;
+    delete (globalThis as any).__CHIPPY_STARTUP_CONFIG;
+    const mod = await import('./iife');
+    expect(mod.default.runPrePageHooks({ enabled: true })).toBeNull();
+    expect(Object.getOwnPropertyDescriptor(globalThis, '__ATL_REACT_METRICS')).toBeUndefined();
+  });
+
+  it('publishes the commit metrics adapter registry with the opted-in ATL adapter', async () => {
+    delete (globalThis as any).__AVALANCHE__;
+    delete (globalThis as any).__ATL_REACT_METRICS;
+    (globalThis as any).__CHIPPY_STARTUP_CONFIG = { plugins: ['atl'] };
     const mod = await import('./iife');
     expect(mod.default.registerCommitMetricsAdapter).toBeTypeOf('function');
     expect(mod.default.status().metricsAdapter).toBe('atl');

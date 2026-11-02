@@ -9,12 +9,19 @@ seams let a plugin add knowledge of a particular application:
 | Context provider | Boundary kinds, error-boundary fields, and probe card titles and fields | Jira ownership markers, `src/plugins/jira/` |
 | Commit metrics adapter | Per-commit counters and restart counts from an instrumented react-dom | ATL metrics, `src/plugins/atl/` |
 
-The bundle's composition root, `src/iife.ts`, registers the built-in plugins
-through `registerBuiltinPlugins()` in `src/plugins/index.ts`. Each one does
-nothing on a page that lacks its markers or metrics surface. The extension, the
-console import, and `@atlassian/chippy/browser` load that bundle. The standalone
-detector in `@atlassian/chippy/avalanche` registers neither; a host opts in to the
-ATL adapter itself.
+The bundle ships both built-in plugins but enables neither. The extension, the
+console import, and `@atlassian/chippy/browser` load that bundle; a page opts in
+in one of three ways:
+
+| Route | When it applies |
+| --- | --- |
+| Check the plugin in the Chippy panel's settings | From the next page load; it reaches ATL's pre-page setup |
+| Set `window.__CHIPPY_PLUGINS = ['jira', 'atl']` before the bundle loads | Console import and custom builds |
+| Call `__AVALANCHE__.enablePlugins(['jira'])` | Immediately for Jira; for ATL, from the next Avalanche install |
+
+`enableBuiltinPlugins()` in `src/plugins/index.ts` owns the list of built-in ids.
+The standalone detector in `@atlassian/chippy/avalanche` does not include the
+plugin list; a host registers the ATL adapter itself.
 
 ## Context providers
 
@@ -95,8 +102,9 @@ registerCommitMetricsAdapter(atlCommitMetricsAdapter);
 1. Put the plugin in `src/plugins/<name>/` with focused unit tests, following
    `src/plugins/jira/context-provider.test.ts` or
    `src/plugins/atl/commit-metrics-adapter.test.ts`.
-2. Register it in `registerBuiltinPlugins()` if every bundle user should get it;
-   otherwise register it from your own build or at runtime.
+2. Add it to `BUILTIN_PLUGINS` in `src/plugins/index.ts` to make it available to
+   the opt-in routes above, and add a checkbox for it in
+   `.agents/skills/chippy/extension/panel-settings.js`.
 3. Rebuild the shipped bundles with `yarn avalanche:sync` and the skill archive
    with `yarn chippy:zip`.
 4. If the plugin changes what agents see, such as a new boundary kind, document it

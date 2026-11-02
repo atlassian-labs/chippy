@@ -73,7 +73,7 @@ describe('Chippy embedded extension settings', () => {
     win.chrome = {
       storage: {
         local: {
-          get: async () => ({ helperBaseUrl: 'http://localhost:7823/', forwardPort: 6007 }),
+          get: async () => ({ helperBaseUrl: 'http://localhost:7823/', forwardPort: 6007, plugins: ['jira'] }),
           set: async (value: Record<string, unknown>) => { writes.push(value); },
         },
       },
@@ -88,15 +88,20 @@ describe('Chippy embedded extension settings', () => {
     const forwardPortInput = settingsRoot?.querySelector('[data-forward-port]') as HTMLInputElement;
     expect(helperInput.value).toBe('http://localhost:7823');
     expect(forwardPortInput.value).toBe('6007');
+    const plugin = (id: string) => settingsRoot?.querySelector(`[data-plugin][value="${id}"]`) as HTMLInputElement;
+    expect(plugin('jira').checked).toBe(true);
+    expect(plugin('atl').checked).toBe(false);
 
     helperInput.value = 'http://127.0.0.1:9000/';
     forwardPortInput.value = '6010';
+    plugin('jira').checked = false;
+    plugin('atl').checked = true;
     (settingsRoot?.querySelector('form') as HTMLFormElement).dispatchEvent(
       new win.Event('submit', { bubbles: true, cancelable: true }),
     );
     await flushTasks();
 
-    expect(writes).toEqual([{ helperBaseUrl: 'http://127.0.0.1:9000', forwardPort: 6010 }]);
+    expect(writes).toEqual([{ helperBaseUrl: 'http://127.0.0.1:9000', forwardPort: 6010, plugins: ['atl'] }]);
     expect(commands).toEqual([{
       type: 'apply-config',
       helperBaseUrl: 'http://127.0.0.1:9000',

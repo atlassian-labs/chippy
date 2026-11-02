@@ -57,7 +57,7 @@ import {
   registerContextProvider,
 } from './layout-lab/marker-context';
 import { describeJiraContext } from './plugins/jira/context-provider';
-import { registerBuiltinPlugins } from './plugins';
+import { enableBuiltinPlugins } from './plugins';
 import {
   PROBE_INTENTS,
   normalizeProbeAnnotation,
@@ -97,6 +97,8 @@ import {
 import type { DescribeComponentDeps } from './chippy-bridge/describe-component';
 
 type StartupConfig = {
+  /** Built-in plugin ids to enable before React evaluates, e.g. `['jira', 'atl']`. */
+  plugins?: string[];
   avalanche?: {
     autoStart?: boolean;
     /** Detector options applied when autoStart installs Avalanche. */
@@ -124,6 +126,8 @@ type GlobalWithChippyRuntime = typeof globalThis & {
   // Another Chippy copy may have published this, so its methods are not guaranteed.
   __AVALANCHE__?: Partial<AvalancheApi>;
   __CHIPPY_STARTUP_CONFIG?: StartupConfig;
+  /** Built-in plugin ids for pages that load the bundle without a startup config. */
+  __CHIPPY_PLUGINS?: string[];
   __REACT_DEVTOOLS_GLOBAL_HOOK__?: DevtoolsHook;
   top?: typeof globalThis & {
     __REACT_DEVTOOLS_GLOBAL_HOOK__?: DevtoolsHook;
@@ -137,8 +141,12 @@ const runtime = globalThis as GlobalWithChippyRuntime;
 const avalanchePresent = !!runtime.__AVALANCHE__;
 
 // Product-specific recognizers (Jira ownership markers, ATL commit metrics)
-// are plugins; the shipped bundle registers the built-in ones here.
-registerBuiltinPlugins();
+// are plugins. None is enabled unless the page opts in; enabling here, before
+// early bootstrap calls runPrePageHooks(), lets an adapter's pre-page setup run.
+enableBuiltinPlugins([
+  ...(runtime.__CHIPPY_STARTUP_CONFIG?.plugins ?? []),
+  ...(runtime.__CHIPPY_PLUGINS ?? []),
+]);
 
 // Do NOT seed a commit metrics adapter's host surface at bundle-load time.
 // The host page owns that surface and defines/deletes it on its own
@@ -193,6 +201,8 @@ type AvalancheApi = {
     metricsAdapter: string | null;
   };
   registerCommitMetricsAdapter: typeof registerCommitMetricsAdapter;
+  /** Enable built-in plugins (`'jira'`, `'atl'`); returns the enabled ids. */
+  enablePlugins: typeof enableBuiltinPlugins;
   runPrePageHooks: typeof runPrePageHooks;
   DETECTION_LEVEL: typeof DETECTION_LEVEL;
   replay: {
@@ -338,6 +348,7 @@ const api: AvalancheApi = {
     return { installed, hasMetricsGlobal, commitCount, integrationMode, metricsAdapter };
   },
   registerCommitMetricsAdapter,
+  enablePlugins: enableBuiltinPlugins,
   runPrePageHooks,
   DETECTION_LEVEL,
   replay: {
