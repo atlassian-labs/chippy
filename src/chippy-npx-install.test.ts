@@ -63,7 +63,8 @@ describe('npx chippy install', () => {
     const target = join(scratch(), 'chippy');
     const output = execFileSync(process.execPath, [BIN, 'install', '--dir', target], { encoding: 'utf8' });
     expect(output).toContain(`Installed the Chippy skill to ${target}`);
-    expect(output).toContain('chromewebstore.google.com');
+    expect(output).toContain(join(target, 'extension'));
+    expect(existsSync(join(target, 'extension', 'manifest.json'))).toBe(true);
     expect(existsSync(join(target, 'scripts', 'chippy-mcp.cjs'))).toBe(true);
     expect(existsSync(join(target, 'scripts', 'chippy.sh'))).toBe(true);
   });

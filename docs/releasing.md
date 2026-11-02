@@ -30,7 +30,9 @@ logs, and test captures out of distributed artifacts.
 
 ## Publish
 
-Upload the extension archive through the project's Chrome Web Store owner.
+There is no public Chrome Web Store listing yet; users load the skill's
+`extension` folder unpacked. When a listing exists, link it from the README and
+the installer, and upload the extension archive through its owner.
 Store publication and the Atlassian skills-registry sync are independent of
 bundle generation; the registry copy must preserve its extra frontmatter and
 bump `metadata.version`. Follow the [registry release procedure](../.agents/references/skills-registry-release.md)

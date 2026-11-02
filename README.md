@@ -52,10 +52,10 @@ pass `--force`. It then prints the extension link, the MCP configuration with th
 resolved path, and whether the helper is running. `./install-chippy-skill.sh`
 remains as a copy-only alternative for a checkout.
 
-Install
-the [Chrome extension](https://chromewebstore.google.com/detail/chippy-probe-bridge/kepelkhpdcpkkjcdaoimblcpnimppnfj),
-or load `.agents/skills/chippy/extension` through **Load unpacked** in your browser's
-extension developer mode when using the checkout's assets.
+Install the browser extension: turn on developer mode on your browser's
+extensions page, choose **Load unpacked**, and select the `extension` folder of
+the installed skill (`~/.agents/skills/chippy/extension` by default) or
+`.agents/skills/chippy/extension` in a checkout.
 
 The agent uses the installed [skill](.agents/skills/chippy/SKILL.md) to start the
 helper, select the connected page, and read probe evidence. Helper commands are

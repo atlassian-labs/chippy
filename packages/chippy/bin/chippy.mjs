@@ -7,7 +7,6 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const PACKAGE_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const EXTENSION_URL = 'https://chromewebstore.google.com/detail/chippy-probe-bridge/kepelkhpdcpkkjcdaoimblcpnimppnfj';
 const HEALTH_URL = 'http://127.0.0.1:7823/__chippy/health';
 
 export function defaultSkillDir() {
@@ -71,8 +70,9 @@ async function main(argv) {
   const mcp = join(skillDir, 'scripts', 'chippy-mcp.cjs');
   process.stdout.write(`Installed the Chippy skill to ${skillDir}
 
-1. Install the browser extension:
-   ${EXTENSION_URL}
+1. Install the browser extension: turn on developer mode on your browser's
+   extensions page, choose Load unpacked, and select
+   ${join(skillDir, 'extension')}
    Without it, run this in the page's console after the helper starts:
    import('http://127.0.0.1:7823/__chippy/inject.mjs')
 

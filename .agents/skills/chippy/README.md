@@ -75,7 +75,7 @@ Chippy supports three page-side integrations:
 
 On extension-owned pages, Chippy starts as a small bottom-corner launcher. Expanding it reveals one unified panel with compact `P1 — drag to source` and `P2 — drag to source` rows that act as both dock and probe detail. Dragging a probe out keeps the panel expanded; once placed, the probe is document-anchored and follows its target during page scroll. Helper and optional forward-port settings live behind its gear. Probe and connection updates patch existing controls in place, so drafts, focus, and the settings form survive ordinary refreshes. Active probes commit their annotation when the intent changes or Enter is pressed in the comment; Shift+Enter inserts a newline. The toolbar popup shows the Chippy mark and name with Enable and Disable for the current origin. Storybook is the intentional exception: its details live in the manager panel, so its preview frame retains a standalone probe dock.
 
-Install the [Chippy browser extension from the Chrome Web Store](https://chromewebstore.google.com/detail/chippy-probe-bridge/kepelkhpdcpkkjcdaoimblcpnimppnfj) when the extension workflow fits. The module-import and Playwright recipes live in [playwright-cli-setup](references/playwright-cli-setup.md).
+When the extension workflow fits, load this skill's `extension` folder through **Load unpacked** in the browser's extension developer mode. The module-import and Playwright recipes live in [playwright-cli-setup](references/playwright-cli-setup.md).
 
 From the Chippy skill directory, start the helper and verify the connection:
 

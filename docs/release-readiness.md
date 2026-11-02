@@ -193,7 +193,7 @@ npx @atlassian/chippy install [--dir <path>] [--force]
 
 It copies the bundled skill (`dist/mcp-skill/`) to `~/.agents/skills/chippy` or
 `--dir`, replaces an earlier Chippy install, and refuses any other existing
-directory unless `--force` is given. It prints the Chrome Web Store link, the
+directory unless `--force` is given. It prints the load-unpacked extension path, the
 console-import fallback, the MCP configuration with the resolved path, and
 whether the helper answers `/__chippy/health`. The usage text reads the package
 name from `package.json`.
