@@ -4,18 +4,13 @@ Use Avalanche to capture React commit evidence in your own application or tests.
 The standalone detector needs no Chippy extension, agent, local helper, or
 Storybook. Browser and Storybook entry points add Chippy's agent integration.
 
-## Install from this repository
-
-From the repository root, build and pack the library:
+## Install
 
 ```sh
-yarn chippy:library:build
-cd packages/chippy
-npm pack
+npm install --save-dev @atlassian/chippy
 ```
 
-Install the resulting `atlassian-chippy-0.1.0.tgz` in your application. This package is not
-yet published to npm. Node.js 22.12+ is required for the package tooling.
+Node.js 22.12+ is required for the package tooling.
 
 ## Standalone Avalanche
 

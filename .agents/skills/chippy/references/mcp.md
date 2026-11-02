@@ -24,7 +24,7 @@ do not expand `~`.
 
 Node.js 22.12+ is required. The executable bundles its MCP dependencies and their
 licenses; the installed skill needs no `npm install`. The Chippy npm library also
-includes the `chippy-mcp` executable, usable after installing its local tarball.
+includes the `chippy-mcp` executable.
 Host configuration syntax varies; the example shows the command and arguments
 that the host must launch, not a file Chippy installs into your host.
 

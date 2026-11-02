@@ -39,14 +39,6 @@ the package's installer:
 npx @atlassian/chippy install
 ```
 
-Until the package is published, build and run the installer
-from a clone of this repository:
-
-```sh
-yarn chippy:library:build
-node packages/chippy/bin/chippy.mjs install
-```
-
 This installs the self-contained agent skill at `~/.agents/skills/chippy` and
 replaces an earlier Chippy install. Pass `--dir <path>` to install elsewhere; the
 installer refuses to replace a directory that is not a Chippy skill unless you
@@ -104,8 +96,7 @@ as part of an authorized task; verification returns to the same runtime signal.
 The [Chippy npm package](packages/chippy/README.md) exposes standalone Avalanche
 capture through `@atlassian/chippy/avalanche`, early React integration through
 `@atlassian/chippy/bootstrap`, agent connection through `@atlassian/chippy/browser`, and the addon
-through `@atlassian/chippy/storybook`. Build and install its tarball from this repository;
-it is not yet published to npm. Standalone Avalanche needs no helper or extension.
+through `@atlassian/chippy/storybook`. Standalone Avalanche needs no helper or extension.
 
 ## Explore and contribute
 

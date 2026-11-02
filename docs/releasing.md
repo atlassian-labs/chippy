@@ -35,9 +35,7 @@ There is no public Chrome Web Store listing yet; users load the skill's
 the installer, and upload the extension archive through its owner. Store
 publication is independent of bundle generation.
 
-The library can be installed from its tarball. npm publication is a separate
-owner action; confirm an available package name and publishing account before
-publishing it. The current package is not published to npm.
+npm publication of `@atlassian/chippy` is a separate owner action.
 
 ## Public repository readiness
 
