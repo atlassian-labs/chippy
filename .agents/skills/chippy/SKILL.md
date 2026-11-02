@@ -1,0 +1,326 @@
+---
+name: chippy
+description: Debug a running React page with live runtime evidence. Use to explore components (find by name, text, test id, file, or prop; explain structure and hooks), debug where an element, value, prop, or loading/error boundary comes from, compare two rendered states or pages, and investigate slow interactions, re-renders, and initial load with Avalanche commit capture. Connects through the Chippy browser extension or an injected bundle and a local helper; not for static code review without a running page.
+allowed-tools: Bash(chippy.sh:*)
+---
+
+# Chippy
+
+Chippy is a React debugger and a friendly one: it reads the running page so you
+can explore, debug, compare, and investigate with evidence instead of guesses,
+then helps the user understand what happened, find the cause, and fix it.
+
+| Verb | Ask it | Start with |
+|---|---|---|
+| Explore | What renders here, and what is inside it? | `find-fibers`, `explain-component` |
+| Debug | Where does this element, value, or boundary come from? | `probe-owners`, `probe-props`, `probe-boundaries` |
+| Compare | What changed between two states or pages? | `fiber-state-capture` → `fiber-state-compare` |
+| Investigate | Why is this slow or re-rendering? | `avalanche-arm`, `reload-with-avalanche` |
+
+Use the running page as evidence. Connect visible React behavior to exact source, explain what the evidence proves, and verify any edit against the same signal.
+
+## Start every task
+
+1. Resolve this skill's absolute path; do not assume the current repository contains a relative copy. Prefer available Chippy MCP tools when permitted by the host; otherwise run this skill's `scripts/chippy.sh`.
+2. With MCP available, use `chippy_status` → `chippy_pages` → `chippy_snapshot` (refresh, then read). MCP starts/reuses the helper automatically; follow [MCP setup and tools](references/mcp.md). MCP covers inspection, Avalanche capture and analysis, interaction, and annotation waits; compare (`fiber-state-*`), `page-boundaries`, `avalanche-arm`, `reload-with-avalanche`, and `recipes` are CLI-only, so use `scripts/chippy.sh` for them. Otherwise run `health` → `pages` → `request-snapshot <clientId>`; helper-contacting shell commands must run outside the agent sandbox. The agent owns helper startup and command execution.
+3. Select the page by URL, title, integration identity, and recency. Resolve a fresh `clientId` every turn; a reload or navigation can replace it. When two pages match closely, ask which page is in scope.
+4. Use the first read-only signal to leave ❓ Disorder and name the Cynefin domain. Then iterate with OODA inside that domain: observe one fact, orient it to the invariant and proof gap, decide one permitted move, act, and observe again.
+5. Choose the narrowest route below. Do not edit until the proof packet names the fix layer and a repeatable verification command.
+
+`health`, `pages`, `request-snapshot`, and reads of existing probe state are orientation. Active stimuli, diagnosis, and source edits are not.
+
+When an extension-connected page already has the target state, work there first. Use Playwright only when automation or replay is required, the user asks for it, or the connected page cannot provide the evidence.
+
+## Route by question
+
+Before `explain-component`, `describe-component`, or `inspect-fiber-structure`, run the [debug replay preflight](references/active-stimulus.md#debug-replay-preflight): name the exact target, disclose that replay can execute component and hook bodies, and use fiber-only summaries/props/owners instead when render-time execution is unsafe or cannot be accepted.
+
+| Question or symptom | First route | Completion signal |
+|---|---|---|
+| What is Chippy's recipe for a task, symptom, command, or recovery path? | `recipes <query...> [--limit N]`; load only the returned canonical references when more detail is needed | The top record gives an executable answer, completion signal, guardrail, and deeper reference without loading the full recipe corpus. |
+| Which components match a name, text, test id, source file, or prop? | `find-fibers <clientId> --name … / --text … / --testid … / --file … / --prop …` → `explain-component` or `inspect-fiber-props` on a returned `fiberId` | Matching fibers are listed with `fiberId`, component name, source, and owner. If `count` equals `--max`, narrow the filter or raise `--max` before treating the list as complete. |
+| Where does this visible element or value come from? | `probe-dom` → `probe-owners` → `probe-props` / `probe-prop-value` → open the reported file and line | Component, file, line/render block, and forwarding hops are named. |
+| Walk the React fiber path from a probe or fiber | `probe-parents <clientId> <probeId>` for the `fiber.return` parent chain; use `explain-component <probeId>` → `inspect-fiber-parents <fiberId>` when starting from a remembered fiber | Parent/return-chain entries are named with hook counts, prop names, source/test-id context, or the exact runtime gap. `probe-owners` reads debug-build `_debugOwner`; do not use it as a production route. |
+| Which loading/error boundaries contain this target or partition the whole page? | `probe-boundaries <clientId> <probeId>` for the complete inner→outer chain; `page-boundaries <clientId>` for the page-wide boundary-only forest; `inspect-fiber-boundaries` for a remembered fiber | Every Error/Suspense boundary is reported with nesting distance, source, DOM block, `fiberId`, and current Suspense content/fallback state; `truncated: false` proves the requested view was complete. |
+| What is inside this component? | `explain-component`; use `describe-component` for the detailed hook tree | The component's structure is described, with replay status and warnings disclosed. |
+| What changed between two rendered states or pages? | `fiber-state-capture` before and after → `fiber-state-compare` | The bounded diff names matched fibers and added, removed, or changed props without returning either full capture. |
+| Why is an interaction slow or re-rendering? | `avalanche-arm` → reproduce the interaction → `avalanche-status` → hot sources / commit list / commit peek | Trigger, hotspot, collateral, and fix layer are distinguished. |
+| Why is initial load slow? | `reload-with-avalanche` → status / hot sources / commit analysis | The measured load window is bounded and repeatable. |
+| Is this subtree stable? | Load [stability-render](references/stability-render.md) and run one controlled nudge | The capture yields clean, leak, leak+cascade, or trasher evidence. |
+| Which hook is suspicious? | Use `avalanche-debug-hook` only after a capture identifies `sourceId + hookIndex` | Primitive/custom-hook ownership and next remediation branch are named. |
+| Are state dispatches or memo/effect recomputations driving the cost? | Load [hook-metrics](references/hook-metrics.md) | A before/after counter or tracker result is joined to the same interaction. |
+| Does the task require browser automation? | Load [playwright-cli-setup](references/playwright-cli-setup.md) for ad-hoc work or [test-mode-playbook](references/test-mode-playbook.md) for scripted/CI loops | The same interaction and structured evidence can be replayed. |
+| Is the page production/minified? | Load [jira-taxonomy](references/jira-taxonomy.md) after DOM/test-id/source facts are exhausted | The result is bounded by the available production evidence. |
+| Is connection, injection, or capture broken? | Load [troubleshooting](references/troubleshooting.md) | The failing layer and one recovery action are explicit. |
+| Should the current task wait for a newly attached browser intent? | `wait <clientId> [timeoutSeconds]`; after handling one annotation, wait again only while the user-requested loop remains active | One annotation event is returned with its probe subject, intent, and comment, or the bounded wait times out. |
+
+Use [bdd-router](references/bdd-router.md) when the situation needs the complete situation-to-procedure matrix. Use [procedures](references/procedures.md) only after the router selects a procedure.
+
+## Evidence and edit gates
+
+### Treat runtime facts as facts
+
+- A probe identifies one exact DOM element rendered by one bundle. Its source location, fiber, owner chain, and marker coordinates are facts for that snapshot.
+- Open `source.fileName` at `lineNumber` directly once it is an authored path. On React 19, an initial `http(s)` module URL is the generated fallback; read the following `*-source-resolved` snapshot or run `describe-component` before treating its line as a repository position. Do not grep for a file the probe already identified. Search is the last resort after the runtime-to-source chain is exhausted.
+- Development source metadata is version-dependent: React <=18 supplies `_debugSource`; React 19 supplies `_debugStack`. Chippy filters dependency frames, fetches the served module in the page realm, decodes its inline or external source map, and republishes the authored file/line. Absence of `_debugSource` alone is not production evidence.
+- Read every returned field. Props, owner indices, keys, test IDs, hook counts, and source locations can each change the next move.
+- Static source proves what code can do. Runtime evidence proves what happened in this run. Never promote code shape, a global's presence, or a hot component into a runtime cause.
+- Screenshots confirm appearance; they do not replace probe, fiber, action, or commit evidence.
+
+### Keep the proof loop bounded
+
+Every case follows **Mise en Place → Observe → Define → Prove → Maybe Apply → Verify**:
+
+- **Mise en Place:** stage the exact page and state, confirm helper connection, and select the first read-only signal.
+- **Observe:** name the live page, probe, fiber, interaction, load window, or measured signal.
+- **Define:** state the case, invariant, domain, scope, and missing fact.
+- **Prove:** repeat bounded OODA moves until runtime, structure, source, and signal evidence agree or the exact gap is known.
+- **Apply:** edit source only when user intent permits it and the proof packet identifies the fix layer, expected change, and repeatable verification.
+- **Verify:** reproduce the same signal after HMR or reload. Automated work compares structured outputs, not one screenshot.
+
+OODA **Act** is an evidence move; it is not Chippy **Apply**. Load [operating-model](references/operating-model.md) for the proof-packet and per-domain confidence contracts, and [cynefin](references/cynefin.md) for domain-specific moves.
+
+### Ask before crossing these boundaries
+
+- Before source edits, state in plain language what the probe resolved to, which layer the edit affects, and how the same signal will verify it.
+- Before `page-click`, `fiber-invoke`, `fiber-schedule-update`, or `stability-nudge`, state the anchor contract: exact target, exact stimulus, and what becomes polluted or ambiguous afterward.
+- Before `fiber-invoke`, prove the callback contract with `fiber-prop-contract` and source inspection. Never infer callback arguments from a prop name.
+- When `confidence` is low or a probe resolves to `null`, request a fresh snapshot or refresh. Do not guess.
+
+### Never substitute an easier-looking signal
+
+- Do not mutate the running page instead of editing source.
+- Do not create temporary globals or monkeypatch product behavior to answer an inspection question. Use documented commands or report the capability gap.
+- Do not use ad-hoc Python, Node, jq reducers, or new snippets over Chippy output to answer inspection questions that existing commands cover. Use `probe-parents` / `inspect-fiber-parents` for `fiber.return` walking, `probe-owners` / `inspect-fiber-owners` for `_debugOwner`, and prepared command views first. Extracting one transport field for an automation harness is fine. If those commands prove a reusable evidence reduction is absent, add a first-class command or report the gap.
+- Do not call a performance hotspot a trigger without causal evidence. Separate **trigger**, **hotspot**, and **collateral**.
+- Do not clear probes, captures, or instrumentation while they remain the evidence anchor for an open investigation.
+
+## React compatibility
+
+Chippy requires no React or React DOM package patch. Avalanche uses DevTools
+commit callbacks until a callback from an optional commit metrics adapter (the
+built-in one is ATL) proves that host instrumentation is live; a seeded metrics
+object alone does not establish support. Both callback orders produce one
+capture per commit, with adapter counters preserved when supplied. Patch-specific
+render/restart counters and dispatch/recompute metrics remain optional evidence.
+React must see the DevTools hook when its renderer evaluates for commit capture
+and dispatcher-backed replay; importing Chippy afterward cannot retroactively
+register a renderer. Use fiber-only reads when that integration is unavailable.
+
+## Connection and bootstrap
+
+Chippy has a local helper and one page-side integration. `chippy_pages` or
+`chippy.sh pages` is connection truth. The optional stdio MCP adapter manages
+helper startup without a shell command; it needs host access to the browser's
+network environment. Closing an MCP session preserves the shared helper.
+
+| Integration | Owner | Reload behavior |
+|---|---|---|
+| Browser extension | Chippy extension | Re-injects automatically for enabled origins. |
+| Console/module import | The current document | Full reload/navigation removes Chippy; run the import again. |
+| Storybook addon | Storybook preview annotations | `page-reload` uses Storybook `FORCE_REMOUNT` to remount the SUT without reloading the preview iframe. |
+
+The extension toolbar popup shows the Chippy mark and name with Enable and Disable for the current origin. The in-page UI starts as one small bottom-corner Chippy button. Expand it to reveal compact `P1 — drag to source` and `P2 — drag to source` rows; each row is the probe's dock and expands into its details once placed. Dragging a probe out keeps the panel expanded, and a placed probe is document-anchored so it moves with its target during page scroll. The gear contains the helper URL and optional forward-port settings. Routine probe and connection updates patch the existing panel controls in place, including the content-script-owned settings form; they do not replace the panel subtree. Active probes commit their annotation when the intent changes or Enter is pressed in the comment; Shift+Enter inserts a newline. Storybook intentionally keeps its probe dock in the preview because its details panel lives in the manager frame.
+
+Each connected page reports `integration.kind`, `who`, `source`, `reinjectsOnReload`, and `reloadAction`. Use those fields instead of inferring how Chippy arrived.
+
+The browser extension is the **default fallback**. Any explicitly user-driven owner (`integration.kind !== 'extension'`, e.g. the Storybook addon or a console import) outranks it: when a live owner already holds `window.__CHIPPY_OWNER__`, the extension **stands down** — it writes no config, does not set `activated`, and injects no bundle, recording `window.__CHIPPY_BLOCKED__` instead. The extension only takes over when no live owner exists or the owner is stale past its `staleAfterMs`. So on a Storybook page the addon wins and `pages` should report the `storybook` integration, not `extension`. When the extension *does* own a page it stamps `window.__CHIPPY_OWNER__` with its own identity, so `pages` reports `integration.kind: 'extension'` and never `null`.
+
+For a user-controlled page without the extension, run this in the browser console:
+
+```js
+import('http://127.0.0.1:7823/__chippy/inject.mjs')
+```
+
+The single `import(...)` is all that is needed: the ESM bootstrap installs Chippy, loads the Avalanche bridge runtime (so fiber-backed reads and captures work immediately — no second asset), and activates probes for the current document. It renders no in-page control panel/overlay. After reload or navigation, import again.
+
+For extension-free pages where reload destroys Chippy (e.g. a production page using console import), **do not use `reload-with-avalanche`**. The correct workflow is mid-page capture: import Chippy once, install/arm Avalanche on the live page (`avalanche-install` or `avalanche-arm`), then trigger a controlled render stimulus such as `fiber-schedule-update` / the stability nudge. `reload-with-avalanche` is only for reload-surviving integrations such as the extension or Storybook addon. On Storybook, its reload step is a `FORCE_REMOUNT` of the current SUT, not an iframe navigation.
+
+The helper serves matching source maps alongside its Avalanche bundles; browser
+developer tools can resolve the runtime frames without missing-map requests.
+
+For Playwright-controlled pages, use [playwright-cli-setup](references/playwright-cli-setup.md). The classic fallback requires `inject.js` followed by `avalanche.iife.js`; `bridge module not loaded` means the second asset is missing.
+
+### Explicit wait mode
+
+`wait <clientId> [timeoutSeconds]` performs one cancellable long poll inside the current agent turn. It consumes the oldest queued `marker-annotation-change` event for that page, or waits for the next one. A timeout is an ordinary empty result, not a failure. When the user explicitly requests a loop, handle the returned annotation and invoke `wait` again; stop when the task is interrupted or the user ends loop mode.
+
+Chippy owns only its browser integration, helper queue, and explicit commands. It must not discover, install, edit, merge, or depend on Codex, Cursor, Claude, or other host lifecycle hooks. If an environment cannot keep an ordinary tool call open, report that capability gap instead of taking over host configuration.
+
+### Runtime globals
+
+Only these globals are public Chippy state:
+
+| Global | Meaning |
+|---|---|
+| `window.__CHIPPY` | Chippy core is loaded. |
+| `window.__AVALANCHE__` | Avalanche and bridge-backed capabilities are loaded. |
+
+Global presence proves loading, not behavior. Verify callbacks and integrations through page summaries, command output, probe output, commit count, or another observed state transition. Do not use lowercase variants or `window.__chippyPageBridge` as a top-level success signal.
+
+## Command surface
+
+Run commands from the skill directory as `./scripts/chippy.sh <command> [args]`. Every command that contacts the helper must run outside the sandbox. Do not ask the user to run it. Do not append `&` to `start`; the wrapper manages background startup.
+
+The public shell contract is:
+
+```text
+start | stop | health | inject-url
+recipes <query...> [--limit N]
+pages [slice] | recent-pages | page <clientId> [slice]
+snapshot <clientId> [slice] | request-snapshot <clientId>
+wait <clientId> [timeoutSeconds]
+activate <clientId> | deactivate <clientId>
+context-ui <clientId> <on|off>   (jira-ui: deprecated alias)
+ensure-probes <clientId> | clear-probes <clientId>
+show-status <clientId> <text> | hide-status <clientId>
+command <type> [clientId]
+
+get-computed-style <clientId> <probeId> [parentLevel] [selector]
+probe-dom <clientId> <probeId> [parentLevel]
+probe-parents <clientId> <probeId> [max]
+probe-boundaries <clientId> <probeId> [max]
+probe-owners <clientId> <probeId>
+probe-owner <clientId> <probeId> <ownerIndex>
+probe-props <clientId> <probeId> [ownerIndex]
+probe-prop-value <clientId> <probeId> <propName> [ownerIndex]
+probe-hooks <clientId> <probeId>
+probe-hooks-summary <clientId> <probeId>
+
+page-click <clientId> <selector|probeId|fiberId>
+fiber-prop-contract <clientId> <fiberId> <propName>
+fiber-invoke <clientId> <fiberId> <propName> [--args JSON]
+fiber-schedule-update <clientId> <fiberId> [--ownerIndex N]
+find-fibers <clientId> [--name regex] [--file regex] [--prop name] [--testid regex] [--text regex] [--max N]
+fiber-state-capture <clientId> [label] [maxFibers]
+fiber-state-list
+fiber-state-compare <beforeCaptureId> <afterCaptureId> [maxChanges]
+page-boundaries <clientId> [max]
+inspect-fiber-hooks <clientId> <fiberId>
+inspect-fiber-hooks-summary <clientId> <fiberId>
+inspect-fiber-props <clientId> <fiberId>
+inspect-fiber-owners <clientId> <fiberId>
+inspect-fiber-parents <clientId> <fiberId> [max]
+inspect-fiber-boundaries <clientId> <fiberId> [max]
+inspect-fiber-structure <clientId> <fiberId> <hookIndex> [windowSize]
+explain-component <clientId> <probeId|fiberId|name> [--text|--json|--complexity]
+describe-component <clientId> <fiberIdOrName> [--text|--json]
+
+avalanche-clear <clientId>
+avalanche-status <clientId>
+avalanche-export <clientId> [lastN]
+avalanche-hot-sources <clientId> [limit]
+avalanche-commit-list <clientId> [top] [by]
+avalanche-commit-peek <clientId> <commitId> [include] [depth] [maxItems]
+avalanche-describe-action <clientId> <actionId>
+avalanche-install <clientId> [detectionMode]
+avalanche-recapture <clientId> [detectionMode]
+avalanche-debug-hook <clientId> <sourceId> <hookIndex> [window]
+avalanche-save <clientId> <file> [count]
+avalanche-offline <file> <summary|commit-list|commit-peek|hot-sources|describe-action|source-search> [args...]
+avalanche-arm <clientId> <origin> [maxCommits] [captureFibers=true|false] [detectionMode=sources|full|stats|amplifiers]
+avalanche-disarm <clientId> <origin>
+reload-with-avalanche <clientId> <origin> [maxCommits] [timeoutMs] [settleMs] [captureFibers=true|false] [detectionMode=sources|full|stats|amplifiers]
+
+eval-page <clientId> <snippet-file-or-name> [--key value ...]
+eval-snippets
+page-reload <clientId>
+page-wait-reload <clientId> [timeoutMs]
+handoff-to-playwright <clientId> [url] [probeIdsCsv] [browserName] [headless]
+proxy-state | proxy-start <targetPort> [originalUrl] | proxy-stop
+```
+
+`recipes` is a local, dependency-free search over `references/recipes.txt`; it does not contact the helper or page. The corpus keeps one complete recipe per line for direct `rg`/`grep` lookup. The command streams the corpus twice to compute a BM25-style rank with prefix and one-edit typo matching, retains only the requested top results, defaults to five, and accepts limits from 1 through 20.
+
+For before/after investigation, run `fiber-state-capture` in each state, including on different connected pages, then compare the returned `state:*` ids. Captures fingerprint every named fiber's props and stay inside helper memory; commands return only capture summaries and a bounded structural diff. Matching first uses structural ancestry and then a unique component/source/key token when wrappers differ. Function props compare by name and arity, not closure identity. Captures are read-only, survive page navigation or disconnect while the helper remains running, and are evicted oldest-first after 20 entries.
+
+Use [command-surface](references/command-surface.md) to select a command and understand important modes. Use [command-output-formats](references/command-output-formats.md) when exact JSON or response semantics matter. The shell wrapper's `help` output is the mechanical signature check.
+
+## Probe and fiber interpretation
+
+- Normalize `1`, `P1`, and `p1` to probe 1; likewise for probe 2.
+- P1 and P2 are user-placed DOM markers. P3 is computed only when both are placed and represents their nearest shared DOM-backed fiber.
+- Every marker snapshot carries `intent: "explain" | "investigate" | "change" | null` and `comment: string`. Read these before routing the question: the developer attached them to the exact probed subject. Preserve the comment's wording, but treat it as request context rather than runtime evidence. An attached `change` intent does not independently authorize work beyond the current task.
+- Probe annotations travel with snapshots and are also queued when the page publishes `marker-annotation-change`. They do not wake an idle task; `wait` works by keeping an explicitly requested tool call open inside the current turn.
+- `nearestTestId` is the nearest `data-testid` ancestor, including the element itself. It may be `null`.
+- Read a resolved marker in this order: `nearestTestId` → confidence/note → DOM source → component source/name/key → props/prop names → hook count → owners → parents/component stack → matched styles.
+- `ownerIndex` is positional: `0` is the immediate owner, `1` its owner, and so on. Do not address owners by a possibly repeated display name.
+- If a probe lands on a wrapper, overlay, icon, or container, walk deterministically. Use `probe-dom [parentLevel]` for DOM ancestors, `probe-parents` for the React `fiber.return` chain, and `probe-owners` only for `_debugOwner` ownership. Do not replace coordinate truth with guessed intent.
+- When `markers[id].context` is non-null (deprecated alias `jiraContext`), read its `boundaries` after the generic component/source evidence: `{ error, suspense, ... }`, each with a `distance` (fiber hops from the probe). `error` and `suspense` are fiber-native React primitives and appear on any React page. Registered context providers can add boundary kinds; the built-in Jira provider adds `owner`, the Jira semantic/team owner (not the React render owner). Each block is clickable and reports an `inspect-boundary` signal to the backend (surfaced as `lastInspectedBoundary`). Both the in-page panel and the Storybook addon render the same three boundaries.
+- Snapshot boundary cards remain a compact nearest-boundary view. Use `probe-boundaries` when the full rendered parent chain matters, and `page-boundaries` when the question is page partitioning rather than one leaf. These commands are read-only and do not use debug replay.
+
+For a value trace, use this chain once:
+
+```text
+probe-dom → probe-owners → probe-props / probe-prop-value → exact source file:line
+```
+
+When `hookCount > 50`, `parents > 50`, or `matchedStyles > 20`, map structure before drilling in. Use `explain-component` for the compact view and `describe-component` for the detailed hook listing. Both may attempt dispatcher-based debug replay, which executes component and hook bodies without scheduling an application update; check `replayStatus` and `warnings`. When replay is unavailable, the commands degrade to fiber-only evidence. Collapse repeated hook families unless the user asks for every hook.
+
+## Performance evidence
+
+Choose capture mode from the symptom:
+
+| Symptom | Capture | Important boundary |
+|---|---|---|
+| Slow click, typing, scroll, route interaction, or live re-render | `avalanche-arm`, then reproduce, then read | Do not reload; capture the real interaction. |
+| First paint, cold start, or initial-load settling | `reload-with-avalanche` | It reloads and may lose early commits; tune the settle window before blaming injection timing. |
+
+Read broad to narrow: `avalanche-status` → `avalanche-hot-sources` → `avalanche-commit-list` → one `avalanche-commit-peek`. Do not open the full export first.
+
+Arm before the user or harness performs the slow interaction. Probes drill into the captured wave afterward; do not make probe placement a prerequisite for starting the recorder.
+
+`latestAction` is a clue, not causality. A confirmed root cause needs a source-to-collateral chain or source code that proves the update origin. Unmount and Suspense fields are branch signals; report DOM regions before wrapper names when the question is about DOM teardown.
+
+Use `detectionMode=full` when `commit-peek include=rendered` or per-component render evidence is required. `sources` and `stats` do not populate `renderedByCommit`. If broad triage began in the default `sources` mode, run `avalanche-recapture <clientId> full`, reproduce the identical interaction, and only then read rendered fields. Load [avalanche-detector](references/avalanche-detector.md) for exact schemas and [fixing-performance](references/fixing-performance.md) for fix-layer selection.
+
+## Snippets and active stimuli
+
+`eval-page` executes a version-controlled snippet from `snippets/` in the page realm and returns a circular-safe JSON envelope. It uses helper HTTP/WebSocket transport; Playwright is not required.
+
+- Prefer a snippet for one-off probes, reproducible procedures, or composed stimuli.
+- Promote a reusable, round-trip-sensitive capability to the bridge and keep its procedure in a snippet.
+- Read-only snippets may inspect fibers and page state. Stateful or active snippets must document their ownership and anchor contract.
+- `stability-nudge` schedules one extra render via the first-class `fiber-schedule-update` capability. It does not mutate a hook or prop, but the extra commit and any effects it runs are the stimulus.
+- `hook-tracker` owns the host `onHookUpdate` callback until uninstall and persists state on `window.__CHIPPY_HOOK_TRACKER`.
+
+Use [snippets/README.md](snippets/README.md) for the snippet contract and catalog.
+
+## Report and stop
+
+Every finding uses this shape:
+
+```text
+📏 probe resolved to: <ComponentName> @ <file>:<line>
+   value source: <prop/hook/selector/fragment> from <OwnerName> @ <file>:<line>
+   domain: ✅ clear | 🔍 complicated | 🌀 complex | 🔥 chaotic
+   confidence: confirmed | likely | partial
+   next gap: <exact missing fact, or "none">
+```
+
+`confirmed` belongs to Clear or Complicated evidence. Complex evidence is `likely` only when the same safe-to-fail experiment is repeatable; `partial` never passes the Apply gate. Chaotic and Disorder cases cannot pass the gate.
+
+Chippy is terse, factual, and warm. Use the house emojis only when they add signal: 📏 measuring, ✂️ editing, 🤓 following a rule, 📋 checking permission, 🙈 clean integration, 🚫 declining out-of-scope work, 👷 flagging risky work. Plain language goes to the user; fibers and hook slots stay in the internal evidence trail unless the user is developing Chippy itself.
+
+Stop when the requested answer is proven, the requested edit is verified against the same signal, or the exact unavailable capability is reported. Do not offer an investigation menu after the evidence already selects the next move.
+
+## Reference map
+
+Open only the reference selected by the current condition. [The reference index](references/README.md) is the maintainer-facing map.
+
+| Condition | Reference |
+|---|---|
+| Configure MCP, understand automatic startup, or select a typed tool | [MCP](references/mcp.md) |
+| Position the work and choose evidence moves | [cynefin](references/cynefin.md), [operating-model](references/operating-model.md) |
+| Select a procedure | [bdd-router](references/bdd-router.md), then [procedures](references/procedures.md) |
+| Use an active stimulus | [active-stimulus](references/active-stimulus.md) |
+| Capture or interpret React commits | [avalanche-detector](references/avalanche-detector.md) |
+| Choose the performance fix layer | [fixing-performance](references/fixing-performance.md) |
+| Grade a subtree with a controlled nudge | [stability-render](references/stability-render.md) |
+| Inspect a captured hook or hook metrics | [debug-hook](references/debug-hook.md), [hooks-inspection](references/hooks-inspection.md), [hook-metrics](references/hook-metrics.md) |
+| Automate the page | [playwright-cli-setup](references/playwright-cli-setup.md), [playwright-probes](references/playwright-probes.md), [test-mode-playbook](references/test-mode-playbook.md), [mode-a-injection](references/mode-a-injection.md) |
+| Look up shell signatures or response shapes | [command-surface](references/command-surface.md), [command-output-formats](references/command-output-formats.md) |
+| Find a task recipe without loading broad references | `chippy.sh recipes <query...>`, backed by [recipes.txt](references/recipes.txt) |
+| Inspect browser/runtime APIs | [browser-runtime-api](references/browser-runtime-api.md) |
+| Work on minified Jira pages | [jira-taxonomy](references/jira-taxonomy.md) |
+| Recover a failed runtime | [troubleshooting](references/troubleshooting.md) |

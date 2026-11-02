@@ -1,0 +1,65 @@
+{
+  "name": "@atlassian/chippy",
+  "version": "0.1.0",
+  "description": "React runtime inspection and Avalanche commit evidence",
+  "type": "module",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/atlassian-labs/chippy.git",
+    "directory": "packages/chippy"
+  },
+  "homepage": "https://github.com/atlassian-labs/chippy#readme",
+  "bugs": {
+    "url": "https://github.com/atlassian-labs/chippy/issues"
+  },
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "files": [
+    "bin",
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "exports": {
+    "./avalanche": {
+      "types": "./dist/types/packages/chippy/src/avalanche.d.ts",
+      "import": "./dist/avalanche.js"
+    },
+    "./bootstrap": {
+      "types": "./dist/bootstrap.d.ts",
+      "import": "./dist/bootstrap.js"
+    },
+    "./browser": {
+      "types": "./dist/types/packages/chippy/src/browser.d.ts",
+      "import": "./dist/browser.js"
+    },
+    "./storybook": "./dist/storybook/preset.js"
+  },
+  "sideEffects": [
+    "./dist/bootstrap.js",
+    "./dist/storybook/**",
+    "./dist/extension/**"
+  ],
+  "peerDependencies": {
+    "react": ">=18 <20",
+    "react-dom": ">=18 <20",
+    "storybook": "^10.3.3"
+  },
+  "peerDependenciesMeta": {
+    "react": {
+      "optional": true
+    },
+    "react-dom": {
+      "optional": true
+    },
+    "storybook": {
+      "optional": true
+    }
+  },
+  "bin": {
+    "chippy": "./bin/chippy.mjs",
+    "chippy-mcp": "./dist/mcp-skill/scripts/chippy-mcp.cjs"
+  }
+}

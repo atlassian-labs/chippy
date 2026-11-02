@@ -1,0 +1,51 @@
+{
+  "name": "storybook",
+  "packageManager": "yarn@4.8.1",
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "scripts": {
+    "chippy:install": "/bin/sh ./install-chippy-skill.sh",
+    "chippy:install:zip": "mkdir -p ~/.agents/skills && rm -rf ~/.agents/skills/chippy && unzip -q chippy-skill.zip -d ~/.agents/skills",
+    "storybook": "storybook dev -p 6006 --host 0.0.0.0",
+    "build-storybook": "storybook build",
+    "chippy:helper": "node .agents/skills/chippy/scripts/chippy-helper-server.js",
+    "avalanche:build": "vite build --config vite.avalanche.config.ts",
+    "avalanche:sync": "yarn avalanche:build && cp dist/avalanche.iife.js .agents/skills/chippy/extension/avalanche.iife.js && cp dist/avalanche.es.js .agents/skills/chippy/extension/avalanche.es.js && cp dist/avalanche.iife.js.map .agents/skills/chippy/extension/avalanche.iife.js.map && cp dist/avalanche.es.js.map .agents/skills/chippy/extension/avalanche.es.js.map",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
+    "test:chippy-headless": "vitest run src/chippy-capabilities.test.ts",
+    "chippy:zip": "node scripts/package-chippy.mjs skill",
+    "chippy:extension:zip": "node scripts/package-chippy.mjs extension",
+    "chippy:library:build": "node scripts/build-chippy-library.mjs",
+    "chippy:mcp:build": "node scripts/build-chippy-mcp.mjs",
+    "chippy:mcp": "node .agents/skills/chippy/scripts/chippy-mcp.cjs"
+  },
+  "dependencies": {
+    "@playwright/cli": "^0.1.13",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@babel/core": "^7.27.1",
+    "@babel/plugin-transform-react-jsx-source": "^7.27.1",
+    "@modelcontextprotocol/sdk": "^1.32.1",
+    "@storybook/react-vite": "^10.3.3",
+    "@testing-library/dom": "^10.4.1",
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.0",
+    "@types/node": "^22",
+    "@vitejs/plugin-react": "^4.3.4",
+    "esbuild": "^0.25.12",
+    "jsdom": "^26.1.0",
+    "playwright": "^1.58.2",
+    "storybook": "^10.3.3",
+    "typescript": "^5.9.3",
+    "vite": "^6.4.1",
+    "vitest": "^3.2.4",
+    "zod": "^4.6.7"
+  },
+  "private": true,
+  "license": "MIT"
+}

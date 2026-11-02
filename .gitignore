@@ -1,0 +1,31 @@
+node_modules
+.DS_Store
+
+# Generated local artifacts
+.playwright/
+.playwright-cli/
+storybook-static/
+debug-storybook.log
+.yarn/install-state.gz
+.yarn/cache/
+.idea/
+*.log
+.agents/skills/**/.gaps
+.agents/skills/**/.provenance
+
+# Symlinks to external projects live in links/ — keep the folder, ignore the symlinks
+links/*
+!links/.gitkeep
+
+# Local helper output
+.agents/chippy-helper.log
+
+# Build intermediates (avalanche:sync copies the bundles into the extension)
+/dist/
+
+# Built npm library
+packages/chippy/dist/
+packages/chippy/*.tgz
+
+# Agent worktrees
+/.claude/worktrees/

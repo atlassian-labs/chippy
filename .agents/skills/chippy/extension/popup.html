@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Chippy</title>
+    <style>
+      * { box-sizing: border-box; }
+      body {
+        width: 224px;
+        margin: 0;
+        padding: 12px;
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 8px;
+        background: #fff;
+        color: #292A2E;
+        font: 13px 'Atlassian Sans', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      }
+      button {
+        border: 1px solid #DDDEE1;
+        border-radius: 6px;
+        padding: 8px 10px;
+        background: #fff;
+        color: #292A2E;
+        font: inherit;
+        font-weight: 600;
+        cursor: pointer;
+      }
+      #btn-activate { background: #1868DB; border-color: #1868DB; color: #fff; }
+      header { grid-column: 1 / -1; display: flex; align-items: center; gap: 8px; margin-bottom: 4px; font-size: 16px; font-weight: 650; }
+      button:focus-visible { outline: 2px solid #1868DB; outline-offset: 2px; }
+      button:disabled { cursor: default; opacity: .4; }
+    </style>
+  </head>
+  <body>
+    <header><img src="logo.svg" width="28" height="28" alt="" />Chippy</header>
+    <button id="btn-activate" type="button">Enable</button>
+    <button id="btn-deactivate" type="button">Disable</button>
+    <script src="popup.js"></script>
+  </body>
+</html>

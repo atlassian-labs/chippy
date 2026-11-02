@@ -1,0 +1,69 @@
+{
+  "manifest_version": 3,
+  "name": "Chippy Probe Bridge",
+  "version": "0.4.23",
+  "description": "Inspects connected React pages to trace components, boundaries, hooks, props, and render behavior.",
+  "permissions": [
+    "storage",
+    "scripting",
+    "webNavigation"
+  ],
+  "host_permissions": [
+    "http://*/*",
+    "https://*/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_title": "Chippy Probe Bridge",
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icon-16.png",
+      "32": "icon-32.png",
+      "48": "icon-48.png",
+      "128": "icon-128.png"
+    }
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "http://*/*",
+        "https://*/*"
+      ],
+      "js": [
+        "panel-settings.js",
+        "content-script.js"
+      ],
+      "run_at": "document_start",
+      "all_frames": true
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "devtools-hook-shim.js",
+        "early-bootstrap.js",
+        "inspect-react.js",
+        "panel-dom.js",
+        "layout-lab.js",
+        "resolve-probes.js",
+        "probe-descriptor.js",
+        "chippy-page-bridge.js",
+        "avalanche.iife.js",
+        "avalanche.iife.js.map",
+        "avalanche.es.js.map"
+      ],
+      "matches": [
+        "http://*/*",
+        "https://*/*"
+      ]
+    }
+  ],
+  "icons": {
+    "16": "icon-16.png",
+    "32": "icon-32.png",
+    "48": "icon-48.png",
+    "128": "icon-128.png"
+  }
+}
