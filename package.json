@@ -18,9 +18,7 @@
     "chippy:extension:zip": "node scripts/package-chippy.mjs extension",
     "chippy:library:build": "node scripts/build-chippy-library.mjs",
     "chippy:mcp:build": "node scripts/build-chippy-mcp.mjs",
-    "chippy:mcp": "node .agents/skills/chippy/scripts/chippy-mcp.cjs",
-    "intro:build": "node scripts/intro/build-intro.mjs",
-    "intro:record": "node scripts/intro/record-intro.mjs"
+    "chippy:mcp": "node .agents/skills/chippy/scripts/chippy-mcp.cjs"
   },
   "dependencies": {
     "@playwright/cli": "^0.1.13",

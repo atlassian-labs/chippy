@@ -7,7 +7,8 @@
 **A friend who helps you understand what’s happening, find the cause, and fix it.**
 
 <p align="center">
-  <img src="docs/media/chippy-intro.svg" width="900" alt="Animated intro: a coding agent guesses the wrong file from the code; with Chippy it points at the element on the running page and traces it to its component, owners, and source.">
+  <a href="assets/chippy-intro.mp4"><img src="assets/chippy-intro.svg" width="900" alt="Animated intro: Chippy connects your coding agent to the running React page through React's DevTools hook, traces a button to its component, owners, and source line, runs experiments on live state, separates a slow click's trigger from the busiest component, and shows the browser scripts, local helper, and agent skill working as one system."></a>
+  <br><a href="assets/chippy-intro.mp4">Watch with sound</a>
 </p>
 
 Chippy lets your coding agent see the React app running in your browser: which
