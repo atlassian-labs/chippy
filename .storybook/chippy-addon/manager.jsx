@@ -160,8 +160,7 @@ function MarkerSummary({ markers, onInspectBoundary, onAttachAnnotation }) {
         const dom = resolved.dom || {};
         const owners = component.owners || [];
         const source = component.source || dom.source;
-        // `jiraContext` is the pre-0.4.23 bridge name for the same snapshot field.
-        const markerContext = marker?.context ?? marker?.jiraContext ?? null;
+        const markerContext = marker?.context ?? null;
         return (
           <div key={id} style={{ border: `1px solid ${theme.border}`, borderRadius: 8, padding: 8, background: theme.raised, color: theme.text }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>

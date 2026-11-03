@@ -50,7 +50,7 @@ Before `explain-component`, `describe-component`, or `inspect-fiber-structure`, 
 | Which hook is suspicious? | Use `avalanche-debug-hook` only after a capture identifies `sourceId + hookIndex` | Primitive/custom-hook ownership and next remediation branch are named. |
 | Are state dispatches or memo/effect recomputations driving the cost? | Load [hook-metrics](references/hook-metrics.md) | A before/after counter or tracker result is joined to the same interaction. |
 | Does the task require browser automation? | Load [playwright-cli-setup](references/playwright-cli-setup.md) for ad-hoc work or [test-mode-playbook](references/test-mode-playbook.md) for scripted/CI loops | The same interaction and structured evidence can be replayed. |
-| Is the page production/minified? | Load [jira-taxonomy](references/jira-taxonomy.md) after DOM/test-id/source facts are exhausted | The result is bounded by the available production evidence. |
+| Is the page production/minified? | Walk the owner chain with `probe-owners`, then use `nearestTestId` and the component stack; on a Jira page, load [jira-taxonomy](references/jira-taxonomy.md) after those facts are exhausted | The result is bounded by the available production evidence. |
 | Is connection, injection, or capture broken? | Load [troubleshooting](references/troubleshooting.md) | The failing layer and one recovery action are explicit. |
 | Should the current task wait for a newly attached browser intent? | `wait <clientId> [timeoutSeconds]`; after handling one annotation, wait again only while the user-requested loop remains active | One annotation event is returned with its probe subject, intent, and comment, or the bounded wait times out. |
 
@@ -175,7 +175,7 @@ pages [slice] | recent-pages | page <clientId> [slice]
 snapshot <clientId> [slice] | request-snapshot <clientId>
 wait <clientId> [timeoutSeconds]
 activate <clientId> | deactivate <clientId>
-context-ui <clientId> <on|off>   (jira-ui: deprecated alias)
+context-ui <clientId> <on|off>
 ensure-probes <clientId> | clear-probes <clientId>
 show-status <clientId> <text> | hide-status <clientId>
 command <type> [clientId]
@@ -250,7 +250,7 @@ Use [command-surface](references/command-surface.md) to select a command and und
 - Read a resolved marker in this order: `nearestTestId` → confidence/note → DOM source → component source/name/key → props/prop names → hook count → owners → parents/component stack → matched styles.
 - `ownerIndex` is positional: `0` is the immediate owner, `1` its owner, and so on. Do not address owners by a possibly repeated display name.
 - If a probe lands on a wrapper, overlay, icon, or container, walk deterministically. Use `probe-dom [parentLevel]` for DOM ancestors, `probe-parents` for the React `fiber.return` chain, and `probe-owners` only for `_debugOwner` ownership. Do not replace coordinate truth with guessed intent.
-- When `markers[id].context` is non-null (deprecated alias `jiraContext`), read its `boundaries` after the generic component/source evidence: `{ error, suspense, ... }`, each with a `distance` (fiber hops from the probe). `error` and `suspense` are fiber-native React primitives and appear on any React page. Registered context providers can add boundary kinds; the built-in Jira provider, when enabled, adds `owner`, the Jira semantic/team owner (not the React render owner). Each block is clickable and reports an `inspect-boundary` signal to the backend (surfaced as `lastInspectedBoundary`). Both the in-page panel and the Storybook addon render the same three boundaries.
+- When `markers[id].context` is non-null, read its `boundaries` after the generic component/source evidence: `{ error, suspense, ... }`, each with a `distance` (fiber hops from the probe). `error` and `suspense` are fiber-native React primitives and appear on any React page. Registered context providers can add boundary kinds; the built-in Jira provider, when enabled, adds `owner`, the Jira semantic/team owner (not the React render owner). Each block is clickable and reports an `inspect-boundary` signal to the backend (surfaced as `lastInspectedBoundary`). Both the in-page panel and the Storybook addon render the same three boundaries.
 - Snapshot boundary cards remain a compact nearest-boundary view. Use `probe-boundaries` when the full rendered parent chain matters, and `page-boundaries` when the question is page partitioning rather than one leaf. These commands are read-only and do not use debug replay.
 
 For a value trace, use this chain once:
@@ -326,5 +326,5 @@ Open only the reference selected by the current condition. [The reference index]
 | Look up shell signatures or response shapes | [command-surface](references/command-surface.md), [command-output-formats](references/command-output-formats.md) |
 | Find a task recipe without loading broad references | `chippy.sh recipes <query...>`, backed by [recipes.txt](references/recipes.txt) |
 | Inspect browser/runtime APIs | [browser-runtime-api](references/browser-runtime-api.md) |
-| Work on minified Jira pages | [jira-taxonomy](references/jira-taxonomy.md) |
+| Read Jira wrapper and ownership names (Jira pages only) | [jira-taxonomy](references/jira-taxonomy.md) |
 | Recover a failed runtime | [troubleshooting](references/troubleshooting.md) |

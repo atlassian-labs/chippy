@@ -23,42 +23,6 @@ const HELPER_SERVER_SOURCE = readFileSync(
   'utf8',
 );
 
-// Legacy (pre-0.4.23) Jira-shaped context: no `display` block.
-const jiraContext = {
-  ownership: {
-    markerName: 'OwnerMark___feature___BenefitModal___jiraEocChangeboarding___flag',
-    type: 'feature',
-    name: 'BenefitModal',
-    packageName: 'jiraEocChangeboarding',
-    teamName: 'alexstrasza',
-    variant: 'flag',
-    source: 'display-name',
-  },
-  errorComponent: true,
-  errorBoundary: {
-    componentName: 'JSErrorBoundary',
-    id: 'eoc.changeboarding.benefit.modal',
-    packageName: 'jiraEocChangeboarding',
-    teamName: 'alexstrasza',
-    fallback: 'flag',
-  },
-  boundaries: {
-    owner: {
-      markerName: 'OwnerMark___feature___BenefitModal___jiraEocChangeboarding___flag',
-      name: 'BenefitModal',
-      packageName: 'jiraEocChangeboarding',
-      teamName: 'alexstrasza',
-      distance: 0,
-    },
-    error: {
-      componentName: 'JSErrorBoundary',
-      id: 'eoc.changeboarding.benefit.modal',
-      distance: 1,
-    },
-    suspense: { componentName: 'Suspense', distance: 2 },
-  },
-};
-
 afterEach(cleanup);
 
 const markerContext = {
@@ -87,11 +51,8 @@ describe('Chippy Storybook marker context', () => {
     expect(HELPER_SERVER_SOURCE).toContain('lastInspectedBoundary: client.lastInspectedBoundary');
   });
 
-  it.each([
-    ['provider display', markerContext],
-    ['legacy Jira shape', jiraContext],
-  ])('renders provider and error-boundary facts from the %s', (_label, context) => {
-    const { rerender } = render(<ContextCard context={context} />);
+  it('renders provider and error-boundary facts from the provider display', () => {
+    const { rerender } = render(<ContextCard context={markerContext} />);
 
     // Owner lozenge is the semantic/team owner, labelled "owner" (not "Jira owner",
     // and not the React render owner).
@@ -120,7 +81,7 @@ describe('Chippy Storybook marker context', () => {
   it('fires onInspectBoundary with the boundary kind when a block is clicked', async () => {
     const { fireEvent } = await import('@testing-library/react');
     const seen: string[] = [];
-    render(<ContextCard context={jiraContext} onInspectBoundary={(kind: string) => seen.push(kind)} />);
+    render(<ContextCard context={markerContext} onInspectBoundary={(kind: string) => seen.push(kind)} />);
 
     fireEvent.click(screen.getByTestId('chippy-boundary-owner'));
     fireEvent.click(screen.getByTestId('chippy-boundary-error'));
@@ -175,7 +136,7 @@ describe('Chippy Storybook marker context', () => {
       }),
     };
     win.__AVALANCHE__ = {
-      layoutLab: { describeContext: () => markerContext, describeJiraContext: () => jiraContext },
+      layoutLab: { describeContext: () => markerContext },
       bridge: { readAvalancheStatus: () => ({ ok: true, available: true }) },
     };
 
@@ -183,17 +144,13 @@ describe('Chippy Storybook marker context', () => {
     const bridge = win.__CHIPPY.pageBridge;
 
     expect(bridge.getState().markers['1'].context).toEqual(markerContext);
-    // Deprecated alias of `context`, kept for one release.
-    expect(bridge.getState().markers['1'].jiraContext).toEqual(markerContext);
+    expect(bridge.getState().markers['1']).not.toHaveProperty('jiraContext');
     expect(bridge.getState().markers['2'].context).toBeNull();
 
-    // The legacy config name still disables it.
-    bridge.applyConfig({ jiraUiEnabled: false });
+    bridge.applyConfig({ contextUiEnabled: false });
     expect(bridge.getState().markers['1'].context).toBeNull();
     bridge.applyConfig({ contextUiEnabled: true });
     expect(bridge.getState().markers['1'].context).toEqual(markerContext);
-    bridge.applyConfig({ contextUiEnabled: false });
-    expect(bridge.getState().markers['1'].jiraContext).toBeNull();
 
     bridge.destroy();
     dom.window.close();

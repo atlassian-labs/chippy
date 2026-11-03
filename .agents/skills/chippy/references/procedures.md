@@ -473,7 +473,7 @@ observe consumed data → define subscription invariant → prove subscribed dat
 3. Prove subscribed data:
    - `avalanche-debug-hook` target primitive `SyncExternalStore`
    - `target.value` and debugValues if present
-   - container/source from `jira-taxonomy` if production page
+   - container/source from `jira-taxonomy` if Jira page
 4. Compare width:
    - subscribed object wider than consumed fields → over-broad selector
    - selector returns new object/array equal by value → identity churn

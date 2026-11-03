@@ -18,7 +18,9 @@ updates local assets; publication is a separate step.
 5. When changing early bootstrap or the ATL metrics accessor, verify against a
    real ATL-enabled host; jsdom cannot establish host compatibility. The local
    agent-driven procedure is [manual extension verification](chippy-manual-verification.md).
-6. With the `zip` utility installed, build artifacts with `yarn chippy:zip` and `yarn chippy:extension:zip`.
+6. With the `zip` utility installed, build the archives with `yarn chippy:zip` and
+   `yarn chippy:extension:zip`. They are written to the repository root, ignored by
+   git, and attached to the GitHub release.
 7. For the npm library, run `yarn chippy:library:build`, verify the packed-consumer
    suite, then run `npm pack` in `packages/chippy/`. Its build requires the
    current generated extension assets from step 2. The library has its own version
@@ -39,7 +41,7 @@ npm publication of `@atlassian/chippy` is a separate owner action.
 
 ## Public repository readiness
 
-Chippy uses the [MIT License](../LICENSE). Both archives include the license.
+Chippy uses the [Apache 2.0 License](../LICENSE). Both archives include the license.
 Chippy does not distribute React patches; optional ATL instrumentation belongs
 to the application being inspected.
 The public repository is `atlassian-labs/chippy`. Issues go to its GitHub issue

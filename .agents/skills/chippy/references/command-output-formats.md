@@ -331,7 +331,7 @@ All return the **command envelope**:
 
 ## `context-ui <clientId> <on|off>`
 
-Shows or hides context-provider cards (for example Jira ownership) in the active probe UI for the current connected page, including Storybook marker cards. Enrichment is on by default. `jira-ui` is a deprecated alias that sends `set-jira-ui`. The command does not activate Chippy, place probes, mutate the inspected application, or persist across a new page realm.
+Shows or hides context-provider cards (for example Jira ownership) in the active probe UI for the current connected page, including Storybook marker cards. Enrichment is on by default. The command does not activate Chippy, place probes, mutate the inspected application, or persist across a new page realm.
 
 ```json
 {

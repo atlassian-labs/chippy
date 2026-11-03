@@ -3343,120 +3343,6 @@ this.__AVALANCHE__ = (function() {
     }
     return result;
   }
-  const OWNER_MARK_NAMES = /* @__PURE__ */ new Set(["OwnerMark", "OwnershipMark"]);
-  function readScalar(props, ...keys) {
-    for (const key of keys) {
-      const value = props == null ? void 0 : props[key];
-      if (typeof value === "string" && value.trim()) return value;
-      if (typeof value === "number" || typeof value === "boolean") return String(value);
-    }
-    return null;
-  }
-  function displayNameOf(fiber) {
-    return getDisplayName(fiber.type) || getDisplayName(fiber.elementType) || null;
-  }
-  function parseOwnerMarkDisplayName(displayName) {
-    if (!displayName) return null;
-    const parts = displayName.split("___");
-    if (!OWNER_MARK_NAMES.has(parts[0])) return null;
-    if (parts.length === 1) return null;
-    return {
-      markerName: displayName,
-      type: parts[1] || null,
-      name: parts[2] || null,
-      packageName: parts[3] || null,
-      teamName: null,
-      variant: parts[4] || null,
-      source: "display-name"
-    };
-  }
-  function describeOwnership(fiber) {
-    const displayName = displayNameOf(fiber);
-    const encoded = parseOwnerMarkDisplayName(displayName);
-    if (encoded) {
-      return {
-        ...encoded,
-        packageName: encoded.packageName || readScalar(fiber.memoizedProps, "packageName", "package"),
-        teamName: readScalar(fiber.memoizedProps, "teamName", "team")
-      };
-    }
-    if (!displayName || !OWNER_MARK_NAMES.has(displayName)) return null;
-    return {
-      markerName: displayName,
-      type: readScalar(fiber.memoizedProps, "type", "boundaryType"),
-      name: readScalar(fiber.memoizedProps, "name", "id"),
-      packageName: readScalar(fiber.memoizedProps, "packageName", "package"),
-      teamName: readScalar(fiber.memoizedProps, "teamName", "team"),
-      variant: readScalar(fiber.memoizedProps, "variant"),
-      source: "props"
-    };
-  }
-  function jiraErrorBoundary(fiber) {
-    const componentName = displayNameOf(fiber);
-    if (componentName !== "JSErrorBoundary") return null;
-    return {
-      componentName,
-      id: readScalar(fiber.memoizedProps, "id"),
-      packageName: readScalar(fiber.memoizedProps, "packageName"),
-      fallback: readScalar(fiber.memoizedProps, "fallback"),
-      teamName: readScalar(fiber.memoizedProps, "teamName")
-    };
-  }
-  function field(label, value) {
-    return value ? [{ label, value }] : [];
-  }
-  function describeJiraContribution(fibers) {
-    let ownership = null;
-    let ownerDistance = -1;
-    let errorBoundary = null;
-    let errorComponent = false;
-    for (let distance = 0; distance < fibers.length; distance += 1) {
-      const entry = fibers[distance];
-      if (!ownership) {
-        const found = describeOwnership(entry);
-        if (found) {
-          ownership = found;
-          ownerDistance = distance;
-        }
-      }
-      if (!errorBoundary) errorBoundary = jiraErrorBoundary(entry);
-      const displayName = displayNameOf(entry);
-      if (displayName === "ErrorComponent" || (displayName == null ? void 0 : displayName.endsWith("ErrorComponent"))) errorComponent = true;
-      if (ownership && errorBoundary && errorComponent) break;
-    }
-    if (!ownership && !errorBoundary && !errorComponent) return null;
-    return {
-      boundaries: { owner: ownership ? { ...ownership, distance: ownerDistance } : null },
-      errorEnrichment: errorBoundary,
-      titles: {
-        ...ownership ? { owner: ownership.name || ownership.markerName } : {},
-        ...errorBoundary ? {} : errorComponent ? { error: "ErrorComponent" } : {}
-      },
-      // Keep only the fields that matter operationally: team and id (the
-      // Sentry key). package/fallback stay on the boundary payload.
-      fields: errorBoundary ? { error: [...field("team", errorBoundary.teamName), ...field("id", errorBoundary.id)] } : {},
-      showError: errorComponent,
-      // Legacy Jira-shaped fields, preserved for existing consumers.
-      extra: { ownership, errorComponent, errorBoundary }
-    };
-  }
-  const jiraContextProvider = {
-    id: "jira",
-    kinds: [{ kind: "owner", label: "owner", accent: "#0c66e4" }],
-    describe: describeJiraContribution,
-    matchBoundary: (fiber) => describeOwnership(fiber) ? "owner" : null
-  };
-  function describeJiraContext(fiber) {
-    const context = describeContext(fiber);
-    if (!context) return null;
-    return {
-      ownership: null,
-      errorComponent: false,
-      errorBoundary: null,
-      ...context,
-      boundaries: { owner: null, ...context.boundaries }
-    };
-  }
   const DEFAULT_METRICS_SLOT = "__ATL_REACT_METRICS";
   const METRICS_COUNTER_KEYS = [
     "mountWorkCount",
@@ -3644,6 +3530,109 @@ this.__AVALANCHE__ = (function() {
     };
   }
   const atlCommitMetricsAdapter = createATLCommitMetricsAdapter();
+  const OWNER_MARK_NAMES = /* @__PURE__ */ new Set(["OwnerMark", "OwnershipMark"]);
+  function readScalar(props, ...keys) {
+    for (const key of keys) {
+      const value = props == null ? void 0 : props[key];
+      if (typeof value === "string" && value.trim()) return value;
+      if (typeof value === "number" || typeof value === "boolean") return String(value);
+    }
+    return null;
+  }
+  function displayNameOf(fiber) {
+    return getDisplayName(fiber.type) || getDisplayName(fiber.elementType) || null;
+  }
+  function parseOwnerMarkDisplayName(displayName) {
+    if (!displayName) return null;
+    const parts = displayName.split("___");
+    if (!OWNER_MARK_NAMES.has(parts[0])) return null;
+    if (parts.length === 1) return null;
+    return {
+      markerName: displayName,
+      type: parts[1] || null,
+      name: parts[2] || null,
+      packageName: parts[3] || null,
+      teamName: null,
+      variant: parts[4] || null,
+      source: "display-name"
+    };
+  }
+  function describeOwnership(fiber) {
+    const displayName = displayNameOf(fiber);
+    const encoded = parseOwnerMarkDisplayName(displayName);
+    if (encoded) {
+      return {
+        ...encoded,
+        packageName: encoded.packageName || readScalar(fiber.memoizedProps, "packageName", "package"),
+        teamName: readScalar(fiber.memoizedProps, "teamName", "team")
+      };
+    }
+    if (!displayName || !OWNER_MARK_NAMES.has(displayName)) return null;
+    return {
+      markerName: displayName,
+      type: readScalar(fiber.memoizedProps, "type", "boundaryType"),
+      name: readScalar(fiber.memoizedProps, "name", "id"),
+      packageName: readScalar(fiber.memoizedProps, "packageName", "package"),
+      teamName: readScalar(fiber.memoizedProps, "teamName", "team"),
+      variant: readScalar(fiber.memoizedProps, "variant"),
+      source: "props"
+    };
+  }
+  function jiraErrorBoundary(fiber) {
+    const componentName = displayNameOf(fiber);
+    if (componentName !== "JSErrorBoundary") return null;
+    return {
+      componentName,
+      id: readScalar(fiber.memoizedProps, "id"),
+      packageName: readScalar(fiber.memoizedProps, "packageName"),
+      fallback: readScalar(fiber.memoizedProps, "fallback"),
+      teamName: readScalar(fiber.memoizedProps, "teamName")
+    };
+  }
+  function field(label, value) {
+    return value ? [{ label, value }] : [];
+  }
+  function describeJiraContribution(fibers) {
+    let ownership = null;
+    let ownerDistance = -1;
+    let errorBoundary = null;
+    let errorComponent = false;
+    for (let distance = 0; distance < fibers.length; distance += 1) {
+      const entry = fibers[distance];
+      if (!ownership) {
+        const found = describeOwnership(entry);
+        if (found) {
+          ownership = found;
+          ownerDistance = distance;
+        }
+      }
+      if (!errorBoundary) errorBoundary = jiraErrorBoundary(entry);
+      const displayName = displayNameOf(entry);
+      if (displayName === "ErrorComponent" || (displayName == null ? void 0 : displayName.endsWith("ErrorComponent"))) errorComponent = true;
+      if (ownership && errorBoundary && errorComponent) break;
+    }
+    if (!ownership && !errorBoundary && !errorComponent) return null;
+    return {
+      boundaries: { owner: ownership ? { ...ownership, distance: ownerDistance } : null },
+      errorEnrichment: errorBoundary,
+      titles: {
+        ...ownership ? { owner: ownership.name || ownership.markerName } : {},
+        ...errorBoundary ? {} : errorComponent ? { error: "ErrorComponent" } : {}
+      },
+      // Keep only the fields that matter operationally: team and id (the
+      // Sentry key). package/fallback stay on the boundary payload.
+      fields: errorBoundary ? { error: [...field("team", errorBoundary.teamName), ...field("id", errorBoundary.id)] } : {},
+      showError: errorComponent,
+      // Legacy Jira-shaped fields, preserved for existing consumers.
+      extra: { ownership, errorComponent, errorBoundary }
+    };
+  }
+  const jiraContextProvider = {
+    id: "jira",
+    kinds: [{ kind: "owner", label: "owner", accent: "#0c66e4" }],
+    describe: describeJiraContribution,
+    matchBoundary: (fiber) => describeOwnership(fiber) ? "owner" : null
+  };
   const BUILTIN_PLUGINS = [
     { id: "jira", label: "Jira ownership markers", contextProvider: jiraContextProvider },
     { id: "atl", label: "ATL commit metrics", commitMetricsAdapter: atlCommitMetricsAdapter }
@@ -5354,7 +5343,6 @@ this.__AVALANCHE__ = (function() {
       describeContext,
       registerContextProvider,
       getContextProviders,
-      describeJiraContext,
       findBoundaryFibers,
       PROBE_INTENTS,
       normalizeProbeAnnotation,

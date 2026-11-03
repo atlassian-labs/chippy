@@ -19,9 +19,7 @@
     activated: false,
     // Marker context (declarative boundaries plus context-provider plugins) is
     // visible by default and can be toggled at runtime by the helper command.
-    // jiraUiEnabled is the pre-0.4.23 name, kept in sync for one release.
     contextUiEnabled: true,
-    jiraUiEnabled: true,
     reconnectDelayMs: 1500,
     publishDebounceMs: 180,
   };
@@ -106,8 +104,7 @@
     if (config.contextUiEnabled === false) return null;
     const fiber = chippy.layoutLab?.getMarkerProbe?.(id)?.probe?._bestFiber || null;
     const lab = global.__AVALANCHE__?.layoutLab;
-    // Bundles before 0.4.23 publish only describeJiraContext.
-    const describe = lab?.describeContext || lab?.describeJiraContext;
+    const describe = lab?.describeContext;
     if (!fiber || typeof describe !== 'function') return null;
     try {
       return describe(fiber) || null;
@@ -134,8 +131,6 @@
         comment: states[id]?.comment || '',
         resolved: summaries[id] || null,
         context,
-        // Deprecated alias of `context`, kept for one release.
-        jiraContext: context,
       };
     }
     const commonInspection = global.__CHIPPY?.layoutLab?.getCommonParentInspection?.();
@@ -146,7 +141,6 @@
         intent: null,
         comment: '',
         context: null,
-        jiraContext: null,
         resolved: {
           confidence: commonInspection.component?.debugSource?.fileName || commonInspection.owners?.some((o) => o?.debugSource?.fileName) ? 'dev' : 'production',
           dom: {
@@ -585,10 +579,6 @@
         break;
       case 'set-context-ui':
         setContextUiEnabled(command.enabled !== false, 'set-context-ui');
-        break;
-      case 'set-jira-ui':
-        // Deprecated alias of set-context-ui, kept for one release.
-        setContextUiEnabled(command.enabled !== false, 'set-jira-ui');
         break;
       case 'reload':
         try { send({ type: 'reload-ack', clientId, requestId: command.requestId || null }); } catch (e) {}
@@ -1652,14 +1642,13 @@
     const previousBaseUrl = config.helperBaseUrl;
     const wasActivated = config.activated;
 
-    const contextUi = nextConfig?.contextUiEnabled ?? nextConfig?.jiraUiEnabled;
+    const contextUi = nextConfig?.contextUiEnabled;
     config = {
       ...config,
       ...nextConfig,
       helperBaseUrl: normalizeBaseUrl(nextConfig?.helperBaseUrl || config.helperBaseUrl),
       activated: nextConfig?.activated ?? config.activated,
-      // contextUiEnabled wins; jiraUiEnabled mirrors it for older consumers.
-      ...(contextUi === undefined ? {} : { contextUiEnabled: contextUi !== false, jiraUiEnabled: contextUi !== false }),
+      ...(contextUi === undefined ? {} : { contextUiEnabled: contextUi !== false }),
     };
     chippy.config = { ...config };
     if (config.ui === 'storybook-panel' || config.ui === 'none') {

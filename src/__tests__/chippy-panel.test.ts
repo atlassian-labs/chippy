@@ -45,7 +45,7 @@ function openLayoutLab(config: Record<string, unknown>, expose = true) {
       describeSource: () => null,
       describeFiberTarget: () => null,
       describeComponent: () => null,
-      describeJiraContext: () => null,
+      describeContext: () => null,
       findBoundaryFibers: () => ({ owner: null, error: null, suspense: null }),
       normalizeProbeAnnotation,
     },

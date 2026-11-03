@@ -62,7 +62,7 @@ describe('React 19 source resolution at the bridge boundary', () => {
         getNearestFiber: () => hostFiber,
         getOwnerFibers: () => [],
         getReturnComponentFibers: () => [],
-        describeJiraContext: () => null,
+        describeContext: () => null,
         resolveFiberSource: async (fiber: unknown) => fiber === hostFiber
           ? { fileName: 'src/Badge.tsx', lineNumber: 5, columnNumber: 3 }
           : { fileName: 'src/App.tsx', lineNumber: 12, columnNumber: 7 },
@@ -126,7 +126,7 @@ describe('React 19 source resolution at the bridge boundary', () => {
       layoutLab: { getAllMarkerStates: () => ({}), getCommonParentInspection: () => null },
     };
     win.__AVALANCHE__ = {
-      layoutLab: { describeJiraContext: () => null },
+      layoutLab: { describeContext: () => null },
       bridge: {
         findFiberByName: () => mapped ? replacementFiber : firstFiber,
         resolveFiberSource: async () => {
@@ -222,7 +222,7 @@ describe('React 19 source resolution at the bridge boundary', () => {
         getNearestComponent: () => componentFiber,
         getOwnerFibers: () => [ownerFiber],
         getReturnComponentFibers: () => [parentFiber],
-        describeJiraContext: () => null,
+        describeContext: () => null,
         resolveFiberSource: async (fiber: unknown) => ({
           fileName: mapped.get(fiber),
           lineNumber: 2,
@@ -299,7 +299,7 @@ describe('React 19 source resolution at the bridge boundary', () => {
       layoutLab: {
         getOwnerFibers: () => [],
         getReturnComponentFibers: () => [],
-        describeJiraContext: () => null,
+        describeContext: () => null,
         resolveFiberSource: () => {
           sourceCall += 1;
           if (sourceCall === 1) {

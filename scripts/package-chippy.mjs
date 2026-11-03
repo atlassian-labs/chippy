@@ -4,14 +4,14 @@ import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { execFileSync } from 'node:child_process';
 
-export function packageChippy(kind, root) {
+export function packageChippy(kind, root, outDir = root) {
   if (kind !== 'skill' && kind !== 'extension') throw new Error('Expected skill or extension');
   const skill = join(root, '.agents/skills/chippy');
   const source = kind === 'skill' ? skill : join(skill, 'extension');
   const license = join(root, 'LICENSE');
   if (!existsSync(license)) throw new Error('LICENSE is required for distribution');
   const stage = mkdtempSync(join(tmpdir(), 'chippy-package-'));
-  const archive = join(root, `chippy-${kind}.zip`);
+  const archive = join(outDir, `chippy-${kind}.zip`);
   try {
     const content = join(stage, 'content');
     const destination = kind === 'skill' ? join(content, 'chippy') : content;

@@ -106,8 +106,7 @@ react-dom.
 2. Add it to `BUILTIN_PLUGINS` in `src/plugins/index.ts`, to the default plugin
    options in `.agents/skills/chippy/extension/panel-settings.js`, and to
    `BUILTIN_PLUGINS` in `packages/chippy/bin/pack.mjs`.
-3. Rebuild the shipped bundles with `yarn avalanche:sync` and the skill archive
-   with `yarn chippy:zip`.
+3. Rebuild the shipped bundles with `yarn avalanche:sync`.
 4. If the plugin changes what agents see, such as a new boundary kind, document it
    in the skill's references.
 

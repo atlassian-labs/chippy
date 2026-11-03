@@ -28,3 +28,7 @@ packages/chippy/*.tgz
 
 # Agent worktrees
 /.claude/worktrees/
+
+# Release archives (attached to GitHub releases, not committed)
+/chippy-skill.zip
+/chippy-extension.zip

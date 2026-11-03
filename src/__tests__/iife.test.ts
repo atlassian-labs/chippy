@@ -42,8 +42,7 @@ describe('src/iife.ts startup behavior', () => {
     const mod = await import('../iife');
     expect(mod.default.layoutLab.describeContext).toBeTypeOf('function');
     expect(mod.default.layoutLab.registerContextProvider).toBeTypeOf('function');
-    // Deprecated alias read by pre-0.4.23 bridges.
-    expect(mod.default.layoutLab.describeJiraContext).toBeTypeOf('function');
+    expect(mod.default.layoutLab).not.toHaveProperty('describeJiraContext');
     // The shipped bundle enables no built-in plugin unless the page opts in.
     expect(mod.default.layoutLab.getContextProviders().map((p) => p.id)).not.toContain('jira');
     expect(mod.default.status().metricsAdapter).toBeNull();

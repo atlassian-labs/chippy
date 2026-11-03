@@ -29,7 +29,7 @@ Use recipe search when the operation or recovery route is not already obvious. I
 | `request-snapshot <clientId>` | Ask the connected page to emit a fresh snapshot. |
 | `wait <clientId> [timeoutSeconds]` | Consume the oldest queued user-attached probe annotation, or wait for the next one. Default 300 seconds; valid range 1–1800. This is one cancellable long poll and never changes host hooks or configuration. |
 | `activate`, `deactivate` | Change Chippy activation state for one connected page. |
-| `context-ui <clientId> <on\|off>` | Show or hide context-provider enrichment (for example Jira ownership and error-boundary fields) in the active probe UI, including Storybook marker cards. `jira-ui` is a deprecated alias. It defaults to `on`; this command changes the current connected page at runtime. |
+| `context-ui <clientId> <on\|off>` | Show or hide context-provider enrichment (for example Jira ownership and error-boundary fields) in the active probe UI, including Storybook marker cards. It defaults to `on`; this command changes the current connected page at runtime. |
 | `ensure-probes`, `clear-probes` | Install or remove probe markers. Preserve probes while they remain evidence. |
 | `show-status`, `hide-status` | Control the page-visible Chippy status message. |
 | `command <type> [clientId]` | Generic command escape hatch. Prefer explicit subcommands. |
@@ -127,7 +127,7 @@ pages [slice] | recent-pages | page <clientId> [slice]
 snapshot <clientId> [slice] | request-snapshot <clientId>
 wait <clientId> [timeoutSeconds]
 activate <clientId> | deactivate <clientId>
-context-ui <clientId> <on|off>   (jira-ui: deprecated alias)
+context-ui <clientId> <on|off>
 ensure-probes <clientId> | clear-probes <clientId>
 show-status <clientId> <text> | hide-status <clientId>
 command <type> [clientId]

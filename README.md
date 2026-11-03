@@ -6,6 +6,10 @@
 
 **A friend who helps you understand what’s happening, find the cause, and fix it.**
 
+<p align="center">
+  <img src="docs/media/chippy-intro.svg" width="900" alt="Animated intro: a coding agent guesses the wrong file from the code; with Chippy it points at the element on the running page and traces it to its component, owners, and source.">
+</p>
+
 Chippy lets your coding agent see the React app running in your browser: which
 component drew an element, its props and state, where it lives in source, and
 what re-rendered during a slow interaction. Ask the agent, or point at an element

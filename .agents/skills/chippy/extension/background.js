@@ -66,7 +66,6 @@ async function getStartupConfig(origin, helperBaseUrl, clientId, plugins) {
     // Plugins the user enabled in the panel settings, or the build's defaults.
     plugins: Array.isArray(plugins) ? plugins : [],
     contextUiEnabled: true,
-    jiraUiEnabled: true,
     integration: EXTENSION_INTEGRATION,
   };
   try {
@@ -204,7 +203,6 @@ async function ensureBundleScripts(tabId, helperBaseUrl, options = {}) {
     helperBaseUrl: helperBaseUrl || DEFAULT_HELPER,
     activated: true,
     contextUiEnabled: true,
-    jiraUiEnabled: true,
     integration: EXTENSION_INTEGRATION,
   };
 

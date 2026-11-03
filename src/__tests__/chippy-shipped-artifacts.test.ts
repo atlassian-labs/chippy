@@ -1,13 +1,18 @@
-import { describe, expect, it } from 'vitest';
+import { afterAll, describe, expect, it } from 'vitest';
 import { execFileSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
+import { packageChippy } from '../../scripts/package-chippy.mjs';
 
-// The committed zips let users install without a build. This test fails when
-// they drift from the tracked sources; run `yarn chippy:zip` and
-// `yarn chippy:extension:zip` to refresh them.
+// Release archives are built, not committed. This test packages them into a
+// temporary directory and checks they hold exactly the tracked files, so an
+// untracked local file cannot leak into a release.
 const ROOT = resolve(__dirname, '../..');
+const OUT = mkdtempSync(join(tmpdir(), 'chippy-shipped-'));
 const SKIPPED = new Set(['.DS_Store', '.gaps', '.provenance']);
+
+afterAll(() => rmSync(OUT, { recursive: true, force: true }));
 
 function trackedFiles(directory: string) {
   return execFileSync('git', ['ls-files', directory], { cwd: ROOT, encoding: 'utf8' })
@@ -17,32 +22,21 @@ function trackedFiles(directory: string) {
 }
 
 function zipEntries(archive: string) {
-  return execFileSync('unzip', ['-Z1', archive], { cwd: ROOT, encoding: 'utf8' })
+  return execFileSync('unzip', ['-Z1', archive], { encoding: 'utf8' })
     .split('\n')
     .filter((entry) => entry && !entry.endsWith('/'));
 }
 
-function zipEntry(archive: string, entry: string) {
-  return execFileSync('unzip', ['-p', archive, entry], { cwd: ROOT, maxBuffer: 64 * 1024 * 1024 });
-}
-
 const ARCHIVES = [
-  { archive: 'chippy-skill.zip', source: '.agents/skills/chippy', prefix: 'chippy/' },
-  { archive: 'chippy-extension.zip', source: '.agents/skills/chippy/extension', prefix: '' },
+  { kind: 'skill', source: '.agents/skills/chippy', prefix: 'chippy/' },
+  { kind: 'extension', source: '.agents/skills/chippy/extension', prefix: '' },
 ];
 
-describe.each(ARCHIVES)('$archive', ({ archive, source, prefix }) => {
-  const files = trackedFiles(source);
-  const expected = files.map((path) => prefix + path.slice(source.length + 1));
-
+describe.each(ARCHIVES)('chippy-$kind.zip', ({ kind, source, prefix }) => {
   it('contains exactly the tracked files plus LICENSE', () => {
-    const withLicense = new Set([...expected, `${prefix}LICENSE`]);
-    expect(zipEntries(archive).sort()).toEqual([...withLicense].sort());
-  });
-
-  it('matches the tracked file contents', () => {
-    // The packager writes the root LICENSE over any copy in the source directory.
-    const stale = files.filter((path, index) => !path.endsWith('/LICENSE') && !zipEntry(archive, expected[index]).equals(readFileSync(resolve(ROOT, path))));
-    expect(stale).toEqual([]);
+    const archive = packageChippy(kind, ROOT, OUT);
+    const expected = trackedFiles(source).map((path) => prefix + path.slice(source.length + 1));
+    expect(zipEntries(archive).sort()).toEqual([...new Set([...expected, `${prefix}LICENSE`])].sort());
+    expect(execFileSync('unzip', ['-p', archive, `${prefix}LICENSE`], { encoding: 'utf8' })).toBe(readFileSync(resolve(ROOT, 'LICENSE'), 'utf8'));
   });
 });

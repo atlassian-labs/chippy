@@ -17,7 +17,7 @@ afterEach(() => {
   }
 });
 
-function captureShellBody(command: 'context-ui' | 'jira-ui', mode: 'on' | 'off') {
+function captureShellBody(command: 'context-ui', mode: 'on' | 'off') {
   const directory = mkdtempSync(join(tmpdir(), 'chippy-context-ui-'));
   temporaryDirectories.push(directory);
   const capturePath = join(directory, 'body.json');
@@ -64,17 +64,10 @@ describe('context-ui wire chain', () => {
     });
   });
 
-  it('keeps the deprecated jira-ui alias on the command older bridges understand', () => {
-    expect(captureShellBody('jira-ui', 'off')).toEqual({
-      clientId: 'client-42',
-      command: { type: 'set-jira-ui', enabled: false },
-    });
-  });
-
-  it('advertises the public shell command and its alias', () => {
+  it('advertises the public shell command', () => {
     const help = execFileSync('bash', [SHELL, 'help'], { encoding: 'utf8' });
     expect(help).toContain('context-ui <clientId> <on|off>');
-    expect(help).toContain('jira-ui <clientId> <on|off>');
+    expect(help).not.toContain('jira-ui');
   });
 
   it('forwards the generic command object unchanged through the helper', () => {
@@ -84,19 +77,18 @@ describe('context-ui wire chain', () => {
     expect(route).toContain('broadcastCommand(command, body.clientId || null)');
   });
 
-  it('consumes both commands in the page bridge and refreshes the panel', () => {
+  it('consumes the command in the page bridge and refreshes the panel', () => {
     const source = readFileSync(BRIDGE, 'utf8');
-    for (const type of ['set-context-ui', 'set-jira-ui']) {
-      const commandCase = source.slice(source.indexOf(`case '${type}'`), source.indexOf(`case '${type}'`) + 220);
-      expect(commandCase).toContain('setContextUiEnabled(command.enabled !== false');
-    }
+    const commandCase = source.slice(source.indexOf("case 'set-context-ui'"), source.indexOf("case 'set-context-ui'") + 220);
+    expect(commandCase).toContain('setContextUiEnabled(command.enabled !== false');
+    expect(source).not.toContain('set-jira-ui');
     expect(source).toContain('contextUiEnabled: true');
     expect(source).toContain('chippy.layoutLab?.updatePanel?.()');
   });
 
-  it('keeps marker context hidden when either runtime config name disables it', () => {
+  it('keeps marker context hidden when the runtime config disables it', () => {
     const source = readFileSync(LAYOUT_LAB, 'utf8');
-    expect(source).toContain('(chippy.config?.contextUiEnabled ?? chippy.config?.jiraUiEnabled) !== false');
+    expect(source).toContain('chippy.config?.contextUiEnabled !== false');
     expect(source).toContain('data-chippy-context');
     expect(source).toContain('data-chippy-boundary-marker');
   });

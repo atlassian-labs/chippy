@@ -94,22 +94,10 @@ function BoundaryBlock({ testId, kind, label, title, accent, distance, fields, o
   );
 }
 
-// Bundles before 0.4.23 return the Jira-shaped context without `display`.
+const EMPTY_DISPLAY = { kinds: [], titles: {}, fields: {}, showError: false };
+
 function contextDisplay(context) {
-  if (context.display) return context.display;
-  const ownership = context.ownership;
-  const error = context.boundaries?.error;
-  return {
-    kinds: ownership ? [{ kind: 'owner', label: 'owner', accent: '#0c66e4' }] : [],
-    titles: ownership ? { owner: ownership.name || ownership.markerName } : {},
-    fields: {
-      error: [
-        { label: 'team', value: error?.teamName ?? context.errorBoundary?.teamName },
-        { label: 'id', value: error?.id ?? context.errorBoundary?.id },
-      ],
-    },
-    showError: !!(error || context.errorComponent),
-  };
+  return context.display || EMPTY_DISPLAY;
 }
 
 function toFieldPairs(fields) {

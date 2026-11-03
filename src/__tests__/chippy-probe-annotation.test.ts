@@ -41,7 +41,7 @@ function openPanel() {
       describeSource: () => null,
       describeFiberTarget: () => null,
       describeComponent: () => null,
-      describeJiraContext: () => null,
+      describeContext: () => null,
       findBoundaryFibers: () => ({ owner: null, error: null, suspense: null }),
       normalizeProbeAnnotation,
     },
@@ -181,7 +181,7 @@ describe('Chippy in-page probe annotation', () => {
       resolveProbesCompact: () => ({ '1': null }),
     };
     win.__AVALANCHE__ = {
-      layoutLab: { describeJiraContext: () => null },
+      layoutLab: { describeContext: () => null },
       bridge: { readAvalancheStatus: () => ({ ok: true, available: true }) },
     };
     win.eval(PAGE_BRIDGE_SOURCE);

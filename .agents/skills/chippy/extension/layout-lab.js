@@ -50,8 +50,7 @@
   function describeComponent(fiber) { const l = getLab(); return l ? l.describeComponent(fiber) : null; }
   function describeContext(fiber) {
     const l = getLab();
-    // Bundles before 0.4.23 publish only describeJiraContext.
-    const describe = l?.describeContext || l?.describeJiraContext;
+    const describe = l?.describeContext;
     return typeof describe === 'function' ? describe(fiber) : null;
   }
   function findBoundaryFibers(fiber) { const l = getLab(); return typeof l?.findBoundaryFibers === 'function' ? l.findBoundaryFibers(fiber) : { error: null, suspense: null }; }
@@ -381,8 +380,7 @@
       const match = (provider.kinds || []).find((entry) => entry.kind === kind);
       if (match?.accent) return match.accent;
     }
-    // Bundles before 0.4.23 know only the Jira owner kind.
-    return kind === 'owner' ? '#0c66e4' : null;
+    return null;
   }
 
   // Highlight a collateral boundary's DOM subtree on the page so the user can see
@@ -859,8 +857,7 @@
   };
 
   function contextUiEnabled() {
-    // jiraUiEnabled is the pre-0.4.23 name of the same toggle.
-    return (chippy.config?.contextUiEnabled ?? chippy.config?.jiraUiEnabled) !== false;
+    return chippy.config?.contextUiEnabled !== false;
   }
 
   function renderContextField(label, value) {
@@ -877,17 +874,10 @@
     return `<span data-chippy-boundary-distance style="margin-left:auto;padding:1px 5px;border-radius:999px;background:rgba(148,163,184,.18);color:#CECFD2;font-size:9px;font-weight:600;">${escapeAttr(hops)}</span>`;
   }
 
-  // Bundles before 0.4.23 return the Jira-shaped context without `display`.
+  const EMPTY_DISPLAY = { kinds: [], titles: {}, fields: {}, showError: false };
+
   function contextDisplay(context) {
-    if (context.display) return context.display;
-    const ownership = context.ownership;
-    const error = context.boundaries?.error;
-    return {
-      kinds: ownership ? [{ kind: 'owner', label: 'owner', accent: '#0c66e4' }] : [],
-      titles: ownership ? { owner: ownership.name || ownership.markerName } : {},
-      fields: { error: [{ label: 'team', value: error?.teamName }, { label: 'id', value: error?.id }] },
-      showError: !!(error || context.errorComponent),
-    };
+    return context.display || EMPTY_DISPLAY;
   }
 
   function boundaryAccent(kind) {

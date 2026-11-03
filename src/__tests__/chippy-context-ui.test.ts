@@ -4,7 +4,7 @@ import { resolve } from 'node:path';
 import { JSDOM } from 'jsdom';
 import type { Fiber } from '../layout-lab/fiber-walk';
 import { describeContext, registerContextProvider } from '../layout-lab/marker-context';
-import { describeJiraContext, jiraContextProvider } from '../plugins/jira/context-provider';
+import { jiraContextProvider } from '../plugins/jira/context-provider';
 
 const LAYOUT_LAB_SOURCE = readFileSync(
   resolve(__dirname, '../../.agents/skills/chippy/extension/layout-lab.js'),
@@ -15,9 +15,9 @@ const PANEL_DOM_SOURCE = readFileSync(
   'utf8',
 );
 
-type PanelOptions = { config: Record<string, unknown>; legacyBundle?: boolean };
+type PanelOptions = { config: Record<string, unknown> };
 
-function renderContextPanel({ config, legacyBundle = false }: PanelOptions) {
+function renderContextPanel({ config }: PanelOptions) {
   const ownership: Fiber = {
     type: { displayName: 'OwnerMark___feature___BenefitModal___jiraEocChangeboarding___flag' },
     memoizedProps: { teamName: 'alexstrasza' },
@@ -61,10 +61,7 @@ function renderContextPanel({ config, legacyBundle = false }: PanelOptions) {
       describeSource: () => null,
       describeFiberTarget: () => null,
       describeComponent: () => null,
-      // A pre-0.4.23 bundle publishes only describeJiraContext, without `display`.
-      ...(legacyBundle
-        ? { describeJiraContext: (fiber: Fiber) => stripDisplay(describeJiraContext(fiber)) }
-        : { describeContext, describeJiraContext }),
+      describeContext,
     },
   };
 
@@ -90,12 +87,6 @@ function renderContextPanel({ config, legacyBundle = false }: PanelOptions) {
   return { dom, panel: win.document.querySelector('[data-layout-lab-panel]') as HTMLElement };
 }
 
-function stripDisplay(context: ReturnType<typeof describeJiraContext>) {
-  if (!context) return null;
-  const { display: _display, providers: _providers, ...legacy } = context;
-  return legacy;
-}
-
 let unregister: () => void = () => {};
 beforeAll(() => {
   unregister = registerContextProvider(jiraContextProvider);
@@ -116,19 +107,10 @@ describe('Chippy marker context panel', () => {
     dom.window.close();
   });
 
-  it('renders the legacy Jira-shaped context from a pre-0.4.23 bundle', () => {
-    const { dom, panel } = renderContextPanel({ config: { jiraUiEnabled: true }, legacyBundle: true });
-    expect(panel.querySelector('[data-chippy-boundary="owner"]')?.textContent).toContain('BenefitModal');
-    expect(panel.querySelector('[data-chippy-boundary="error"]')?.textContent).toContain('eoc.changeboarding.benefit.modal');
+  it('hides marker context when the config is off', () => {
+    const { dom, panel } = renderContextPanel({ config: { contextUiEnabled: false } });
+    expect(panel.querySelector('[data-chippy-context]')).toBeNull();
+    expect(panel.textContent).toContain('ErrorComponent');
     dom.window.close();
-  });
-
-  it('hides marker context when the config is off under either name', () => {
-    for (const config of [{ contextUiEnabled: false }, { jiraUiEnabled: false }]) {
-      const { dom, panel } = renderContextPanel({ config });
-      expect(panel.querySelector('[data-chippy-context]')).toBeNull();
-      expect(panel.textContent).toContain('ErrorComponent');
-      dom.window.close();
-    }
   });
 });

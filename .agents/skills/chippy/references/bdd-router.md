@@ -19,7 +19,7 @@ The router picks the procedure once the domain is named. Each section below oper
 | 3.3 Performance — Load | 🌀 Complex | Experiment (reload-with-avalanche). Load capture is a perturbation; cause is read from emergent wave. |
 | 3.4 Context & Store | 🔍 Complicated → 🌀 Complex | Sensors locate provider; stability-render is the experiment when identity is suspected. |
 | 3.5 Automated / Browser Harness | 🔍 Complicated | Sensors over Playwright. Failures here are often 🔥 (injection order, helper down) — stabilize first. |
-| 3.6 Jira / Production Pages | 🔍 Complicated | Sensors against minified source. Owner-chain analysis with taxonomy filter. |
+| 3.6 Production and Jira Pages | 🔍 Complicated | Sensors against minified source. Owner-chain analysis with taxonomy filter. |
 | 3.7 Tool Boundaries & Gaps | 🔥 Chaotic → ❓ Disorder | Runtime is broken or capability is missing. Stabilize or report; do not analyze. |
 
 Read the GIVEN column first. Pick the row that best matches the situation. Follow THEN exactly.
@@ -32,7 +32,7 @@ Read the GIVEN column first. Pick the row that best matches the situation. Follo
   - [Performance — Load](#33-performance--load)
   - [Context & Store](#34-context--store)
   - [Automated / Browser Harness](#35-automated--browser-harness)
-  - [Jira / Production Pages](#36-jira--production-pages)
+  - [Production and Jira Pages](#36-production-and-jira-pages)
   - [Tool Boundaries & Gaps](#37-tool-boundaries--gaps)
 - [Iteration Patterns & Cycles](#iteration-patterns--cycles)
 
@@ -55,7 +55,7 @@ Read the GIVEN column first. Pick the row that best matches the situation. Follo
 | R-03A | Same feature exists in Storybook/local fixture and living app | "Where should Chippy investigate first?" | P-14 → P-13/P-20 → P-15 | prefer direct story or local harness before living app | Better-named tree chosen first; same branch signal easier to isolate |
 | R-04 | Probe placed, style mismatch | "Why does this look wrong?" | P-14 → P-02 then `get-computed-style` → P-15 | `probe-dom` → `get-computed-style` → matchedStyles | Style rule source identified; renderer vs data source separated |
 | R-05 | No connected page | Any probe/fiber task | Define runtime gap, then branch on helper health | `health`; unavailable → install Chippy if absent, then agent starts/verifies helper; healthy + `pages` empty → follow the integration's reconnect/reload action | `health` succeeds and page appears in `chippy.sh pages` |
-| R-06 | Production page (minified) | Trace source | P-14 → P-11 → P-15 | `probe-owners`, `nearestTestId`, `componentStack`, `jira-taxonomy` | Owner chain walked; source named with caveat |
+| R-06 | Production page (minified) | Trace source | P-14 → P-11 → P-15 | `probe-owners`, `nearestTestId`, `componentStack` (plus `jira-taxonomy` on Jira pages) | Owner chain walked; source named with caveat |
 | R-07 | Two pages match target | Any | Ask user which page | `pages` output shown, user picks by URL/title | clientId confirmed by user |
 | R-08 | User asks "why" but target/invariant unclear | Deep grasp first | P-14 only | Ask/derive anchor + invariant; no specialized tool until case defined | Case definition exists |
 | R-09 | Evidence identifies only a forwarding wrapper | Continue proof, do not conclude | P-02 → P-15 | `probe-owners` deeper → `probe-prop-value` at next owner → open caller | Creator named, not just forwarder |
@@ -129,7 +129,7 @@ Read the GIVEN column first. Pick the row that best matches the situation. Follo
 
 ---
 
-### 3.6 Jira / Production Pages
+### 3.6 Production and Jira Pages
 
 | ID | GIVEN | WHEN | THEN: Procedure | THEN: Key Commands | THEN: Verified By |
 |---|---|---|---|---|---|

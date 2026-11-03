@@ -153,11 +153,7 @@ export const jiraContextProvider: ContextProvider = {
   matchBoundary: (fiber) => (describeOwnership(fiber) ? 'owner' : null),
 };
 
-/**
- * Legacy `describeJiraContext` shape: the generic marker context with the
- * Jira fields always present. Kept as an alias for one release so bridges
- * that call `layoutLab.describeJiraContext` keep working.
- */
+/** The marker context with the Jira fields always present. */
 export function describeJiraContext(fiber: Fiber | null | undefined): MarkerContext | null {
   const context = describeContext(fiber);
   if (!context) return null;

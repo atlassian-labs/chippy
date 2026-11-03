@@ -48,7 +48,6 @@ Usage:
   ./scripts/chippy.sh activate <clientId>
   ./scripts/chippy.sh deactivate <clientId>
   ./scripts/chippy.sh context-ui <clientId> <on|off>
-  ./scripts/chippy.sh jira-ui <clientId> <on|off>   (deprecated alias of context-ui)
   ./scripts/chippy.sh ensure-probes <clientId>
   ./scripts/chippy.sh clear-probes <clientId>
   ./scripts/chippy.sh show-status <clientId> <text>
@@ -372,7 +371,7 @@ case "$cmd" in
     fi
     send_command "deactivate" "$client_id"
     ;;
-  context-ui|jira-ui)
+  context-ui)
     command_name="$1"
     client_id="${2:-}"
     mode="${3:-}"
@@ -388,12 +387,7 @@ case "$cmd" in
         exit 1
         ;;
     esac
-    # jira-ui keeps sending set-jira-ui so it still reaches bridges before 0.4.23.
-    if [[ "$command_name" == "jira-ui" ]]; then
-      send_command "set-jira-ui" "$client_id" ",\"enabled\":$enabled"
-    else
-      send_command "set-context-ui" "$client_id" ",\"enabled\":$enabled"
-    fi
+    send_command "set-context-ui" "$client_id" ",\"enabled\":$enabled"
     ;;
   ensure-probes)
     client_id="${2:-}"

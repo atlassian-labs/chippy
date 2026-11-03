@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { cpSync, existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { execFileSync } from 'node:child_process';
@@ -42,22 +42,5 @@ describe('Chippy distribution entry points', () => {
     rmSync(join(root, 'LICENSE'));
     expect(() => execFileSync(process.execPath, [resolve('scripts/package-chippy.mjs'), 'skill'], { cwd: root, stdio: 'pipe' })).toThrow();
     expect(readFileSync(archive, 'utf8')).toBe('previous artifact');
-  });
-
-  it('installs under POSIX sh to an explicit destination, replacing only that copy', () => {
-    const root = fixture();
-    cpSync('install-chippy-skill.sh', join(root, 'install-chippy-skill.sh'));
-    const destination = join(root, 'installed/chippy');
-    mkdirSync(destination, { recursive: true });
-    writeFileSync(join(destination, 'stale-file'), 'old');
-    execFileSync('/bin/sh', [join(root, 'install-chippy-skill.sh'), destination]);
-    expect(readFileSync(join(destination, 'SKILL.md'), 'utf8')).toBe('fixture skill');
-    expect(readFileSync(join(destination, 'LICENSE'), 'utf8')).toBe(readFileSync('LICENSE', 'utf8'));
-    expect(existsSync(join(destination, 'stale-file'))).toBe(false);
-    expect(existsSync(join(root, '.agents/skills/chippy/SKILL.md'))).toBe(true);
-  });
-
-  it('rejects a root destination before modifying files', () => {
-    expect(() => execFileSync('/bin/sh', [resolve('install-chippy-skill.sh'), '/'], { stdio: 'pipe' })).toThrow();
   });
 });

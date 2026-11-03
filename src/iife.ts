@@ -56,7 +56,6 @@ import {
   getContextProviders,
   registerContextProvider,
 } from './layout-lab/marker-context';
-import { describeJiraContext } from './plugins/jira/context-provider';
 import { enableDefaultPlugins, enablePlugins, listPlugins, registerBuiltinPlugins, registerPlugin, selectPlugins } from './plugins';
 import {
   PROBE_INTENTS,
@@ -252,8 +251,6 @@ type AvalancheApi = {
     describeContext: typeof describeContext;
     registerContextProvider: typeof registerContextProvider;
     getContextProviders: typeof getContextProviders;
-    /** @deprecated Alias of describeContext with the legacy Jira fields; kept for one release. */
-    describeJiraContext: typeof describeJiraContext;
     findBoundaryFibers: typeof findBoundaryFibers;
     PROBE_INTENTS: typeof PROBE_INTENTS;
     normalizeProbeAnnotation: typeof normalizeProbeAnnotation;
@@ -401,7 +398,6 @@ const api: AvalancheApi = {
     describeContext,
     registerContextProvider,
     getContextProviders,
-    describeJiraContext,
     findBoundaryFibers,
     PROBE_INTENTS,
     normalizeProbeAnnotation,

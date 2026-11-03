@@ -2,17 +2,19 @@
 
 Signals to keep and use when probing Jira-like production pages.
 
+The `owner` boundary and Jira ownership fields appear only when the built-in Jira plugin is enabled. The wrapper names below apply to Jira pages whether or not it is.
+
 ## Probe Jira context
 
 Chippy enriches a selected fiber with three collateral-scope boundaries. The extension/import panel renders them in-page; the Storybook addon renders the same three inside the matching marker card (feature parity — same data, host-specific rendering). It scans a bounded current/return/debug-owner path.
 
-The three boundaries (`markers[id].jiraContext.boundaries = { owner, error, suspense }`) each carry a **`distance`** — the number of fiber hops from the probed fiber. Distance is the primary signal: it says how far each collateral boundary is without resolving it in full. Each block is **clickable**; a click reports the selected boundary (`{ markerId, boundaryKind, boundary, distance }`) to the backend as an `inspect-boundary` signal for later investigation (readable as `lastInspectedBoundary` on the client summary).
+The three boundaries (`markers[id].context.boundaries = { owner, error, suspense }`) each carry a **`distance`** — the number of fiber hops from the probed fiber. Distance is the primary signal: it says how far each collateral boundary is without resolving it in full. Each block is **clickable**; a click reports the selected boundary (`{ markerId, boundaryKind, boundary, distance }`) to the backend as an `inspect-boundary` signal for later investigation (readable as `lastInspectedBoundary` on the client summary).
 
 - **error** and **suspense** are **fiber-native React primitives**, detected generically on *any* React page (not just Jira). Error boundaries are found by React lifecycle (`getDerivedStateFromError` / `componentDidCatch`) with a name-heuristic fallback (`detectedBy: 'lifecycle' | 'name'`); Suspense by fiber tag 13. The error block shows the detailed fields; on Jira it is enriched from `JSErrorBoundary` props (`id`, `packageName`, `teamName`, `fallback`).
 - **owner** is the Jira-specific semantic/team owner (`OwnerMark___<type>___<name>___<package>___<variant>`) — *not* the React render owner. It renders as a **short clickable lozenge** (name + distance only); its fields are intentionally not dumped because the OwnerMark commonly wraps the error boundary and would duplicate it.
 - The nearest Suspense boundary in deep trees (e.g. Jira) can sit ~170+ fiber-hops above a leaf; the ancestry walk reaches it (ceiling 400) but early-exits once all three are found.
 - This is live runtime metadata, not a repository or organizational lookup. Treat it as a production source hint and retain the existing confidence caveat when neither `_debugSource` nor a usable React 19 `_debugStack` source is available.
-- Use `jira-ui <clientId> off` to hide the boundary cards for the current page, and `jira-ui <clientId> on` to show them again. This applies to both in-page and Storybook marker cards; generic probe data remains available in either state.
+- Use `context-ui <clientId> off` to hide the boundary cards for the current page, and `context-ui <clientId> on` to show them again. This applies to both in-page and Storybook marker cards; generic probe data remains available in either state.
 
 ## `OwnerMark___<type>___<name>___<package>___<variant>`
 Declarative boundary marker near error/lazy boundaries. Often the closest thing to a source name in production.
