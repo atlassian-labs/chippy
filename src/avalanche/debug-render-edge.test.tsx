@@ -10,7 +10,7 @@
  */
 import React from 'react';
 import { render, screen, act, fireEvent } from '@testing-library/react';
-import { describe, expect, it, beforeEach } from 'vitest';
+import { describe, expect, it, beforeEach, vi } from 'vitest';
 import {
   RefWriteSUT,
   CallbackSUT,
@@ -97,7 +97,13 @@ describe('ConditionalHookSUT — rules-of-hooks violation', () => {
     const { rerender } = render(<ConditionalHookSUT condition={false} />);
     // React should throw when the number of hooks changes between renders.
     // This is the rule-of-hooks violation. We assert it throws rather than
-    // silently succeeding with a misaligned hook slot.
-    expect(() => rerender(<ConditionalHookSUT condition={true} />)).toThrow();
+    // silently succeeding with a misaligned hook slot. React and jsdom also
+    // report the error to console.error; keep it out of the test output.
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      expect(() => rerender(<ConditionalHookSUT condition={true} />)).toThrow();
+    } finally {
+      consoleError.mockRestore();
+    }
   });
 });

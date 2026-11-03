@@ -472,7 +472,12 @@ describe('isDispatcherIdle', () => {
 // ---------------------------------------------------------------------------
 
 describe('replayComponentHooks', () => {
-  afterEach(removeFakeDevtoolsHook);
+  // Failure-path tests make replay log a [Chippy replay-error] diagnostic.
+  beforeEach(() => { vi.spyOn(console, 'error').mockImplementation(() => {}); });
+  afterEach(() => {
+    vi.restoreAllMocks();
+    removeFakeDevtoolsHook();
+  });
 
   it('falls back to fiber-only when no dispatcherRef', () => {
     const h1 = makeStateHook(5);
