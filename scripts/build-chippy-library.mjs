@@ -56,6 +56,11 @@ cpSync('.agents/skills/chippy', join(output, 'mcp-skill'), { recursive: true,
   filter: path => !['.DS_Store', '.gaps', '.provenance'].includes(path.split('/').at(-1)),
 });
 writeFileSync(join(output, 'mcp-skill/package.json'), '{"type":"commonjs"}\n');
-// The repository root is CommonJS; the library output is ESM.
-writeFileSync(join(output, 'package.json'), '{"type":"module"}\n');
+// The repository root is CommonJS; the library output is ESM. Bundlers read
+// sideEffects from the nearest package.json, so declaring it here covers only the
+// published bundles; on the root it would also tree-shake the repository's sources.
+writeFileSync(join(output, 'package.json'), `${JSON.stringify({
+  type: 'module',
+  sideEffects: ['./bootstrap.js', './storybook/**', './extension/**'],
+})}\n`);
 console.log('Built lib');

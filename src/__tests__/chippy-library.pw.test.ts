@@ -41,7 +41,7 @@ void report; void connection;
     assert.equal(typeof createAvalancheDetector, 'function');
     assert.equal(typeof DETECTION_LEVEL, 'object');
   `], { cwd: directory });
-  const preset = await import(join(directory, 'node_modules/@atlassian/chippy/dist/storybook/preset.js'));
+  const preset = await import(join(directory, 'node_modules/@atlassian/chippy/lib/storybook/preset.js'));
   for (const path of [...preset.managerEntries(), ...preset.previewAnnotations()]) expect(readFileSync(path, 'utf8')).toBeTruthy();
   // Supply the consuming application's peers and Storybook framework separately.
   for (const dependency of ['react', 'react-dom', 'storybook', '@storybook']) {
@@ -50,7 +50,7 @@ void report; void connection;
   writeFileSync(join(directory, 'main.cjs'), `module.exports = {
     core: { disableTelemetry: true },
     stories: [${JSON.stringify(resolve('src/**/*.stories.@(js|jsx|mjs|ts|tsx)'))}],
-    addons: [${JSON.stringify(join(directory, 'node_modules/@atlassian/chippy/dist/storybook/preset.js'))}],
+    addons: [${JSON.stringify(join(directory, 'node_modules/@atlassian/chippy/lib/storybook/preset.js'))}],
     framework: { name: '@storybook/react-vite', options: {} },
     viteFinal(config) { config.root = ${JSON.stringify(directory)}; config.build = { ...config.build, target: 'es2022' }; return config; }
   };`);
@@ -139,7 +139,7 @@ it('runs the packed MCP executable against a real connected React page', async (
   const page = await browser.newPage();
   try {
     await client.connect(new StdioClientTransport({ command: process.execPath,
-      args: [join(directory, 'node_modules/@atlassian/chippy/dist/mcp-skill/scripts/chippy-mcp.cjs')],
+      args: [join(directory, 'node_modules/@atlassian/chippy/lib/mcp-skill/scripts/chippy-mcp.cjs')],
       env: { CHIPPY_HELPER_PORT: String(port) }, stderr: 'pipe' }));
     const status = await client.callTool({ name: 'chippy_status', arguments: {} });
     helperPid = (status.structuredContent as any).startedPid;
