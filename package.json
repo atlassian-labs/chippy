@@ -1,9 +1,55 @@
 {
-  "name": "chippy",
+  "name": "@atlassian/chippy",
+  "version": "0.1.0",
+  "description": "React runtime inspection and Avalanche commit evidence",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/atlassian-labs/chippy.git"
+  },
+  "homepage": "https://github.com/atlassian-labs/chippy#readme",
+  "bugs": {
+    "url": "https://github.com/atlassian-labs/chippy/issues"
+  },
   "packageManager": "yarn@4.8.1",
   "engines": {
     "node": ">=22.12.0"
   },
+  "publishConfig": {
+    "registry": "https://packages.atlassian.com/api/npm/npm-public/"
+  },
+  "files": [
+    "bin",
+    "lib"
+  ],
+  "bin": {
+    "chippy": "./bin/chippy.mjs",
+    "chippy-mcp": "./lib/mcp-skill/scripts/chippy-mcp.cjs"
+  },
+  "exports": {
+    "./avalanche": {
+      "types": "./lib/types/package/avalanche.d.ts",
+      "import": "./lib/avalanche.js"
+    },
+    "./bootstrap": {
+      "types": "./lib/bootstrap.d.ts",
+      "import": "./lib/bootstrap.js"
+    },
+    "./browser": {
+      "types": "./lib/types/package/browser.d.ts",
+      "import": "./lib/browser.js"
+    },
+    "./plugin": {
+      "types": "./lib/types/package/plugin.d.ts",
+      "import": "./lib/plugin.js"
+    },
+    "./storybook": "./lib/storybook/preset.js"
+  },
+  "sideEffects": [
+    "./lib/bootstrap.js",
+    "./lib/storybook/**",
+    "./lib/extension/**"
+  ],
   "scripts": {
     "storybook": "storybook dev -p 6006 --host 0.0.0.0",
     "build-storybook": "storybook build",
@@ -20,15 +66,31 @@
     "chippy:mcp:build": "node scripts/build-chippy-mcp.mjs",
     "chippy:mcp": "node .agents/skills/chippy/scripts/chippy-mcp.cjs"
   },
-  "dependencies": {
-    "@playwright/cli": "^0.1.13",
-    "react": "^18.3.1",
-    "react-dom": "^18.3.1"
+  "peerDependencies": {
+    "esbuild": ">=0.20",
+    "react": ">=18 <20",
+    "react-dom": ">=18 <20",
+    "storybook": "^10.3.3"
+  },
+  "peerDependenciesMeta": {
+    "esbuild": {
+      "optional": true
+    },
+    "react": {
+      "optional": true
+    },
+    "react-dom": {
+      "optional": true
+    },
+    "storybook": {
+      "optional": true
+    }
   },
   "devDependencies": {
     "@babel/core": "^7.27.1",
     "@babel/plugin-transform-react-jsx-source": "^7.27.1",
     "@modelcontextprotocol/sdk": "^1.32.1",
+    "@playwright/cli": "^0.1.13",
     "@storybook/react-vite": "^10.3.3",
     "@testing-library/dom": "^10.4.1",
     "@testing-library/jest-dom": "^6.9.1",
@@ -38,12 +100,12 @@
     "esbuild": "^0.25.12",
     "jsdom": "^26.1.0",
     "playwright": "^1.58.2",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
     "storybook": "^10.3.3",
     "typescript": "^5.9.3",
     "vite": "^6.4.1",
     "vitest": "^3.2.4",
     "zod": "^4.6.7"
-  },
-  "private": true,
-  "license": "Apache-2.0"
+  }
 }

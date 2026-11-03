@@ -22,9 +22,9 @@ updates local assets; publication is a separate step.
    `yarn chippy:extension:zip`. They are written to the repository root, ignored by
    git, and attached to the GitHub release.
 7. For the npm library, run `yarn chippy:library:build`, verify the packed-consumer
-   suite, then run `npm pack` in `packages/chippy/`. Its build requires the
-   current generated extension assets from step 2. The library has its own version
-   in `packages/chippy/package.json`.
+   suite, then run `npm pack` in the repository root. Its build requires the
+   current generated extension assets from step 2. The library version is the
+   `version` in the root `package.json`.
 
 The skill archive contains `SKILL.md`, references, scripts, browser support,
 snippets, and extension assets. Keep external project links, credentials, local
@@ -41,7 +41,7 @@ The npm package is published to npmjs through Atlassian's Artifactory
 `npm-public` forwarder by the [Publish npm package](../.github/workflows/publish.yml)
 workflow:
 
-1. Bump the version in `packages/chippy/package.json` and merge it to `main`.
+1. Bump the version in the root `package.json` and merge it to `main`.
    A version that is already published is rejected.
 2. Run the workflow from the Actions tab on `main`. Without the `publish` input
    it only builds the tarball and installs the skill from it. With `publish`, it

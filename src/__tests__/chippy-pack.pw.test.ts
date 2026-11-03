@@ -10,7 +10,7 @@ import { join, resolve } from 'node:path';
 
 // The extension service worker's `chrome` global; this project has no chrome types.
 declare const chrome: any;
-import { normalizePackConfig, packChippy } from '../../packages/chippy/bin/pack.mjs';
+import { normalizePackConfig, packChippy } from '../../bin/pack.mjs';
 import { writePackWorkspace } from '../test/pack-workspace';
 
 const SKILL = resolve(__dirname, '../../.agents/skills/chippy');

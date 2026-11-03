@@ -1,7 +1,7 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 
-const PLUGIN_API = resolve(__dirname, '../../packages/chippy/src/plugin.ts');
+const PLUGIN_API = resolve(__dirname, '../package/plugin.ts');
 
 /** A workspace with one context-provider plugin and a skill overlay. */
 export function writePackWorkspace(directory: string) {

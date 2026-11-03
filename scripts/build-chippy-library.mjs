@@ -5,22 +5,22 @@ import { join, resolve } from 'node:path';
 
 const root = process.cwd();
 execFileSync(process.execPath, ['scripts/build-chippy-mcp.mjs'], { stdio: 'inherit' });
-const output = resolve('packages/chippy/dist');
+const output = resolve('lib');
 rmSync(output, { recursive: true, force: true });
 mkdirSync(output, { recursive: true });
 await build({
   entryPoints: {
-    avalanche: 'packages/chippy/src/avalanche.ts',
-    browser: 'packages/chippy/src/browser.ts',
-    plugin: 'packages/chippy/src/plugin.ts',
+    avalanche: 'src/package/avalanche.ts',
+    browser: 'src/package/browser.ts',
+    plugin: 'src/package/plugin.ts',
     bootstrap: '.agents/skills/chippy/extension/devtools-hook-shim.js',
   },
   outdir: output, bundle: true, format: 'esm', platform: 'browser', target: 'es2022',
   sourcemap: true, external: ['react'],
 });
 execFileSync(join(root, 'node_modules/.bin/tsc'), [
-  'packages/chippy/src/avalanche.ts', 'packages/chippy/src/browser.ts', 'packages/chippy/src/plugin.ts',
-  '--declaration', '--emitDeclarationOnly', '--noCheck', '--skipLibCheck',
+  'src/package/avalanche.ts', 'src/package/browser.ts', 'src/package/plugin.ts',
+  '--declaration', '--emitDeclarationOnly', '--noCheck', '--skipLibCheck', '--rootDir', 'src',
   '--target', 'ES2022', '--module', 'ESNext', '--moduleResolution', 'Bundler',
   '--jsx', 'react-jsx', '--esModuleInterop', '--outDir', join(output, 'types'),
 ], { stdio: 'inherit' });
@@ -52,9 +52,10 @@ for (const asset of [
   'inspect-react.js', 'panel-dom.js', 'layout-lab.js', 'resolve-probes.js',
   'avalanche.es.js', 'avalanche.es.js.map', 'chippy-page-bridge.js',
 ]) copyFileSync(join('.agents/skills/chippy/extension', asset), join(output, 'extension', asset));
-copyFileSync('LICENSE', 'packages/chippy/LICENSE');
 cpSync('.agents/skills/chippy', join(output, 'mcp-skill'), { recursive: true,
   filter: path => !['.DS_Store', '.gaps', '.provenance'].includes(path.split('/').at(-1)),
 });
 writeFileSync(join(output, 'mcp-skill/package.json'), '{"type":"commonjs"}\n');
-console.log('Built packages/chippy');
+// The repository root is CommonJS; the library output is ESM.
+writeFileSync(join(output, 'package.json'), '{"type":"module"}\n');
+console.log('Built lib');

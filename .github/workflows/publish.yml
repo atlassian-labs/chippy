@@ -42,7 +42,7 @@ jobs:
       - name: Read version
         id: version
         run: |
-          version=$(jq -r .version packages/chippy/package.json)
+          version=$(jq -r .version package.json)
           case "$version" in
             *-*) tag=${version#*-}; tag=${tag%%.*} ;;
             *) tag=latest ;;
@@ -51,7 +51,6 @@ jobs:
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
 
       - run: npm pack --pack-destination "$RUNNER_TEMP/package"
-        working-directory: packages/chippy
 
       - name: Install the skill from the packed tarball
         working-directory: ${{ runner.temp }}

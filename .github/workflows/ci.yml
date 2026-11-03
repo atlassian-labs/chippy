@@ -61,7 +61,6 @@ jobs:
       - run: yarn install --immutable
       - run: yarn chippy:library:build
       - run: npm pack --pack-destination "$RUNNER_TEMP"
-        working-directory: packages/chippy
       - name: Install the skill from the packed tarball
         working-directory: ${{ runner.temp }}
         run: |

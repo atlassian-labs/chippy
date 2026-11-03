@@ -22,7 +22,7 @@ function isChippySkill(directory) {
 
 // Copies the bundled skill to `target`. An existing Chippy skill is replaced;
 // any other existing directory is left alone unless `force` is set.
-export function installSkill({ source = join(PACKAGE_ROOT, 'dist', 'mcp-skill'), target = defaultSkillDir(), force = false } = {}) {
+export function installSkill({ source = join(PACKAGE_ROOT, 'lib', 'mcp-skill'), target = defaultSkillDir(), force = false } = {}) {
   const destination = resolve(target);
   if (!isChippySkill(source)) throw new Error(`Bundled skill not found at ${source}; build the package first`);
   if ([homedir(), dirname(homedir()), '/', resolve('.')].includes(destination)) {

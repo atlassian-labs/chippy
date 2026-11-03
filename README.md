@@ -110,7 +110,7 @@ Install `@atlassian/chippy` in your project when the extension is not the right 
 - **Add Chippy to Storybook** as an addon.
 - **Ship your own build** with extra plugins for your stack.
 
-See the [package documentation](packages/chippy/README.md) for setup.
+See the [package documentation](docs/npm-package.md) for setup.
 
 ## Learn more
 

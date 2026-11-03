@@ -25,6 +25,50 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@atlassian/chippy@workspace:.":
+  version: 0.0.0-use.local
+  resolution: "@atlassian/chippy@workspace:."
+  dependencies:
+    "@babel/core": "npm:^7.27.1"
+    "@babel/plugin-transform-react-jsx-source": "npm:^7.27.1"
+    "@modelcontextprotocol/sdk": "npm:^1.32.1"
+    "@playwright/cli": "npm:^0.1.13"
+    "@storybook/react-vite": "npm:^10.3.3"
+    "@testing-library/dom": "npm:^10.4.1"
+    "@testing-library/jest-dom": "npm:^6.9.1"
+    "@testing-library/react": "npm:^16.3.0"
+    "@types/node": "npm:^22"
+    "@vitejs/plugin-react": "npm:^4.3.4"
+    esbuild: "npm:^0.25.12"
+    jsdom: "npm:^26.1.0"
+    playwright: "npm:^1.58.2"
+    react: "npm:^18.3.1"
+    react-dom: "npm:^18.3.1"
+    storybook: "npm:^10.3.3"
+    typescript: "npm:^5.9.3"
+    vite: "npm:^6.4.1"
+    vitest: "npm:^3.2.4"
+    zod: "npm:^4.6.7"
+  peerDependencies:
+    esbuild: ">=0.20"
+    react: ">=18 <20"
+    react-dom: ">=18 <20"
+    storybook: ^10.3.3
+  peerDependenciesMeta:
+    esbuild:
+      optional: true
+    react:
+      optional: true
+    react-dom:
+      optional: true
+    storybook:
+      optional: true
+  bin:
+    chippy: ./bin/chippy.mjs
+    chippy-mcp: ./lib/mcp-skill/scripts/chippy-mcp.cjs
+  languageName: unknown
+  linkType: soft
+
 "@babel/code-frame@npm:^7.10.4, @babel/code-frame@npm:^7.28.6, @babel/code-frame@npm:^7.29.0":
   version: 7.29.0
   resolution: "@babel/code-frame@npm:7.29.0"
@@ -1983,33 +2027,6 @@ __metadata:
   checksum: 10c0/878e99038fb6476316b74668cd6a498c7e66df3efe48158fa40db80a06ba4258742ac3ee2229c4a2a98c5e73f5dff84eb3e50ceb6b65bbd8f831eafc8338607d
   languageName: node
   linkType: hard
-
-"chippy@workspace:.":
-  version: 0.0.0-use.local
-  resolution: "chippy@workspace:."
-  dependencies:
-    "@babel/core": "npm:^7.27.1"
-    "@babel/plugin-transform-react-jsx-source": "npm:^7.27.1"
-    "@modelcontextprotocol/sdk": "npm:^1.32.1"
-    "@playwright/cli": "npm:^0.1.13"
-    "@storybook/react-vite": "npm:^10.3.3"
-    "@testing-library/dom": "npm:^10.4.1"
-    "@testing-library/jest-dom": "npm:^6.9.1"
-    "@testing-library/react": "npm:^16.3.0"
-    "@types/node": "npm:^22"
-    "@vitejs/plugin-react": "npm:^4.3.4"
-    esbuild: "npm:^0.25.12"
-    jsdom: "npm:^26.1.0"
-    playwright: "npm:^1.58.2"
-    react: "npm:^18.3.1"
-    react-dom: "npm:^18.3.1"
-    storybook: "npm:^10.3.3"
-    typescript: "npm:^5.9.3"
-    vite: "npm:^6.4.1"
-    vitest: "npm:^3.2.4"
-    zod: "npm:^4.6.7"
-  languageName: unknown
-  linkType: soft
 
 "chownr@npm:^3.0.0":
   version: 3.0.0

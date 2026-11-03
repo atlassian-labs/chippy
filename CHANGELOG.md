@@ -6,7 +6,7 @@ Chippy ships three artifacts from this repository. Each has its own version:
 |---|---|---|
 | Agent skill | This changelog | Follows the repository release tag. |
 | Chrome extension | `.agents/skills/chippy/extension/manifest.json` | Bumped for every store upload; the store rejects a reused version. |
-| npm package | `packages/chippy/package.json` | Semantic versioning. Before 1.0, minor versions may contain breaking changes. |
+| npm package | `package.json` | Semantic versioning. Before 1.0, minor versions may contain breaking changes. |
 
 The helper HTTP API is internal to the skill and the extension. Changes to the
 routes the published extension calls (`GET /api/pages`, `POST /api/avalanche-arm`)

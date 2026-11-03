@@ -23,8 +23,8 @@ links/
 /dist/
 
 # Built npm library
-packages/chippy/dist/
-packages/chippy/*.tgz
+/lib/
+/*.tgz
 
 # Agent worktrees
 /.claude/worktrees/

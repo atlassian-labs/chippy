@@ -16,7 +16,7 @@ beforeAll(async () => {
   execFileSync(process.execPath, ['scripts/build-chippy-library.mjs']);
   directory = mkdtempSync(join(tmpdir(), 'chippy-library-consumer-'));
   const packed = JSON.parse(execFileSync('npm', ['pack', '--json', '--cache', join(directory, 'npm-cache'), '--pack-destination', directory], {
-    cwd: resolve('packages/chippy'), encoding: 'utf8',
+    cwd: resolve('.'), encoding: 'utf8',
   }));
   writeFileSync(join(directory, 'package.json'), '{"type":"module","private":true}');
   execFileSync('npm', ['install', '--cache', join(directory, 'npm-cache'), '--offline', '--ignore-scripts', '--legacy-peer-deps', '--no-audit', '--no-fund', join(directory, packed[0].filename)], { cwd: directory });

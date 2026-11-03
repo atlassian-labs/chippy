@@ -80,7 +80,9 @@ than the portable consumer skill.
 
 ## Documentation and assets
 
-The npm library lives in `packages/chippy/`. Run `yarn chippy:library:build`,
+The repository root is the npm package: `src/package/` holds its entry points,
+`bin/` its commands, and `yarn chippy:library:build` writes the bundles to `lib/`.
+Run `yarn chippy:library:build`,
 then `yarn test --project browser src/__tests__/chippy-library.pw.test.ts` to verify a
 packed artifact installed in a clean consumer. The build reuses runtime sources,
 the existing bootstrap shim, and Storybook addon; do not fork their implementation.
@@ -105,7 +107,7 @@ react-dom.
    `src/plugins/atl/commit-metrics-adapter.test.ts`.
 2. Add it to `BUILTIN_PLUGINS` in `src/plugins/index.ts`, to the default plugin
    options in `.agents/skills/chippy/extension/panel-settings.js`, and to
-   `BUILTIN_PLUGINS` in `packages/chippy/bin/pack.mjs`.
+   `BUILTIN_PLUGINS` in `bin/pack.mjs`.
 3. Rebuild the shipped bundles with `yarn avalanche:sync`.
 4. If the plugin changes what agents see, such as a new boundary kind, document it
    in the skill's references.
