@@ -1,0 +1,104 @@
+name: Publish npm package
+
+# Publishes @atlassian/chippy to npmjs through Atlassian's Artifactory npm-public
+# forwarder. Artifactory accepts OIDC tokens only from branch refs, so this runs
+# by dispatch on main rather than on a tag or release event.
+on:
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: Publish the package. Leave unchecked to only build and verify the tarball.
+        type: boolean
+        default: false
+
+permissions: {}
+
+concurrency:
+  group: ${{ github.workflow }}
+
+jobs:
+  pack:
+    name: Pack
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: corepack enable
+      - run: yarn install --immutable
+      - run: yarn chippy:library:build
+
+      # A prerelease such as 0.2.0-next.1 goes out under the dist-tag named after
+      # its identifier (`next`), so it never becomes `latest`.
+      - name: Read version
+        id: version
+        run: |
+          version=$(jq -r .version packages/chippy/package.json)
+          case "$version" in
+            *-*) tag=${version#*-}; tag=${tag%%.*} ;;
+            *) tag=latest ;;
+          esac
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+      - run: npm pack --pack-destination "$RUNNER_TEMP/package"
+        working-directory: packages/chippy
+
+      - name: Install the skill from the packed tarball
+        working-directory: ${{ runner.temp }}
+        run: |
+          npx --yes --package "$RUNNER_TEMP/package/atlassian-chippy-${{ steps.version.outputs.version }}.tgz" chippy install --dir "$RUNNER_TEMP/skill"
+          test -f "$RUNNER_TEMP/skill/SKILL.md"
+          test -f "$RUNNER_TEMP/skill/extension/manifest.json"
+          test -f "$RUNNER_TEMP/skill/scripts/chippy-mcp.cjs"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: package
+          path: ${{ runner.temp }}/package/
+          if-no-files-found: error
+
+  publish:
+    name: Publish to npm-public
+    needs: pack
+    if: inputs.publish
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # exchanged for a temporary Artifactory publish token
+    steps:
+      # This job can mint a publish token, so it checks out nothing, installs no
+      # dependencies, and publishes only the tarball built by `pack`.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: package
+          path: ${{ runner.temp }}/package
+
+      # Writes the registry credentials to $GITHUB_WORKSPACE/.npmrc-public.
+      - name: Get Artifact Publish Token
+        uses: atlassian-labs/artifact-publish-token@f105af73cf2dd9f1b934602845f9f9ca84b73346 # v1.0.1
+        with:
+          output-modes: npm
+
+      - name: Publish
+        env:
+          VERSION: ${{ needs.pack.outputs.version }}
+          TAG: ${{ needs.pack.outputs.tag }}
+        run: >-
+          npm publish "$RUNNER_TEMP/package/atlassian-chippy-$VERSION.tgz"
+          --userconfig "$GITHUB_WORKSPACE/.npmrc-public"
+          --registry https://packages.atlassian.com/api/npm/npm-public/
+          --tag "$TAG"

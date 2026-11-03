@@ -13,6 +13,9 @@
   "bugs": {
     "url": "https://github.com/atlassian-labs/chippy/issues"
   },
+  "publishConfig": {
+    "registry": "https://packages.atlassian.com/api/npm/npm-public/"
+  },
   "engines": {
     "node": ">=22.12.0"
   },

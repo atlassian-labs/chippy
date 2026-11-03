@@ -37,7 +37,23 @@ There is no public Chrome Web Store listing yet; users load the skill's
 the installer, and upload the extension archive through its owner. Store
 publication is independent of bundle generation.
 
-npm publication of `@atlassian/chippy` is a separate owner action.
+The npm package is published to npmjs through Atlassian's Artifactory
+`npm-public` forwarder by the [Publish npm package](../.github/workflows/publish.yml)
+workflow:
+
+1. Bump the version in `packages/chippy/package.json` and merge it to `main`.
+   A version that is already published is rejected.
+2. Run the workflow from the Actions tab on `main`. Without the `publish` input
+   it only builds the tarball and installs the skill from it. With `publish`, it
+   exchanges the job's GitHub OIDC token for a temporary Artifactory token through
+   `atlassian-labs/artifact-publish-token` and publishes that tarball.
+   A prerelease version goes out under the dist-tag named after its identifier,
+   for example `next`; other versions go out as `latest`.
+
+Artifactory issues the token only to workflows on a branch, so publishing from a
+tag or release event fails. The package must be on the `npm-public` allowlist
+(`@atlassian/chippy/**` and `.npm/@atlassian/chippy/**`), requested through a
+BENGHELP ticket; without it the publish is rejected.
 
 ## Public repository readiness
 
