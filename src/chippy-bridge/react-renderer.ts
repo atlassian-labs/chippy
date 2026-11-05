@@ -15,7 +15,8 @@
  */
 
 export type ReactRenderer = {
-  currentDispatcherRef?: { current: unknown } | null;
+  /** `{ current }` on React <=18; `ReactSharedInternals` (`H`) on React 19. */
+  currentDispatcherRef?: Record<string, unknown> | null;
   scheduleUpdate?: (fiber: unknown) => void;
   version?: string;
   rendererPackageName?: string;
@@ -49,17 +50,65 @@ export function getReactRenderers(
 }
 
 /**
- * First renderer that exposes a usable `currentDispatcherRef`. Used by
- * debug-render to patch the hook dispatcher.
+ * The writable property that holds React's active hooks dispatcher.
+ *
+ * React <=18 injects `ReactCurrentDispatcher`, whose dispatcher lives at
+ * `current`. React 19 injects `ReactSharedInternals`, whose dispatcher lives
+ * at `H` (`current` does not exist there). React DevTools makes the same
+ * distinction in its own `getDispatcherRef`.
+ */
+export type DispatcherSlot = { owner: Record<string, unknown>; key: 'current' | 'H' };
+
+export function dispatcherSlotOf(injected: unknown): DispatcherSlot | null {
+  if (!injected || typeof injected !== 'object') return null;
+  const owner = injected as Record<string, unknown>;
+  if (typeof owner.H !== 'undefined') return { owner, key: 'H' };
+  if ('current' in owner) return { owner, key: 'current' };
+  return null;
+}
+
+/**
+ * First renderer that exposes a usable dispatcher slot. Used by debug-render
+ * when it must trap writes to the exact property React assigns.
+ */
+export function getDispatcherSlot(scope: typeof globalThis = globalThis): DispatcherSlot | null {
+  for (const renderer of getReactRenderers(scope)) {
+    const slot = dispatcherSlotOf(renderer.currentDispatcherRef);
+    if (slot) return slot;
+  }
+  return null;
+}
+
+const modernRefs = new WeakMap<object, { current: unknown }>();
+
+/**
+ * Normalize a slot to a `{ current }` ref. A legacy ref is returned as-is; a
+ * React 19 internals object gets one stable accessor view that reads and
+ * writes `H`.
+ */
+export function dispatcherRefOf(slot: DispatcherSlot): { current: unknown } {
+  if (slot.key === 'current') return slot.owner as { current: unknown };
+  let ref = modernRefs.get(slot.owner);
+  if (!ref) {
+    const { owner } = slot;
+    ref = {
+      get current(): unknown { return owner.H; },
+      set current(value: unknown) { owner.H = value; },
+    };
+    modernRefs.set(owner, ref);
+  }
+  return ref;
+}
+
+/**
+ * First renderer's hooks dispatcher as a `{ current }` ref, across React
+ * versions. Used by debug replay to swap in its stub dispatcher.
  */
 export function getDispatcherRef(
   scope: typeof globalThis = globalThis,
 ): { current: unknown } | null {
-  for (const renderer of getReactRenderers(scope)) {
-    const ref = renderer.currentDispatcherRef;
-    if (ref && typeof ref === 'object') return ref;
-  }
-  return null;
+  const slot = getDispatcherSlot(scope);
+  return slot ? dispatcherRefOf(slot) : null;
 }
 
 /**

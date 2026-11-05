@@ -39,6 +39,23 @@ describe('React fiber source resolution', () => {
     expect(resolver.stats.modules).toBe(0);
   });
 
+  it('maps a shifted React <=18 _debugSource through its served module', async () => {
+    const fiber = { _debugSource: { fileName: '/repo/src/probe.jsx', lineNumber: 40, columnNumber: 5 } };
+    const url = 'http://localhost:5199/src/probe.jsx';
+    // Served line 2 maps to authored line 21, column 5 (see VITE_MAP).
+    const module = inlineModule(VITE_MAP).replace('export function Badge() {}', 'a;\n  return x({ lineNumber: 40, columnNumber: 5 });');
+    const resolver = createCallSiteResolver(
+      async (requested) => (requested === url ? module : null),
+      (fileName) => (fileName === '/repo/src/probe.jsx' ? [url] : []),
+    );
+    expect(getFiberSource(fiber)?.lineNumber).toBe(40);
+    const located = await resolveFiberSource(fiber, resolver);
+    expect(located).toMatchObject({ fileName: '/repo/src/probe.jsx' });
+    expect(located?.lineNumber).not.toBe(40);
+    expect(getFiberSource(fiber)).toEqual(located);
+    expect(getFiberSourceCandidate(fiber)?.lineNumber).toBe(40);
+  });
+
   it('reads the first project frame from React 19 _debugStack immediately', () => {
     const fiber = { _debugStack: { stack: REACT_STACK } };
     expect(getFiberStackFrames(fiber)).toEqual([

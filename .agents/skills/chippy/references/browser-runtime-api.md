@@ -66,7 +66,7 @@ The helper must be a real local process reachable by the user's browser. The age
 
 `contextUiEnabled` defaults to `true`. It controls only context-provider cards in the active probe UI, including Storybook marker cards; generic probe resolution and snapshots continue when it is false.
 
-Source reads are cross-version. React <=18 locations come from `_debugSource`. React 19 locations start at `_debugStack`, skip dependency frames, and resolve the served module through its inline or external Source Map v3 payload. Snapshot publication is immediate and may be followed by a `<reason>-source-resolved` snapshot when the authored position differs; `describe-component` and `explain-component` await the mapped position.
+Source reads are cross-version. React <=18 locations come from `_debugSource`; when the module the page loaded for that file carries a source map, its recorded literal is mapped back to correct lines shifted by an earlier transform. React 19 locations start at `_debugStack`, skip dependency frames, and resolve the served module through its inline or external Source Map v3 payload. Snapshot publication is immediate and may be followed by a `<reason>-source-resolved` snapshot when the authored position differs; `find-fibers`, `describe-component`, and `explain-component` await the mapped position.
 
 `integration.kind` is `extension`, `import`, or `storybook`. `who` names the host that established Chippy and `source` points to its real setup source file. Import integrations report `reinjectsOnReload: false`; a full reload/navigation requires the user or automation to run the import again.
 

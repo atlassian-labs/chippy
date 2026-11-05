@@ -22,7 +22,7 @@ and records each commit once regardless of whether ATL or DevTools calls first.
 | Evidence | Standard development React | Additional requirement |
 | --- | --- | --- |
 | Element, props, parents, Error/Suspense boundaries | DOM-attached fibers | A mounted React target |
-| Component source | React 18 `_debugSource`; React 19 `_debugStack` | Development metadata and served source maps for React 19 |
+| Component source | React 18 `_debugSource`; React 19 `_debugStack` | Development metadata; served source maps for React 19 and for React 18 lines shifted by a dev-server transform |
 | Commits, rendered components, prop changes, lifecycle events | DevTools callbacks | Hook installed before React evaluates |
 | Custom-hook structure and replay | Renderer dispatcher reference | Development internals; replay can execute render bodies |
 | Force a component re-render | Renderer `scheduleUpdate` | Development renderer; production builds may omit it |

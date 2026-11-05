@@ -27,7 +27,13 @@
  * the original evidence can be re-projected without re-capturing.
  */
 
-import { getDispatcherRef, getReactRenderers } from '../chippy-bridge/react-renderer';
+import {
+  dispatcherRefOf,
+  getDispatcherRef,
+  getDispatcherSlot,
+  getReactRenderers,
+  type DispatcherSlot,
+} from '../chippy-bridge/react-renderer';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -172,11 +178,20 @@ function isReactInternalFrameName(name: string): boolean {
     name === 'flushWork';
 }
 
+/**
+ * True for a hook frame, including qualified names. React 19's CommonJS build
+ * defines `exports.useState = function (...) {}`, which V8 names
+ * `exports.useState`; bundlers can produce similar `ns.useX` names.
+ */
+export function isHookFrameName(name: string): boolean {
+  return /^use[A-Z0-9_]/.test(name.slice(name.lastIndexOf('.') + 1));
+}
+
 function deriveComponentName(frames: StackFrame[]): string {
   for (const { name } of frames) {
     if (!name) continue;
     if (isReactInternalFrameName(name)) continue;
-    if (/^use[A-Z0-9_]/.test(name)) continue; // skip use-prefixed (custom + primitive)
+    if (isHookFrameName(name)) continue; // skip use-prefixed (custom + primitive)
     return name;
   }
   return 'Unknown';
@@ -198,7 +213,7 @@ export function createDebugRender(options: { maxEventsPerComponent?: number } = 
 
   let installed = false;
   let originalDescriptor: PropertyDescriptor | null | undefined = undefined;
-  let dispatcherRef: DispatcherRef | null = null;
+  let dispatcherSlot: DispatcherSlot | null = null;
   let lastSeenDispatcher: unknown = null;
 
   function record(primitive: string, args: unknown[]): void {
@@ -262,24 +277,26 @@ export function createDebugRender(options: { maxEventsPerComponent?: number } = 
 
   function install(): { ok: boolean; reason?: string } {
     if (installed) return { ok: true };
-    const ref = getDispatcherRef();
-    if (!ref) return { ok: false, reason: 'ReactCurrentDispatcher not found' };
-    dispatcherRef = ref;
+    const slot = getDispatcherSlot();
+    if (!slot) return { ok: false, reason: 'ReactCurrentDispatcher not found' };
+    dispatcherSlot = slot;
+    const { owner, key } = slot;
 
     // Patch whatever is already current (likely the no-op ContextOnlyDispatcher
     // outside render, but patching it is harmless: it will only be called when
     // React swaps it in). Then trap subsequent assignments.
-    patchDispatcher(ref.current);
-    lastSeenDispatcher = ref.current;
+    patchDispatcher(owner[key]);
+    lastSeenDispatcher = owner[key];
 
-    // Intercept the ref's setter rather than React's hook facades. React owns
-    // this ref and changes `current` at render boundaries; observing those
-    // transitions is what lets us patch the correct phase-specific dispatcher.
-    originalDescriptor = Object.getOwnPropertyDescriptor(ref, 'current') || null;
+    // Intercept the slot's setter rather than React's hook facades. React owns
+    // this property (`current` on <=18, `H` on 19) and changes it at render
+    // boundaries; observing those transitions is what lets us patch the
+    // correct phase-specific dispatcher.
+    originalDescriptor = Object.getOwnPropertyDescriptor(owner, key) || null;
 
-    let stored: unknown = ref.current;
+    let stored: unknown = owner[key];
     try {
-      Object.defineProperty(ref, 'current', {
+      Object.defineProperty(owner, key, {
         configurable: true,
         get(): unknown {
           return stored;
@@ -293,7 +310,7 @@ export function createDebugRender(options: { maxEventsPerComponent?: number } = 
         },
       });
     } catch (e) {
-      dispatcherRef = null;
+      dispatcherSlot = null;
       return { ok: false, reason: 'cannot define property on ReactCurrentDispatcher' };
     }
 
@@ -303,14 +320,15 @@ export function createDebugRender(options: { maxEventsPerComponent?: number } = 
 
   function uninstall(): void {
     if (!installed) return;
-    if (dispatcherRef) {
-      // Restore original property descriptor (if any) so React owns `current` again.
+    if (dispatcherSlot) {
+      // Restore original property descriptor (if any) so React owns the slot again.
+      const { owner, key } = dispatcherSlot;
       try {
         if (originalDescriptor) {
-          Object.defineProperty(dispatcherRef, 'current', originalDescriptor);
+          Object.defineProperty(owner, key, originalDescriptor);
         } else {
           // Fall back to a plain data property holding the latest dispatcher.
-          Object.defineProperty(dispatcherRef, 'current', {
+          Object.defineProperty(owner, key, {
             configurable: true,
             writable: true,
             enumerable: true,
@@ -325,7 +343,7 @@ export function createDebugRender(options: { maxEventsPerComponent?: number } = 
     // patched earlier remain wrapped until GC; the wrappers are cheap.
     unpatchDispatcher(lastSeenDispatcher);
     installed = false;
-    dispatcherRef = null;
+    dispatcherSlot = null;
     originalDescriptor = undefined;
     lastSeenDispatcher = null;
   }
@@ -347,8 +365,7 @@ export function createDebugRender(options: { maxEventsPerComponent?: number } = 
     const hasDevtoolsHook = !!g.__REACT_DEVTOOLS_GLOBAL_HOOK__;
     // Renderer enumeration is shared with the fiber-schedule-update capability.
     const rendererCount = getReactRenderers().length;
-    const ref = dispatcherRef || getDispatcherRef();
-    const hasDispatcherRef = !!ref;
+    const hasDispatcherRef = !!(dispatcherSlot || getDispatcherSlot());
     let totalCapturedEvents = 0;
     for (const list of eventsByComponent.values()) totalCapturedEvents += list.length;
 
@@ -390,7 +407,7 @@ export function createDebugRender(options: { maxEventsPerComponent?: number } = 
     uninstall,
     reset,
     isInstalled: () => installed,
-    dispatcherRef: () => dispatcherRef || getDispatcherRef(),
+    dispatcherRef: () => (dispatcherSlot ? dispatcherRefOf(dispatcherSlot) : getDispatcherRef()),
     rawEvents,
     allComponents,
     status,

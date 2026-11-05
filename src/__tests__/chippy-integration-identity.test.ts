@@ -69,6 +69,8 @@ describe('Chippy integration identities', () => {
     };
 
     runInNewContext(background, {
+      // background.js loads armed-reload-startup.js; these tests cover background.js alone.
+      importScripts: () => undefined,
       AbortSignal, URL, Date, chrome, console,
       fetch: async () => { throw new Error('offline test'); },
       window: pageWindow,
@@ -120,6 +122,8 @@ describe('Chippy integration identities', () => {
     };
 
     runInNewContext(background, {
+      // background.js loads armed-reload-startup.js; these tests cover background.js alone.
+      importScripts: () => undefined,
       AbortSignal,
       URL,
       chrome,
@@ -201,6 +205,8 @@ describe('Chippy integration identities', () => {
     };
 
     runInNewContext(background, {
+      // background.js loads armed-reload-startup.js; these tests cover background.js alone.
+      importScripts: () => undefined,
       AbortSignal,
       URL,
       Date,
@@ -276,6 +282,8 @@ describe('Chippy integration identities', () => {
     };
 
     runInNewContext(background, {
+      // background.js loads armed-reload-startup.js; these tests cover background.js alone.
+      importScripts: () => undefined,
       AbortSignal,
       URL,
       Date,
@@ -329,6 +337,8 @@ describe('Chippy integration identities', () => {
     };
 
     runInNewContext(background, {
+      // background.js loads armed-reload-startup.js; these tests cover background.js alone.
+      importScripts: () => undefined,
       AbortSignal,
       URL,
       chrome,

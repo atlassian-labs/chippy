@@ -161,6 +161,72 @@ this.__AVALANCHE__ = (function() {
       return null;
     }
   }
+  function recordedLiteralPosition(code, source) {
+    const column = source.columnNumber === null ? "" : `,\\s*columnNumber:\\s*${source.columnNumber}`;
+    const literal = new RegExp(`lineNumber:\\s*${source.lineNumber}${column}(?!\\d)`, "g");
+    const first = literal.exec(code);
+    if (first === null || literal.exec(code) !== null) return null;
+    const before = code.slice(0, first.index);
+    const lineStart = before.lastIndexOf("\n");
+    return { line: before.split("\n").length, column: first.index - lineStart };
+  }
+  function decodedPath(pathname) {
+    try {
+      return decodeURIComponent(pathname);
+    } catch {
+      return pathname;
+    }
+  }
+  function slashPath(fileName) {
+    return fileName.replace(/\\/g, "/");
+  }
+  function servedModuleUrls(fileName, page) {
+    const file = slashPath(fileName);
+    const matches = /* @__PURE__ */ new Map();
+    for (const raw of page.resourceUrls) {
+      let url;
+      try {
+        url = new URL(raw, page.origin);
+      } catch {
+        continue;
+      }
+      if (url.origin !== page.origin) continue;
+      const path = decodedPath(url.pathname).replace(/^\/@fs(?=\/)/, "");
+      const tail = /^\/[A-Za-z]:\//.test(path) && /^[A-Za-z]:\//.test(file) ? path.slice(1) : path;
+      if (tail.length < 2 || !file.endsWith(tail)) continue;
+      matches.set(tail, { url: url.href, length: tail.length });
+    }
+    const ranked = [...matches.values()].sort((a, b) => b.length - a.length).map((entry) => entry.url);
+    if (page.vite && (file.startsWith("/") || /^[A-Za-z]:\//.test(file))) {
+      const fsUrl = new URL(`/@fs${file.startsWith("/") ? "" : "/"}${file}`, page.origin).href;
+      if (!ranked.includes(fsUrl)) ranked.push(fsUrl);
+    }
+    return ranked;
+  }
+  function readPageModules() {
+    var _a2, _b2, _c2, _d2;
+    const scope = globalThis;
+    const origin = (_a2 = scope.location) == null ? void 0 : _a2.origin;
+    if (!origin || origin === "null") return null;
+    const resourceUrls = [];
+    for (const script of Array.from(((_b2 = scope.document) == null ? void 0 : _b2.scripts) ?? [])) {
+      if (script.src) resourceUrls.push(script.src);
+    }
+    try {
+      for (const entry of ((_d2 = (_c2 = scope.performance) == null ? void 0 : _c2.getEntriesByType) == null ? void 0 : _d2.call(_c2, "resource")) ?? []) resourceUrls.push(entry.name);
+    } catch {
+    }
+    const vite = resourceUrls.some((url) => url.includes("/@vite/client"));
+    return { origin, resourceUrls, vite };
+  }
+  function pageModuleUrls(fileName) {
+    const page = readPageModules();
+    return page ? servedModuleUrls(fileName, page) : [];
+  }
+  function baseName(path) {
+    const clean = slashPath(path).replace(/[?#].*$/, "");
+    return clean.slice(clean.lastIndexOf("/") + 1);
+  }
   const V8_FRAME = /^\s*at\s+(?:(.+?)\s+\()?(.+?):(\d+):(\d+)\)?$/;
   const AT_FRAME = /^\s*(?:(.*?)@)(.+?):(\d+):(\d+)$/;
   const MAX_CALL_SITE_FRAMES = 4;
@@ -223,9 +289,10 @@ this.__AVALANCHE__ = (function() {
     const parsed = parseUrl(resolved);
     return parsed ? parsed.pathname.replace(/^\/+/, "") : resolved;
   }
-  function createCallSiteResolver(fetchModule) {
+  function createCallSiteResolver(fetchModule, moduleUrlsFor = () => []) {
     const maps = /* @__PURE__ */ new Map();
     const sites = /* @__PURE__ */ new Map();
+    const recordedSites = /* @__PURE__ */ new Map();
     const stats = { modules: 0, sites: 0, located: 0 };
     async function mapsFor(url) {
       const cached = maps.get(url);
@@ -238,10 +305,10 @@ this.__AVALANCHE__ = (function() {
         const annotation = sourceMappingUrlOf(code);
         if (annotation === null) return null;
         const inline = inlineSourceMapOf(annotation);
-        if (inline !== null) return { maps: parseSourceMap(inline), sourceBaseUrl: url };
+        if (inline !== null) return { code, maps: parseSourceMap(inline), sourceBaseUrl: url };
         const mapUrl = ((_a2 = parseUrl(annotation, url)) == null ? void 0 : _a2.href) ?? null;
         const text = mapUrl === null ? null : await fetchModule(mapUrl);
-        return text === null || mapUrl === null ? null : { maps: parseSourceMap(text), sourceBaseUrl: mapUrl };
+        return text === null || mapUrl === null ? null : { code, maps: parseSourceMap(text), sourceBaseUrl: mapUrl };
       })();
       maps.set(url, pending);
       return pending;
@@ -276,7 +343,28 @@ this.__AVALANCHE__ = (function() {
       }
       return null;
     }
-    return { locate, stats };
+    async function correctRecorded(source) {
+      for (const url of moduleUrlsFor(source.fileName)) {
+        const parsed = await mapsFor(url);
+        if (!parsed || parsed.maps.length === 0) continue;
+        const served = recordedLiteralPosition(parsed.code, source);
+        if (served === null) continue;
+        const original = originalPositionFor(parsed.maps, served.line, served.column);
+        if (!original || baseName(original.source) !== baseName(source.fileName)) continue;
+        return { fileName: source.fileName, lineNumber: original.line, columnNumber: original.column };
+      }
+      return source;
+    }
+    function locateRecorded(source) {
+      const key = `${source.fileName}:${source.lineNumber}:${source.columnNumber}`;
+      let answer = recordedSites.get(key);
+      if (!answer) {
+        answer = correctRecorded(source).catch(() => source);
+        recordedSites.set(key, answer);
+      }
+      return answer;
+    }
+    return { locate, locateRecorded, stats };
   }
   function debugSourceOf(value) {
     if (!value || typeof value !== "object") return null;
@@ -314,8 +402,6 @@ this.__AVALANCHE__ = (function() {
   }
   function getFiberSource$2(fiber) {
     if (!fiber) return null;
-    const recorded = recordedSource(fiber);
-    if (recorded) return recorded;
     const cached = resolvedFiberSources.get(fiber);
     if (cached !== void 0) return cached;
     return getFiberSourceCandidate(fiber);
@@ -338,15 +424,22 @@ this.__AVALANCHE__ = (function() {
     }
   }
   function pageResolver() {
-    if (!defaultResolver) defaultResolver = createCallSiteResolver(fetchModuleFromPage);
+    if (!defaultResolver) defaultResolver = createCallSiteResolver(fetchModuleFromPage, pageModuleUrls);
     return defaultResolver;
   }
   function resolveFiberSource$1(fiber, resolver = pageResolver()) {
     if (!fiber) return Promise.resolve(null);
-    const recorded = recordedSource(fiber);
-    if (recorded) return Promise.resolve(recorded);
     const cached = pendingFiberSources.get(fiber);
     if (cached) return cached;
+    const recorded = recordedSource(fiber);
+    if (recorded) {
+      const pending2 = resolver.locateRecorded(recorded).then((located) => {
+        resolvedFiberSources.set(fiber, located);
+        return located;
+      });
+      pendingFiberSources.set(fiber, pending2);
+      return pending2;
+    }
     const frames = getFiberStackFrames(fiber);
     const fallback = writerLocationOf(frames, () => null);
     const pending = resolver.locate(frames).catch(() => null).then((source) => {
@@ -910,12 +1003,41 @@ this.__AVALANCHE__ = (function() {
     }
     return out;
   }
-  function getDispatcherRef(scope = globalThis) {
+  function dispatcherSlotOf(injected) {
+    if (!injected || typeof injected !== "object") return null;
+    const owner = injected;
+    if (typeof owner.H !== "undefined") return { owner, key: "H" };
+    if ("current" in owner) return { owner, key: "current" };
+    return null;
+  }
+  function getDispatcherSlot(scope = globalThis) {
     for (const renderer of getReactRenderers(scope)) {
-      const ref = renderer.currentDispatcherRef;
-      if (ref && typeof ref === "object") return ref;
+      const slot = dispatcherSlotOf(renderer.currentDispatcherRef);
+      if (slot) return slot;
     }
     return null;
+  }
+  const modernRefs = /* @__PURE__ */ new WeakMap();
+  function dispatcherRefOf(slot) {
+    if (slot.key === "current") return slot.owner;
+    let ref = modernRefs.get(slot.owner);
+    if (!ref) {
+      const { owner } = slot;
+      ref = {
+        get current() {
+          return owner.H;
+        },
+        set current(value) {
+          owner.H = value;
+        }
+      };
+      modernRefs.set(owner, ref);
+    }
+    return ref;
+  }
+  function getDispatcherRef(scope = globalThis) {
+    const slot = getDispatcherSlot(scope);
+    return slot ? dispatcherRefOf(slot) : null;
   }
   function getScheduleUpdate(scope = globalThis) {
     for (const renderer of getReactRenderers(scope)) {
@@ -975,11 +1097,14 @@ this.__AVALANCHE__ = (function() {
   function isReactInternalFrameName(name) {
     return name === "atlDispatcherHook" || name === "record" || name.startsWith("Object.") || name === "renderWithHooks" || name === "updateFunctionComponent" || name === "mountIndeterminateComponent" || name === "beginWork" || /^beginWork\$/.test(name) || name === "performUnitOfWork" || name === "workLoopSync" || name === "renderRootSync" || name === "performConcurrentWorkOnRoot" || name === "workLoop" || name === "flushWork";
   }
+  function isHookFrameName(name) {
+    return /^use[A-Z0-9_]/.test(name.slice(name.lastIndexOf(".") + 1));
+  }
   function deriveComponentName(frames) {
     for (const { name } of frames) {
       if (!name) continue;
       if (isReactInternalFrameName(name)) continue;
-      if (/^use[A-Z0-9_]/.test(name)) continue;
+      if (isHookFrameName(name)) continue;
       return name;
     }
     return "Unknown";
@@ -990,7 +1115,7 @@ this.__AVALANCHE__ = (function() {
     const patchedDispatchers = /* @__PURE__ */ new WeakMap();
     let installed2 = false;
     let originalDescriptor = void 0;
-    let dispatcherRef = null;
+    let dispatcherSlot = null;
     let lastSeenDispatcher = null;
     function record(primitive, args) {
       const stack = new Error().stack || "";
@@ -1042,15 +1167,16 @@ this.__AVALANCHE__ = (function() {
     }
     function install() {
       if (installed2) return { ok: true };
-      const ref = getDispatcherRef();
-      if (!ref) return { ok: false, reason: "ReactCurrentDispatcher not found" };
-      dispatcherRef = ref;
-      patchDispatcher(ref.current);
-      lastSeenDispatcher = ref.current;
-      originalDescriptor = Object.getOwnPropertyDescriptor(ref, "current") || null;
-      let stored = ref.current;
+      const slot = getDispatcherSlot();
+      if (!slot) return { ok: false, reason: "ReactCurrentDispatcher not found" };
+      dispatcherSlot = slot;
+      const { owner, key } = slot;
+      patchDispatcher(owner[key]);
+      lastSeenDispatcher = owner[key];
+      originalDescriptor = Object.getOwnPropertyDescriptor(owner, key) || null;
+      let stored = owner[key];
       try {
-        Object.defineProperty(ref, "current", {
+        Object.defineProperty(owner, key, {
           configurable: true,
           get() {
             return stored;
@@ -1064,7 +1190,7 @@ this.__AVALANCHE__ = (function() {
           }
         });
       } catch (e) {
-        dispatcherRef = null;
+        dispatcherSlot = null;
         return { ok: false, reason: "cannot define property on ReactCurrentDispatcher" };
       }
       installed2 = true;
@@ -1072,12 +1198,13 @@ this.__AVALANCHE__ = (function() {
     }
     function uninstall() {
       if (!installed2) return;
-      if (dispatcherRef) {
+      if (dispatcherSlot) {
+        const { owner, key } = dispatcherSlot;
         try {
           if (originalDescriptor) {
-            Object.defineProperty(dispatcherRef, "current", originalDescriptor);
+            Object.defineProperty(owner, key, originalDescriptor);
           } else {
-            Object.defineProperty(dispatcherRef, "current", {
+            Object.defineProperty(owner, key, {
               configurable: true,
               writable: true,
               enumerable: true,
@@ -1089,7 +1216,7 @@ this.__AVALANCHE__ = (function() {
       }
       unpatchDispatcher(lastSeenDispatcher);
       installed2 = false;
-      dispatcherRef = null;
+      dispatcherSlot = null;
       originalDescriptor = void 0;
       lastSeenDispatcher = null;
     }
@@ -1106,8 +1233,7 @@ this.__AVALANCHE__ = (function() {
       const g = globalThis;
       const hasDevtoolsHook = !!g.__REACT_DEVTOOLS_GLOBAL_HOOK__;
       const rendererCount = getReactRenderers().length;
-      const ref = dispatcherRef || getDispatcherRef();
-      const hasDispatcherRef = !!ref;
+      const hasDispatcherRef = !!(dispatcherSlot || getDispatcherSlot());
       let totalCapturedEvents = 0;
       for (const list of eventsByComponent.values()) totalCapturedEvents += list.length;
       let reason;
@@ -1146,7 +1272,7 @@ this.__AVALANCHE__ = (function() {
       uninstall,
       reset,
       isInstalled: () => installed2,
-      dispatcherRef: () => dispatcherRef || getDispatcherRef(),
+      dispatcherRef: () => dispatcherSlot ? dispatcherRefOf(dispatcherSlot) : getDispatcherRef(),
       rawEvents,
       allComponents,
       status,
@@ -2955,7 +3081,7 @@ this.__AVALANCHE__ = (function() {
     const out = [];
     for (let i = relevant.length - 1; i >= 0; i--) {
       const { name, loc } = relevant[i];
-      if (/^use[A-Z0-9_]/.test(name) && !PRIMITIVE_HOOK_NAMES.has(name)) {
+      if (isHookFrameName(name) && !PRIMITIVE_HOOK_NAMES.has(name.slice(name.lastIndexOf(".") + 1))) {
         const parent = i + 1 < parentLookup.length ? parentLookup[i + 1] : null;
         out.push({ name, loc: parent ? parent.loc : loc });
       }
@@ -4373,6 +4499,17 @@ this.__AVALANCHE__ = (function() {
     }, { limit: 2e5 });
     return { count: matches.length, items: matches };
   }
+  async function resolveFindFiberSources(items, getFiber2, resolve) {
+    await Promise.all(items.map(async (item) => {
+      const fiber = item.fiberId == null ? null : getFiber2(String(item.fiberId));
+      if (!fiber) return;
+      try {
+        const source = await resolve(fiber);
+        if (source) item.source = source;
+      } catch {
+      }
+    }));
+  }
   function safeJson(value, depth = 6, seen = /* @__PURE__ */ new WeakSet()) {
     if (value == null) return value;
     const t = typeof value;
@@ -5186,6 +5323,7 @@ this.__AVALANCHE__ = (function() {
     };
   }
   const runtime = globalThis;
+  const publishedApi = runtime.__AVALANCHE__;
   registerBuiltinPlugins();
   {
     const fromConfig = (_a = runtime.__CHIPPY_STARTUP_CONFIG) == null ? void 0 : _a.plugins;
@@ -5360,6 +5498,7 @@ this.__AVALANCHE__ = (function() {
       evalFiberProps,
       evalFiberPropValue,
       evalFindFibers,
+      resolveFindFiberSources,
       safeJson,
       resolveOwnerFiber,
       findFiberByName,
@@ -5379,8 +5518,7 @@ this.__AVALANCHE__ = (function() {
   if (__auto) {
     try {
       const requested2 = ((_c = startupConfig == null ? void 0 : startupConfig.avalanche) == null ? void 0 : _c.options) || {};
-      const existingApi = runtime.__AVALANCHE__;
-      const targetApi = existingApi && typeof existingApi.install === "function" ? existingApi : api;
+      const targetApi = publishedApi && typeof publishedApi.install === "function" ? publishedApi : api;
       const alreadyInstalled = !!(targetApi.status && targetApi.status().installed);
       if (!alreadyInstalled) {
         targetApi.install({
@@ -5392,6 +5530,7 @@ this.__AVALANCHE__ = (function() {
     } catch (e) {
     }
   }
-  return api;
+  const iife = publishedApi ?? api;
+  return iife;
 })();
 //# sourceMappingURL=avalanche.iife.js.map

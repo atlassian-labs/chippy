@@ -1,9 +1,9 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { installSkill, mcpConfig } from '../../bin/chippy.mjs';
+import { installSkill, mcpConfig, parseArgs } from '../../bin/chippy.mjs';
 
 const BIN = resolve(__dirname, '../../bin/chippy.mjs');
 const BUILT_SKILL = resolve(__dirname, '../../lib/mcp-skill');
@@ -37,7 +37,7 @@ describe('npx chippy install', () => {
     expect(existsSync(join(target, 'stale.txt'))).toBe(false);
   });
 
-  it('refuses to replace a directory that is not a Chippy skill unless forced', () => {
+  it('refuses a directory that is not a Chippy skill and, when forced, moves it aside', () => {
     const root = scratch();
     const source = fakeSkill(join(root, 'source'), 'new');
     const target = join(root, 'other');
@@ -45,8 +45,32 @@ describe('npx chippy install', () => {
     writeFileSync(join(target, 'keep.txt'), 'mine');
     expect(() => installSkill({ source, target })).toThrow(/--force/);
     expect(readFileSync(join(target, 'keep.txt'), 'utf8')).toBe('mine');
-    installSkill({ source, target, force: true });
-    expect(existsSync(join(target, 'keep.txt'))).toBe(false);
+    const moved: string[] = [];
+    installSkill({ source, target, force: true, onMovedAside: (backup: string) => moved.push(backup) });
+    expect(readFileSync(join(target, 'SKILL.md'), 'utf8')).toContain('new');
+    expect(moved).toHaveLength(1);
+    expect(moved[0]).toMatch(/other\.replaced-\d+$/);
+    expect(readFileSync(join(moved[0], 'keep.txt'), 'utf8')).toBe('mine');
+  });
+
+  it('installs into an empty directory without --force', () => {
+    const root = scratch();
+    const target = join(root, 'empty');
+    mkdirSync(target);
+    installSkill({ source: fakeSkill(join(root, 'source'), 'new'), target });
+    expect(readdirSync(root).filter((name) => name.includes('replaced'))).toEqual([]);
+    expect(readFileSync(join(target, 'SKILL.md'), 'utf8')).toContain('new');
+  });
+
+  it('answers --help and --version for every command and rejects options of another command', () => {
+    expect(parseArgs(['pack', '--help'])).toMatchObject({ command: 'pack', help: true });
+    expect(parseArgs(['install', '--version'])).toMatchObject({ version: true });
+    expect(parseArgs(['--version'])).toMatchObject({ command: undefined, version: true });
+    expect(() => parseArgs(['pack', '--force'])).toThrow('Unknown option for pack: --force');
+    expect(() => parseArgs(['install', '--dir'])).toThrow('--dir needs a value');
+    const version = JSON.parse(readFileSync(resolve(__dirname, '../../package.json'), 'utf8')).version;
+    expect(execFileSync(process.execPath, [BIN, 'pack', '--version'], { encoding: 'utf8' }).trim()).toBe(version);
+    expect(execFileSync(process.execPath, [BIN, 'pack', '--help'], { encoding: 'utf8' })).toContain('pack [--config <file>]');
   });
 
   it('refuses the home directory and a source that is not a skill', () => {

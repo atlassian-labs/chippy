@@ -153,7 +153,7 @@ Records are separated by one blank line. `score` is useful only for ordering res
 
 `buildMode`: `"dev" | "production" | "unknown"`
 
-`dev` source evidence is either React <=18 `_debugSource` or React 19 `_debugStack`. For React 19, the first snapshot may carry the served-module URL and generated position; the bridge resolves the module's inline or external Source Map v3 payload in the page realm and republishes the authored `fileName`, `lineNumber`, and `columnNumber` with reason `<original-reason>-source-resolved`. Explicit component descriptions await that resolution. If the module or map is unavailable, the served position remains the fallback.
+`dev` source evidence is either React <=18 `_debugSource` or React 19 `_debugStack`. For React 19, the first snapshot may carry the served-module URL and generated position; the bridge resolves the module's inline or external Source Map v3 payload in the page realm and republishes the authored `fileName`, `lineNumber`, and `columnNumber` with reason `<original-reason>-source-resolved`. For React <=18, the same resolution corrects a `_debugSource` line that a dev-server transform shifted; `fileName` stays the recorded path. `find-fibers` and explicit component descriptions await that resolution. If the module or map is unavailable, the recorded or served position remains the fallback.
 
 **`integration`** — identifies who established Chippy on this page:
 ```json
@@ -1034,6 +1034,7 @@ Proxy active:
   "proxy": {
     "active": true,
     "targetPort": 3000,
+    "targetHost": "localhost:3000",
     "originalUrl": "http://localhost:3000/issues/ABC-123",
     "injectTarget": { "pathname": "/issues/ABC-123", "search": "" },
     "startedAt": "2026-04-16T08:00:00.000Z"
@@ -1042,6 +1043,8 @@ Proxy active:
 ```
 
 `injectTarget` — the path+search the proxy will inject the Chippy bundle into. Derived from `originalUrl`. `null` if no `originalUrl` was given.
+
+`targetHost` — where requests are forwarded. The proxy forwards only to this machine: it uses the loopback host of `originalUrl` (`localhost`, `127.0.0.1`, `[::1]`), or `localhost` when none is given, and reaches servers listening on either IPv4 or IPv6. Into the injected document it adds the DevTools hook shim and the Avalanche runtime before page scripts, and the page bridge at the end of the body.
 
 ---
 
@@ -1054,6 +1057,7 @@ Success:
   "proxy": {
     "active": true,
     "targetPort": 3000,
+    "targetHost": "localhost:3000",
     "originalUrl": "http://localhost:3000/issues/ABC-123",
     "injectTarget": { "pathname": "/issues/ABC-123", "search": "" },
     "startedAt": "2026-04-16T08:00:00.000Z"
@@ -1064,6 +1068,11 @@ Success:
 Bad port:
 ```json
 { "ok": false, "error": "Invalid target port: abc" }
+```
+
+Target off this machine:
+```json
+{ "ok": false, "error": "Proxy targets must be on this machine; originalUrl host example.com is not a loopback name" }
 ```
 
 ---

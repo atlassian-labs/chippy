@@ -179,6 +179,22 @@ stop_helper() {
   return 1
 }
 
+# The helper explains failures in its JSON body (`error`, `hint`); show them
+# instead of leaving only the HTTP status.
+print_helper_error_body() {
+  [[ -s "$1" ]] || return 0
+  node -e '
+    const fs = require("fs");
+    const raw = fs.readFileSync(process.argv[1], "utf8");
+    let body;
+    try { body = JSON.parse(raw); } catch { process.stdout.write(`  helper: ${raw.trim().slice(0, 500)}\n`); process.exit(0); }
+    for (const key of ["error", "hint", "next"]) {
+      const value = body && body[key];
+      if (value) process.stdout.write(`  ${key}: ${typeof value === "string" ? value : JSON.stringify(value)}\n`);
+    }
+  ' "$1" 2>/dev/null || true
+}
+
 run_curl() {
   local method="$1"
   local url="$2"
@@ -245,11 +261,22 @@ run_curl() {
   if [[ -n "$stderr_text" ]]; then
     echo "  → curl: $stderr_text" >&2
   fi
+  print_helper_error_body "$response_file" >&2
   rm -f "$response_file" "$stderr_file"
   if [[ "$http_code" =~ ^[0-9]+$ && "$http_code" -ge 400 ]]; then
     return 22
   fi
   return "$code"
+}
+
+require_detection_mode() {
+  case "$2" in
+    sources|full|stats|amplifiers) ;;
+    *)
+      echo "$1 detectionMode must be sources, full, stats, or amplifiers (got '$2')" >&2
+      exit 1
+      ;;
+  esac
 }
 
 post_json() {
@@ -964,6 +991,7 @@ case "$cmd" in
       echo "avalanche-install requires <clientId> [detectionMode]" >&2
       exit 1
     fi
+    require_detection_mode avalanche-install "$detection_mode"
     body="{\"action\":\"install\",\"options\":{\"captureFibers\":true,\"detectionMode\":\"$detection_mode\",\"historySize\":1000}}"
     post_avalanche "$client_id" "$body"
     ;;
@@ -974,6 +1002,7 @@ case "$cmd" in
       echo "avalanche-recapture requires <clientId> [detectionMode]" >&2
       exit 1
     fi
+    require_detection_mode avalanche-recapture "$detection_mode"
     body="{\"action\":\"install\",\"options\":{\"captureFibers\":true,\"detectionMode\":\"$detection_mode\",\"historySize\":1000}}"
     post_avalanche "$client_id" "$body" >/dev/null
     post_avalanche "$client_id" '{"action":"clear"}' >/dev/null
@@ -1083,10 +1112,7 @@ case "$cmd" in
       echo "avalanche-arm captureFibers must be true or false" >&2
       exit 1
     fi
-    if [[ "$detection_mode" != "sources" && "$detection_mode" != "full" && "$detection_mode" != "stats" && "$detection_mode" != "amplifiers" ]]; then
-      echo "avalanche-arm detectionMode must be sources, full, stats, or amplifiers" >&2
-      exit 1
-    fi
+    require_detection_mode avalanche-arm "$detection_mode"
     body="{\"clientId\":$(json_escape "$client_id"),\"origin\":$(json_escape "$origin"),\"autoStart\":true,\"max\":$max_commits,\"options\":{\"captureFibers\":$capture_fibers,\"detectionMode\":\"$detection_mode\"}}"
     post_json "/api/avalanche-arm" "$body" >/dev/null
     # Reset first (clear prior capture), then install detector — no reload needed
@@ -1142,7 +1168,15 @@ case "$cmd" in
     "$0" page-reload "$client_id"
     echo >&2
     echo "== wait ==" >&2
-    "$0" page-wait-reload "$client_id" "$timeout_ms"
+    wait_result=$("$0" page-wait-reload "$client_id" "$timeout_ms")
+    printf '%s\n' "$wait_result"
+    if ! printf '%s' "$wait_result" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{process.exit(JSON.parse(s).reloaded===true?0:1)}catch{process.exit(1)}})'; then
+      echo "reload-with-avalanche: the page did not reconnect within ${timeout_ms}ms after the reload." >&2
+      echo "  meaning: Chippy was not loaded again in the new document, so nothing captured its commits" >&2
+      echo "  next: with Mode A, load the runtimes as init scripts (installHelpers(page, { init: true })) so they return on reload," >&2
+      echo "        or skip the reload: avalanche-install, then trigger the interaction and read avalanche-status" >&2
+      exit 1
+    fi
     if [[ "$settle_ms" -gt 0 ]]; then
       echo >&2
       echo "== settle (${settle_ms}ms) ==" >&2
@@ -1187,8 +1221,7 @@ case "$cmd" in
       };
       process.stdout.write(JSON.stringify(body));
     ' "$url" "$probe_json" "$browser_name" "$headless") || exit 1
-    curl -fsSL ${AUTH_HEADER[@]+"${AUTH_HEADER[@]}"} -X POST -H 'content-type: application/json' \
-      "$BASE_URL/api/pages/$client_id/handoff-to-playwright" --data-binary "$body"
+    post_json "/api/pages/$client_id/handoff-to-playwright" "$body"
     ;;
   proxy-state)
     curl "${CURL_OPTS[@]}" "$BASE_URL/api/proxy/state"

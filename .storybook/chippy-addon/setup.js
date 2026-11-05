@@ -22,8 +22,6 @@ async function lookupAvalancheArm() {
   }
 }
 
-const avalancheArm = await lookupAvalancheArm();
-
 function acquireOwner(mode = 'chippy') {
   const now = Date.now();
   const current = globalThis.__CHIPPY_OWNER__ || null;
@@ -83,11 +81,24 @@ if (!ownerResult.ok) {
     transport: 'storybook-static',
     mode: 'chippy',
     integration: INTEGRATION,
-    avalanche: avalancheArm,
+    avalanche: null,
     staleAfterMs: STALE_AFTER_MS,
   };
   globalThis.__CHIPPY = globalThis.__CHIPPY || {};
   globalThis.__CHIPPY.config = { ...(globalThis.__CHIPPY.config || {}), ...globalThis.__CHIPPY_STARTUP_CONFIG };
 }
 
-export { HELPER_BASE_URL, INTEGRATION, OWNER_ID, OWNER_TYPE, STALE_AFTER_MS, ownerResult };
+// The arm lookup must not block module evaluation: top-level await fails
+// `storybook build` under Vite's default browser targets. preview.js waits on
+// this promise in a global loader, so the first story renders after the arm is
+// known and its mount is captured.
+function applyAvalancheArm(arm) {
+  if (!arm || !ownerResult.ok) return null;
+  globalThis.__CHIPPY_STARTUP_CONFIG = { ...(globalThis.__CHIPPY_STARTUP_CONFIG || {}), avalanche: arm };
+  globalThis.__CHIPPY.config = { ...(globalThis.__CHIPPY.config || {}), avalanche: arm };
+  return arm;
+}
+
+const avalancheArmReady = ownerResult.ok ? lookupAvalancheArm().then(applyAvalancheArm) : Promise.resolve(null);
+
+export { HELPER_BASE_URL, INTEGRATION, OWNER_ID, OWNER_TYPE, STALE_AFTER_MS, avalancheArmReady, ownerResult };

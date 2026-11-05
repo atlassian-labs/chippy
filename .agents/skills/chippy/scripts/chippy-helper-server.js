@@ -11,6 +11,8 @@ const {
 } = require('../browser-scripts/playwright-session');
 const { createProbeAnnotationChannel } = require('./probe-annotation-channel');
 const helperAccess = require('./helper-access');
+const pageSocketTrust = require('./page-socket-trust');
+const helperProxy = require('./helper-proxy');
  
 // ─── Config ───────────────────────────────────────────────────────────────────
 
@@ -72,6 +74,21 @@ function waitForPendingResult(pendingMap, requestId, timeoutMs, timeoutError) {
     }, Number(timeoutMs) || 5000);
     pendingMap.set(requestId, { resolve, timer });
   });
+}
+
+// The page answered, but without the Avalanche runtime it cannot run the
+// command. Report that as an unavailable runtime instead of an empty result.
+const BRIDGE_MODULE_MISSING_HINT = 'The page has the Chippy bridge but not the Avalanche runtime (avalanche.iife.js). '
+  + 'Load it after inject.js, import /__chippy/inject.mjs instead, or reload a page managed by the extension or proxy.';
+
+function pageResultStatus(result) {
+  if (!result.ok) return 504;
+  return result.result && result.result.code === 'bridge-module-missing' ? 503 : 200;
+}
+
+function withPageResultHint(result) {
+  if (pageResultStatus(result) !== 503) return result;
+  return { ...result, ok: false, error: result.result.error, hint: BRIDGE_MODULE_MISSING_HINT };
 }
 
 function resolvePendingResult(pendingMap, requestId, result) {
@@ -138,10 +155,11 @@ async function requestProbeCommand(clientId, command, timeoutMs = 10_000) {
     Math.max(100, Number(timeoutMs || 10_000)),
     'Timeout waiting for probe command result'
   );
+  const status = pageResultStatus(result);
   return {
-    ok: result.ok,
-    code: result.ok ? 200 : 504,
-    payload: { ...result, targetClientId: delivered.clientId, resolvedFrom: delivered.resolvedFrom, requestId },
+    ok: status === 200,
+    code: status,
+    payload: { ...withPageResultHint(result), targetClientId: delivered.clientId, resolvedFrom: delivered.resolvedFrom, requestId },
   };
 }
 
@@ -262,7 +280,7 @@ async function handoffToPlaywright({ clientId, url, probeIds, browserName, headl
 }
  
 // When active, non-Chippy requests are forwarded to targetPort (proxy mode).
-const proxyState = { active: false, targetPort: null, originalUrl: null, startedAt: null };
+const proxyState = { active: false, targetPort: null, originalUrl: null, target: null, startedAt: null };
 
 // ─── Proxy HTML injection ─────────────────────────────────────────────────────
 
@@ -298,15 +316,21 @@ function buildProxyInlineBundle() {
   ].join('\n');
 }
 
+// Without the extension, the proxy does its job: the DevTools hook shim and the
+// Avalanche runtime load before page code, and the page bridge connects last.
+// startup-handoff.js turns an armed reload's stored arm into the startup config
+// before Avalanche evaluates, so the detector installs before React commits.
+const PROXY_EARLY_SCRIPTS = [
+  `${CHIPPY_PREFIX}/devtools-hook-shim.js`,
+  `${CHIPPY_PREFIX}/startup-handoff.js`,
+  `${CHIPPY_PREFIX}/avalanche.iife.js`,
+];
+
 function injectIntoHtmlDocument(html) {
-  const bundle = buildProxyInlineBundle();
-  const lower = html.toLowerCase();
-  // Insert just before </body> or </html>, whichever comes last
-  for (const tag of ['</body>', '</html>']) {
-    const i = lower.lastIndexOf(tag);
-    if (i >= 0) return `${html.slice(0, i)}${bundle}\n${html.slice(i)}`;
-  }
-  return `${html}\n${bundle}`;
+  return helperProxy.injectProxyDocument(html, {
+    earlyScripts: PROXY_EARLY_SCRIPTS,
+    bridgeBundle: buildProxyInlineBundle(),
+  });
 }
 
 function stripHopHeaders(headers, bodyBuffer, stripCsp = false) {
@@ -383,6 +407,15 @@ const CORS_HEADERS = {
   'Access-Control-Allow-Headers': 'Content-Type',
   'Cache-Control': 'no-store',
 };
+
+// The detector's canonical modes. An unknown string would reach
+// createAvalancheDetector and leave its mode state unset.
+const DETECTION_MODES = ['sources', 'full', 'stats', 'amplifiers'];
+function detectionModeError(options) {
+  const mode = options && typeof options === 'object' ? options.detectionMode : undefined;
+  if (mode === undefined || DETECTION_MODES.includes(mode)) return null;
+  return `detectionMode must be one of ${DETECTION_MODES.join(', ')} (got ${JSON.stringify(mode)})`;
+}
 
 function json(res, code, payload) {
   res.writeHead(code, { 'Content-Type': 'application/json; charset=utf-8', ...CORS_HEADERS });
@@ -633,20 +666,26 @@ function isChippyPath(p) { return p === CHIPPY_PREFIX || p.startsWith(`${CHIPPY_
 
 function getProxySummary() {
   if (!proxyState.active) return null;
-  return { active: true, targetPort: proxyState.targetPort, originalUrl: proxyState.originalUrl, injectTarget: getProxyInjectTarget(), startedAt: proxyState.startedAt };
+  return {
+    active: true,
+    targetPort: proxyState.targetPort,
+    targetHost: proxyState.target?.hostHeader || null,
+    originalUrl: proxyState.originalUrl,
+    injectTarget: getProxyInjectTarget(),
+    startedAt: proxyState.startedAt,
+  };
 }
 
 function startProxy(targetPort, originalUrl) {
-  const p = Number(targetPort);
-  if (!Number.isFinite(p) || p < 1 || p > 65535) throw new Error(`Invalid target port: ${targetPort}`);
-  Object.assign(proxyState, { active: true, targetPort: p, originalUrl: originalUrl || null, startedAt: nowIso() });
-  console.log(`[proxy] enabled -> port=${p}${originalUrl ? ` url=${originalUrl}` : ''}`);
+  const target = helperProxy.resolveProxyTarget(targetPort, originalUrl);
+  Object.assign(proxyState, { active: true, targetPort: target.port, originalUrl: originalUrl || null, target, startedAt: nowIso() });
+  console.log(`[proxy] enabled -> ${target.hostHeader}${originalUrl ? ` url=${originalUrl}` : ''}`);
   return getProxySummary();
 }
 
 function stopProxy() {
   const prev = getProxySummary();
-  Object.assign(proxyState, { active: false, targetPort: null, originalUrl: null, startedAt: null });
+  Object.assign(proxyState, { active: false, targetPort: null, originalUrl: null, target: null, startedAt: null });
   console.log(`[proxy] disabled${prev?.targetPort ? ` (was ${prev.targetPort})` : ''}`);
   return { active: false };
 }
@@ -661,11 +700,11 @@ function forwardHeaders(headers, targetHost) {
 }
 
 function proxyRequest(req, res) {
-  const targetHost = `127.0.0.1:${proxyState.targetPort}`;
-  const url = `http://${targetHost}${req.url}`;
-  console.log(`[proxy] ${req.method} ${req.url} -> ${url}`);
+  const target = proxyState.target;
+  console.log(`[proxy] ${req.method} ${req.url} -> http://${target.hostHeader}${req.url}`);
 
-  const upstream = http.request(url, { method: req.method, headers: forwardHeaders(req.headers, targetHost) }, (upRes) => {
+  const options = helperProxy.upstreamRequestOptions(target, req, forwardHeaders(req.headers, target.hostHeader));
+  const upstream = http.request(options, (upRes) => {
     console.log(`[proxy] ${req.method} ${req.url} <- ${upRes.statusCode}`);
     if (!shouldInjectIntoProxyHtml(req, upRes)) {
       res.writeHead(upRes.statusCode || 502, upRes.statusMessage, upRes.headers);
@@ -701,12 +740,13 @@ function proxyRequest(req, res) {
 }
 
 function proxyUpgrade(req, socket, head) {
-  const targetHost = `127.0.0.1:${proxyState.targetPort}`;
-  console.log(`[proxy-ws] ${req.url} -> ${targetHost}`);
-  const upstream = http.request(`http://${targetHost}${req.url}`, {
-    method: 'GET',
-    headers: { ...forwardHeaders(req.headers, targetHost), connection: req.headers.connection || 'Upgrade', upgrade: req.headers.upgrade || 'websocket' },
-  });
+  const target = proxyState.target;
+  console.log(`[proxy-ws] ${req.url} -> ${target.hostHeader}`);
+  const upstream = http.request(helperProxy.upstreamRequestOptions(target, { url: req.url, method: 'GET' }, {
+    ...forwardHeaders(req.headers, target.hostHeader),
+    connection: req.headers.connection || 'Upgrade',
+    upgrade: req.headers.upgrade || 'websocket',
+  }));
   upstream.on('upgrade', (upRes, upSock, upHead) => {
     const lines = [`HTTP/1.1 ${upRes.statusCode || 101} ${upRes.statusMessage || 'Switching Protocols'}`];
     for (const [k, v] of Object.entries(upRes.headers)) {
@@ -820,8 +860,11 @@ function updateClientFromMessage(client, msg) {
 
 // ─── WebSocket attachment ─────────────────────────────────────────────────────
 
-function attachSocket(socket) {
+const clientIdBindings = pageSocketTrust.createClientIdBindings();
+
+function attachSocket(socket, socketOrigin) {
   const id = crypto.randomUUID();
+  clientIdBindings.claim(id, socketOrigin);
   const client = {
     socket, clientId: id,
     connectedAt: nowIso(), lastMessageAt: nowIso(), lastHelloAt: null,
@@ -848,6 +891,15 @@ function attachSocket(socket) {
       if (frame.opcode !== 0x1) continue;
       try {
         const msg = JSON.parse(frame.payload.toString('utf8'));
+        const rejected = pageSocketTrust.checkPageMessage({
+          bindings: clientIdBindings, socketOrigin, currentClientId: client.clientId, msg,
+        });
+        if (rejected) {
+          console.warn(`[ws] rejected message from origin=${socketOrigin || 'none'}: ${rejected}`);
+          wsSend(socket, JSON.stringify({ type: 'error', message: rejected }));
+          socket.destroy();
+          return;
+        }
         const prevId = client.clientId;
         updateClientFromMessage(client, msg);
         if (client.clientId !== prevId) { clients.delete(prevId); clients.set(client.clientId, client); }
@@ -871,6 +923,8 @@ function attachSocket(socket) {
             ack: true,
             action: msg.action || 'page-reload',
             clientId: client.clientId,
+            ...(typeof msg.earlyStartup === 'string' ? { earlyStartup: msg.earlyStartup } : {}),
+            ...(msg.ok === false && typeof msg.error === 'string' ? { error: msg.error } : {}),
           });
         }
       } catch (e) {
@@ -1091,6 +1145,11 @@ async function handleChippyHttp(req, res, url) {
     return true;
   }
 
+  if (method === 'GET' && p === `${CHIPPY_PREFIX}/startup-handoff.js`) {
+    serveExtensionFile(res, 'startup-handoff.js', 'application/javascript; charset=utf-8');
+    return true;
+  }
+
   if (method === 'GET' && p === `${CHIPPY_PREFIX}/avalanche.iife.js`) {
     serveExtensionFile(res, 'avalanche.iife.js', 'application/javascript; charset=utf-8', (src) =>
       `${src}\n;(() => {\n  const api = globalThis.__AVALANCHE__;\n  if (api && api.default && typeof api.default === 'object') {\n    Object.assign(api, api.default);\n  }\n})();\n`);
@@ -1199,6 +1258,8 @@ async function handleChippyHttp(req, res, url) {
     const clientId = p.split('/')[4];
     try {
       const body = await parseJsonBody(req);
+      const modeError = detectionModeError(body?.options);
+      if (modeError) { json(res, 400, { ok: false, error: modeError }); return true; }
       const result = await requestAvalanche(clientId, body);
       json(res, result.code, result.payload);
     } catch (e) {
@@ -1389,9 +1450,8 @@ async function handleChippyHttp(req, res, url) {
       const autoStart = body.autoStart !== false;
       if (autoStart) {
         const incomingOptions = body.options && typeof body.options === 'object' ? body.options : {};
-        // TODO: Validate detectionMode against the detector's canonical
-        // modes at this transport boundary. An arbitrary string can currently
-        // reach createAvalancheDetector and leave its internal mode state unset.
+        const modeError = detectionModeError(incomingOptions);
+        if (modeError) { json(res, 400, { ok: false, error: modeError }); return true; }
         const arm = {
           autoStart: true,
           options: {
@@ -1439,10 +1499,22 @@ async function handleChippyHttp(req, res, url) {
       const action = resolved.client.integration?.kind === 'storybook'
         ? 'storybook-force-remount'
         : 'reload';
-      const sent = sendToClient(resolved.clientId, { type: action, requestId });
+      // An armed page gets its arm with the reload or remount, so Avalanche is
+      // installed before React's first commit.
+      const pageOrigin = normalizeArmOrigin(resolved.client.page?.url || '');
+      const arm = armedAvalancheByClient.get(resolved.clientId) || (pageOrigin && armedAvalanche.get(pageOrigin)) || null;
+      const command = arm ? { type: action, requestId, avalanche: arm } : { type: action, requestId };
+      const sent = sendToClient(resolved.clientId, command);
       if (!sent.ok) { json(res, sent.code, { ok: false, error: sent.error }); return true; }
       const ack = await waitForPendingResult(pendingReloadAck, requestId, 1500, 'Timeout waiting for reload ack');
-      json(res, ack.ok ? 200 : 504, { ...ack, reloading: sent.clientId, resolvedFrom: sent.resolvedFrom, requestId });
+      // 504: no ack arrived. 409: the page answered but could not reload.
+      const refused = ack.ok && ack.result?.ok === false;
+      const status = !ack.ok ? 504 : refused ? 409 : 200;
+      json(res, status, {
+        ...ack,
+        ...(refused ? { ok: false, error: ack.result.error || 'The page did not reload' } : {}),
+        reloading: sent.clientId, resolvedFrom: sent.resolvedFrom, requestId,
+      });
     } catch (e) { json(res, 400, { ok: false, error: e.message }); }
     return true;
   }
@@ -1497,7 +1569,7 @@ async function handleChippyHttp(req, res, url) {
       if (!delivered.ok) { json(res, delivered.code, { ok: false, error: delivered.error }); return true; }
       // Wait for computed-style-result from the page
       const result = await waitForPendingResult(pendingComputedStyle, requestId, timeoutMs, 'Timeout waiting for computed style result');
-      json(res, result.ok ? 200 : 504, { ...result, targetClientId: delivered.clientId, resolvedFrom: delivered.resolvedFrom, requestId });
+      json(res, pageResultStatus(result), { ...withPageResultHint(result), targetClientId: delivered.clientId, resolvedFrom: delivered.resolvedFrom, requestId });
     } catch (e) { json(res, 400, { ok: false, error: e.message }); }
     return true;
   }
@@ -1615,7 +1687,7 @@ async function handleChippyHttp(req, res, url) {
       const delivered = sendToClient(clientId, wsCommand);
       if (!delivered.ok) { json(res, delivered.code, { ok: false, error: delivered.error }); return true; }
       const result = await waitForPendingResult(pendingEvalProbe, requestId, timeoutMs, 'Timeout waiting for eval-probe result');
-      json(res, result.ok ? 200 : 504, { ...result, targetClientId: delivered.clientId, resolvedFrom: delivered.resolvedFrom, requestId });
+      json(res, pageResultStatus(result), { ...withPageResultHint(result), targetClientId: delivered.clientId, resolvedFrom: delivered.resolvedFrom, requestId });
     } catch (e) { json(res, 400, { ok: false, error: e.message }); }
     return true;
   }
@@ -1633,22 +1705,6 @@ async function handleChippyHttp(req, res, url) {
     return true;
   }
 
-  // Proxy bootstrap (browser redirect)
-  if (method === 'GET' && p === `${CHIPPY_PREFIX}/proxy/go`) {
-    try {
-      const targetPort = url.searchParams.get('targetPort');
-      const originalUrl = url.searchParams.get('originalUrl') || null;
-      const redirectTo = url.searchParams.get('redirectTo') || '/';
-      startProxy(targetPort, originalUrl);
-      console.log(`[proxy-bootstrap] redirect -> ${redirectTo}`);
-      text(res, 200, `<!doctype html><meta http-equiv="refresh" content="0;url=${redirectTo.replace(/"/g, '&quot;')}"><title>Chippy</title><p>Redirecting…</p>`, 'text/html; charset=utf-8');
-    } catch (e) {
-      console.error(`[proxy-bootstrap] failed: ${e.message}`);
-      text(res, 400, `Could not start proxy: ${e.message}`);
-    }
-    return true;
-  }
-
   return false;
 }
 
@@ -1657,7 +1713,7 @@ function handleChippyUpgrade(req, socket) {
   if (!key) { socket.write('HTTP/1.1 400 Bad Request\r\n\r\n'); socket.destroy(); return; }
   const accept = crypto.createHash('sha1').update(key + WS_GUID).digest('base64');
   socket.write(`HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: ${accept}\r\n\r\n`);
-  attachSocket(socket);
+  attachSocket(socket, pageSocketTrust.handshakeOrigin(req.headers));
 }
 
 // ─── Server ───────────────────────────────────────────────────────────────────
@@ -1666,10 +1722,11 @@ function chippyRoute(pathname) {
   return isChippyPath(pathname) ? pathname.slice(CHIPPY_PREFIX.length) : null;
 }
 
-function rejectUnauthorized(req, pathname) {
+function rejectUnauthorized(req, url) {
   return helperAccess.authorizeRequest({
     method: req.method || 'GET',
-    route: chippyRoute(pathname),
+    route: chippyRoute(url.pathname),
+    query: url.searchParams,
     headers: req.headers,
     token: helperToken,
     loopback: loopbackBind,
@@ -1678,7 +1735,7 @@ function rejectUnauthorized(req, pathname) {
 
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, baseUrlFromReq(req));
-  const denied = rejectUnauthorized(req, url.pathname);
+  const denied = rejectUnauthorized(req, url);
   if (denied) { json(res, denied.status, { ok: false, error: denied.error }); return; }
   if (isChippyPath(url.pathname)) {
     if (!(await handleChippyHttp(req, res, url))) json(res, 404, { ok: false, error: 'Chippy route not found' });
@@ -1689,8 +1746,9 @@ const server = http.createServer(async (req, res) => {
 });
 
 server.on('upgrade', (req, socket, head) => {
-  const p = new URL(req.url, 'http://127.0.0.1').pathname;
-  const denied = rejectUnauthorized(req, p);
+  const upgradeUrl = new URL(req.url, 'http://127.0.0.1');
+  const p = upgradeUrl.pathname;
+  const denied = rejectUnauthorized(req, upgradeUrl);
   if (denied) { socket.write(`HTTP/1.1 ${denied.status} ${denied.status === 401 ? 'Unauthorized' : 'Forbidden'}\r\n\r\n`); socket.destroy(); return; }
   if (p === `${CHIPPY_PREFIX}/ws`) { handleChippyUpgrade(req, socket); return; }
   if (proxyState.active && !isChippyPath(p)) { proxyUpgrade(req, socket, head); return; }

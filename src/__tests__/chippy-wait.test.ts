@@ -1,3 +1,6 @@
+// @vitest-environment node
+// A Node client, like the CLI: its WebSocket sends no Origin header. jsdom would
+// send http://localhost:3000, which the helper rejects for these example.test pages.
 import { afterEach, describe, expect, it } from 'vitest';
 import { execFileSync, spawn, type ChildProcess } from 'node:child_process';
 import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';

@@ -8,6 +8,7 @@ import {
 } from 'node:fs';
 import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { ownsDirectory } from './skill-dir.mjs';
 
 const PACKAGE_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const BUILTIN_PLUGINS = [
@@ -18,14 +19,32 @@ const RUNTIME_BUNDLES = ['extension/avalanche.iife.js', 'extension/avalanche.es.
 const BUILD_CONFIG_CONSUMERS = ['extension/background.js', 'extension/panel-settings.js'];
 const PLUGIN_ID = /^[a-z][a-z0-9-]*$/;
 const CHROME_VERSION = /^\d+(\.\d+){0,3}$/;
+const CONFIG_KEYS = {
+  '': ['plugins', 'defaultPlugins', 'extension', 'skill', 'outDir'],
+  'plugins[]': ['id', 'entry', 'label'],
+  extension: ['name', 'version', 'description', 'key'],
+  skill: ['overlay'],
+};
 
 function fail(message) {
   throw new Error(`chippy pack: ${message}`);
 }
 
+// A misspelled key would otherwise build silently without the setting.
+function rejectUnknownKeys(value, keys, path) {
+  if (!value || typeof value !== 'object') return;
+  for (const key of Object.keys(value)) {
+    if (!keys.includes(key)) fail(`unknown config key ${path ? `${path}.` : ''}${key}; expected one of ${keys.join(', ')}`);
+  }
+}
+
 /** Validates a pack config and resolves its paths against `baseDir`. */
 export function normalizePackConfig(config, baseDir) {
   if (!config || typeof config !== 'object') fail('the config must export an object');
+  rejectUnknownKeys(config, CONFIG_KEYS[''], '');
+  rejectUnknownKeys(config.extension, CONFIG_KEYS.extension, 'extension');
+  rejectUnknownKeys(config.skill, CONFIG_KEYS.skill, 'skill');
+  (config.plugins ?? []).forEach((plugin, index) => rejectUnknownKeys(plugin, CONFIG_KEYS['plugins[]'], `plugins[${index}]`));
   const plugins = (config.plugins ?? []).map((plugin, index) => {
     if (!plugin || typeof plugin !== 'object') fail(`plugins[${index}] must be { id, entry, label? }`);
     if (!PLUGIN_ID.test(plugin.id ?? '')) fail(`plugins[${index}].id must match ${PLUGIN_ID}`);
@@ -150,6 +169,7 @@ export async function packChippy(config, { source = join(PACKAGE_ROOT, 'lib', 'm
   const { plugins, defaultPlugins, extension, overlay, outDir } = config;
   const code = await bundlePlugins(plugins, defaultPlugins);
   const skillDir = join(outDir, 'chippy');
+  if (!ownsDirectory(skillDir)) fail(`${skillDir} exists and is not a Chippy skill; choose another outDir`);
   rmSync(skillDir, { recursive: true, force: true });
   mkdirSync(outDir, { recursive: true });
   cpSync(source, skillDir, {

@@ -13,6 +13,8 @@ const DEFAULT_HELPER = 'http://127.0.0.1:7823';
 // with the plugins it enables until the user saves their own selection.
 const BUILD_DEFAULT_PLUGINS = Array.isArray(globalThis.__CHIPPY_BUILD?.defaultPlugins) ? globalThis.__CHIPPY_BUILD.defaultPlugins : [];
 const CONTENT_SCRIPTS = ['panel-settings.js', 'content-script.js'];
+// Registers early startup for the navigation after an armed reload.
+importScripts('armed-reload-startup.js');
 const EXTENSION_INTEGRATION = Object.freeze({
   kind: 'extension',
   who: 'Chippy browser extension',

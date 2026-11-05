@@ -6,6 +6,7 @@ import {
   type OriginalPosition,
   type SourceMap,
 } from './source-map';
+import { baseName, pageModuleUrls, recordedLiteralPosition } from './recorded-source';
 
 export type FiberSourceLocation = {
   fileName: string;
@@ -28,12 +29,18 @@ export type SourceFiber = {
 
 export type FetchModule = (url: string) => Promise<string | null>;
 
+/** Module URLs that may serve a file named by React <=18 `_debugSource`. */
+export type ModuleUrlsFor = (fileName: string) => readonly string[];
+
 export type CallSiteResolver = {
   locate(frames: readonly StackFrame[]): Promise<FiberSourceLocation | null>;
+  /** Map a recorded `_debugSource` position through its served module. */
+  locateRecorded(source: FiberSourceLocation): Promise<FiberSourceLocation>;
   readonly stats: { modules: number; sites: number; located: number };
 };
 
 type ResolvedMaps = {
+  code: string;
   maps: readonly SourceMap[];
   sourceBaseUrl: string;
 };
@@ -118,9 +125,13 @@ function sourcePath(source: string, moduleUrl: string): string {
   return parsed ? parsed.pathname.replace(/^\/+/, '') : resolved;
 }
 
-export function createCallSiteResolver(fetchModule: FetchModule): CallSiteResolver {
+export function createCallSiteResolver(
+  fetchModule: FetchModule,
+  moduleUrlsFor: ModuleUrlsFor = () => [],
+): CallSiteResolver {
   const maps = new Map<string, Promise<ResolvedMaps | null>>();
   const sites = new Map<string, Promise<FiberSourceLocation | null>>();
+  const recordedSites = new Map<string, Promise<FiberSourceLocation>>();
   const stats = { modules: 0, sites: 0, located: 0 };
 
   async function mapsFor(url: string): Promise<ResolvedMaps | null> {
@@ -134,12 +145,12 @@ export function createCallSiteResolver(fetchModule: FetchModule): CallSiteResolv
       const annotation = sourceMappingUrlOf(code);
       if (annotation === null) return null;
       const inline = inlineSourceMapOf(annotation);
-      if (inline !== null) return { maps: parseSourceMap(inline), sourceBaseUrl: url };
+      if (inline !== null) return { code, maps: parseSourceMap(inline), sourceBaseUrl: url };
       const mapUrl = parseUrl(annotation, url)?.href ?? null;
       const text = mapUrl === null ? null : await fetchModule(mapUrl);
       return text === null || mapUrl === null
         ? null
-        : { maps: parseSourceMap(text), sourceBaseUrl: mapUrl };
+        : { code, maps: parseSourceMap(text), sourceBaseUrl: mapUrl };
     })();
 
     maps.set(url, pending);
@@ -181,7 +192,31 @@ export function createCallSiteResolver(fetchModule: FetchModule): CallSiteResolv
     return null;
   }
 
-  return { locate, stats };
+  async function correctRecorded(source: FiberSourceLocation): Promise<FiberSourceLocation> {
+    for (const url of moduleUrlsFor(source.fileName)) {
+      const parsed = await mapsFor(url);
+      if (!parsed || parsed.maps.length === 0) continue;
+      const served = recordedLiteralPosition(parsed.code, source);
+      if (served === null) continue;
+      const original = originalPositionFor(parsed.maps, served.line, served.column);
+      // The literal must map back into the recorded file, not a neighbor.
+      if (!original || baseName(original.source) !== baseName(source.fileName)) continue;
+      return { fileName: source.fileName, lineNumber: original.line, columnNumber: original.column };
+    }
+    return source;
+  }
+
+  function locateRecorded(source: FiberSourceLocation): Promise<FiberSourceLocation> {
+    const key = `${source.fileName}:${source.lineNumber}:${source.columnNumber}`;
+    let answer = recordedSites.get(key);
+    if (!answer) {
+      answer = correctRecorded(source).catch(() => source);
+      recordedSites.set(key, answer);
+    }
+    return answer;
+  }
+
+  return { locate, locateRecorded, stats };
 }
 
 function debugSourceOf(value: unknown): FiberSourceLocation | null {
@@ -225,11 +260,12 @@ export function getFiberSourceCandidate(fiber: SourceFiber | null | undefined): 
   return writerLocationOf(getFiberStackFrames(fiber), () => null);
 }
 
-/** Synchronous source read used by fiber walks and snapshots. */
+/**
+ * Synchronous source read used by fiber walks and snapshots: the resolved
+ * source once `resolveFiberSource` has run for this fiber, else the candidate.
+ */
 export function getFiberSource(fiber: SourceFiber | null | undefined): FiberSourceLocation | null {
   if (!fiber) return null;
-  const recorded = recordedSource(fiber);
-  if (recorded) return recorded;
   const cached = resolvedFiberSources.get(fiber as object);
   if (cached !== undefined) return cached;
   return getFiberSourceCandidate(fiber);
@@ -254,21 +290,33 @@ async function fetchModuleFromPage(url: string): Promise<string | null> {
 }
 
 function pageResolver(): CallSiteResolver {
-  if (!defaultResolver) defaultResolver = createCallSiteResolver(fetchModuleFromPage);
+  if (!defaultResolver) defaultResolver = createCallSiteResolver(fetchModuleFromPage, pageModuleUrls);
   return defaultResolver;
 }
 
-/** Resolve a React 19 stack frame through the module's inline or external map. */
+/**
+ * Resolve a fiber's authored source through the served module's inline or
+ * external map: the React 19 `_debugStack` call site, or the React <=18
+ * `_debugSource` literal when a transform shifted its recorded line.
+ */
 export function resolveFiberSource(
   fiber: SourceFiber | null | undefined,
   resolver: CallSiteResolver = pageResolver(),
 ): Promise<FiberSourceLocation | null> {
   if (!fiber) return Promise.resolve(null);
-  const recorded = recordedSource(fiber);
-  if (recorded) return Promise.resolve(recorded);
-
   const cached = pendingFiberSources.get(fiber as object);
   if (cached) return cached;
+
+  const recorded = recordedSource(fiber);
+  if (recorded) {
+    const pending = resolver.locateRecorded(recorded).then((located) => {
+      resolvedFiberSources.set(fiber as object, located);
+      return located;
+    });
+    pendingFiberSources.set(fiber as object, pending);
+    return pending;
+  }
+
   const frames = getFiberStackFrames(fiber);
   const fallback = writerLocationOf(frames, () => null);
   const pending = resolver.locate(frames)

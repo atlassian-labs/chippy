@@ -88,6 +88,22 @@ describe('chippy pack', () => {
     expect(() => config(directory, { skill: { overlay: './none' } })).toThrow('overlay not found');
   });
 
+  it('rejects unknown config keys at every level', () => {
+    const directory = writePackWorkspace(scratch());
+    expect(() => config(directory, { outdir: './x' })).toThrow('unknown config key outdir');
+    expect(() => config(directory, { extension: { nmae: 'x' } })).toThrow('unknown config key extension.nmae');
+    expect(() => config(directory, { skill: { overlays: './overlay' } })).toThrow('unknown config key skill.overlays');
+    expect(() => config(directory, { plugins: [{ id: 'gate', entry: './src/gate.ts', lable: 'x' }] })).toThrow('unknown config key plugins[0].lable');
+  });
+
+  it('refuses to replace an output directory that is not a Chippy skill', async () => {
+    const directory = writePackWorkspace(scratch());
+    mkdirSync(join(directory, 'out/chippy'), { recursive: true });
+    writeFileSync(join(directory, 'out/chippy/keep.txt'), 'mine');
+    await expect(packChippy(config(directory), { source: SKILL, zips: false })).rejects.toThrow('not a Chippy skill');
+    expect(readFileSync(join(directory, 'out/chippy/keep.txt'), 'utf8')).toBe('mine');
+  });
+
   it('fails on an overlay that appends to a missing file', async () => {
     const directory = writePackWorkspace(scratch());
     writeFileSync(join(directory, 'overlay/NOTES.append.md'), 'extra\n');

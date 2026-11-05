@@ -6,6 +6,7 @@ import { ADDON_ID, AVALANCHE_PANEL_ID, CHIPPY_PANEL_ID, EVENTS, PREVIEW_MESSAGE_
 import { ChippyConnectionFallback } from './connection-fallback.jsx';
 import { commitSpan, describeCommitAction, groupCommitRows } from './avalanche-panel-model.js';
 import { ContextCard } from './context-card.jsx';
+import { claimManagerOwner, extensionBridgeInManager } from './manager-owner.js';
 import { ProbeAnnotationEditor } from './probe-annotation-editor.jsx';
 
 const panelFont = "'Atlassian Sans', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
@@ -18,6 +19,8 @@ const theme = {
   row: 'var(--color-hover-background, color-mix(in srgb, Canvas 88%, CanvasText 12%))',
   danger: 'var(--color-negative-text, #ffb4ab)',
 };
+
+claimManagerOwner();
 
 function postToPreview(message) {
   const iframe = document.getElementById('storybook-preview-iframe');
@@ -243,6 +246,23 @@ function SimpleTable({ columns, rows, empty, onRowClick }) {
   );
 }
 
+// Shown when an extension bridge is still connected from the manager window, so
+// a `pages` entry of kind `extension` would inspect Storybook's own UI.
+function ExtensionConflict() {
+  const [conflict, setConflict] = useState(() => !!extensionBridgeInManager());
+  useEffect(() => {
+    const timer = setInterval(() => setConflict(!!extensionBridgeInManager()), 3000);
+    return () => clearInterval(timer);
+  }, []);
+  if (!conflict) return null;
+  return (
+    <div role="alert" style={{ color: theme.danger, fontSize: 12, marginBottom: 12 }}>
+      The Chippy extension is also connected from the Storybook manager. Its `extension` page inspects
+      Storybook&apos;s UI; use the `storybook` page for the story, or update the extension.
+    </div>
+  );
+}
+
 function ChippyPanel({ active }) {
   const { payload, command } = useChippyChannel('chippy', active);
   const inspectBoundary = React.useCallback(
@@ -269,6 +289,7 @@ function ChippyPanel({ active }) {
           <Header title="Chippy">
             <Button
               size="small"
+              ariaLabel={false}
               variant={probesVisible ? 'outline' : undefined}
               onClick={() => command(probesVisible ? 'clear-probes' : 'ensure-probes')}
             >
@@ -276,6 +297,7 @@ function ChippyPanel({ active }) {
             </Button>
           </Header>
           <ChippyConnectionFallback connState={state?.connState} />
+          <ExtensionConflict />
           <Section>
             {probesVisible ? (
               <div style={{ color: theme.muted, fontSize: 12, marginBottom: 8 }}>

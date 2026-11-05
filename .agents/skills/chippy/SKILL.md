@@ -62,7 +62,7 @@ Use [bdd-router](references/bdd-router.md) when the situation needs the complete
 
 - A probe identifies one exact DOM element rendered by one bundle. Its source location, fiber, owner chain, and marker coordinates are facts for that snapshot.
 - Open `source.fileName` at `lineNumber` directly once it is an authored path. On React 19, an initial `http(s)` module URL is the generated fallback; read the following `*-source-resolved` snapshot or run `describe-component` before treating its line as a repository position. Do not grep for a file the probe already identified. Search is the last resort after the runtime-to-source chain is exhausted.
-- Development source metadata is version-dependent: React <=18 supplies `_debugSource`; React 19 supplies `_debugStack`. Chippy filters dependency frames, fetches the served module in the page realm, decodes its inline or external source map, and republishes the authored file/line. Absence of `_debugSource` alone is not production evidence.
+- Development source metadata is version-dependent: React <=18 supplies `_debugSource`; React 19 supplies `_debugStack`. Chippy filters dependency frames, fetches the served module in the page realm, decodes its inline or external source map, and republishes the authored file/line. It also corrects `_debugSource` lines that a dev-server transform shifted before JSX compilation, such as Vite's Fast Refresh header. `find-fibers`, `describe-component`, and `explain-component` return the mapped position. Absence of `_debugSource` alone is not production evidence.
 - Read every returned field. Props, owner indices, keys, test IDs, hook counts, and source locations can each change the next move.
 - Static source proves what code can do. Runtime evidence proves what happened in this run. Never promote code shape, a global's presence, or a hot component into a runtime cause.
 - Screenshots confirm appearance; they do not replace probe, fiber, action, or commit evidence.
@@ -276,7 +276,7 @@ Arm before the user or harness performs the slow interaction. Probes drill into 
 
 `latestAction` is a clue, not causality. A confirmed root cause needs a source-to-collateral chain or source code that proves the update origin. Unmount and Suspense fields are branch signals; report DOM regions before wrapper names when the question is about DOM teardown.
 
-Use `detectionMode=full` when `commit-peek include=rendered` or per-component render evidence is required. `sources` and `stats` do not populate `renderedByCommit`. If broad triage began in the default `sources` mode, run `avalanche-recapture <clientId> full`, reproduce the identical interaction, and only then read rendered fields. Load [avalanche-detector](references/avalanche-detector.md) for exact schemas and [fixing-performance](references/fixing-performance.md) for fix-layer selection.
+Every mode records which components rendered and their prop changes (`commit-peek include=rendered`). `stats` leaves `isSelfSource` false, and only `full` or `amplifiers` fill `trasherCounts`. When amplifier evidence is required and triage began in the default `sources` mode, run `avalanche-recapture <clientId> full`, reproduce the identical interaction, and only then read `trasherCounts`. Load [avalanche-detector](references/avalanche-detector.md) for exact schemas and [fixing-performance](references/fixing-performance.md) for fix-layer selection.
 
 ## Snippets and active stimuli
 

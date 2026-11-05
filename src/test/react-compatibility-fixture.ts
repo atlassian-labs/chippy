@@ -3,7 +3,7 @@ import { createServer } from 'node:http';
 
 const app = `
 import React from 'react';
-import { createRoot } from '__REACT_DOM__/client';
+import { createRoot } from 'react-dom/client';
 window.renderCount = 0;
 function useCounterValue() { return React.useState(0); }
 function CounterLabel({ label }) { return React.createElement('span', null, label); }
@@ -29,17 +29,22 @@ createRoot(document.getElementById('root')).render(React.createElement(FixtureAp
 
 export async function startReactCompatibilityFixture() {
   const scripts: Record<string, string> = {};
-  for (const [kind, module] of [['stock', 'react-dom']]) {
+  // `stock` is the workspace React 18; `react-19` aliases the React 19 dev packages.
+  const variants: Array<[string, Record<string, string>]> = [
+    ['stock', {}],
+    ['react-19', { react: 'react-19', 'react-dom': 'react-dom-19' }],
+  ];
+  for (const [kind, alias] of variants) {
     const result = await build({
-      stdin: { contents: app.replace('__REACT_DOM__', module), resolveDir: process.cwd(), sourcefile: 'react-compatibility-fixture.jsx' },
-      bundle: true, write: false, platform: 'browser', format: 'iife', keepNames: true,
+      stdin: { contents: app, resolveDir: process.cwd(), sourcefile: 'react-compatibility-fixture.jsx' },
+      alias, bundle: true, write: false, platform: 'browser', format: 'iife', keepNames: true,
       define: { 'process.env.NODE_ENV': JSON.stringify('development') },
     });
     scripts[`/app-${kind}.js`] = result.outputFiles[0].text;
   }
   const server = createServer((request, response) => {
     const path = request.url || '/';
-    if (path === '/stock') {
+    if (scripts[`/app-${path.slice(1)}.js`]) {
       response.setHeader('Content-Type', 'text/html');
       response.end(`<!doctype html><html><body style="margin:0;background:#F8F8F8;font:16px system-ui;padding:32px"><h1>React inspection</h1><div id="root"></div><script src="/app-${path.slice(1)}.js"></script></body></html>`);
     } else if (scripts[path]) {

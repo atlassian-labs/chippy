@@ -8,6 +8,16 @@
   /** @type {ChippyPageRuntime} */
   const chippy = global.__CHIPPY = global.__CHIPPY || {};
   const BRIDGE_VERSION = '0.2.5';
+  // Returned by every command that needs __AVALANCHE__.bridge when the Avalanche
+  // runtime is absent. The helper reports it as an unavailable runtime rather
+  // than an empty result, so callers never read `count: 0` as "nothing found".
+  const BRIDGE_MODULE_MISSING = Object.freeze({
+    ok: false,
+    code: 'bridge-module-missing',
+    error: 'bridge module not loaded',
+  });
+  // Read and removed by startup-handoff.js on the next document.
+  const STARTUP_HANDOFF_KEY = '__chippyStartupHandoff';
   if (chippy.pageBridge) {
     // Always tear down and reinstall — version-equality skip caused stale code to win.
     try { chippy.pageBridge.destroy?.(); } catch (e) {}
@@ -37,16 +47,51 @@
     return config?.integration || global.__CHIPPY_OWNER__?.integration || null;
   }
 
-  function getStoredClientId() {
+  // Same-origin frames share sessionStorage, so each frame keys its id by its
+  // position in the frame tree; the Storybook manager and its preview iframe
+  // must not share one client id. The top frame keeps the original key.
+  function frameKeySuffix() {
+    const path = [];
     try {
-      const existing = global.sessionStorage?.getItem('__chippyClientId');
+      /** @type {Window} */
+      let current = global;
+      while (current !== current.parent && path.length < 16) {
+        const siblings = current.parent.frames;
+        let index = -1;
+        for (let i = 0; i < siblings.length; i += 1) {
+          if (siblings[i] === current) { index = i; break; }
+        }
+        path.unshift(index);
+        current = current.parent;
+      }
+    } catch {
+      return path.length ? ':frame' : '';
+    }
+    return path.length ? ':' + path.join('.') : '';
+  }
+
+  function getStoredClientId() {
+    const key = '__chippyClientId' + frameKeySuffix();
+    try {
+      const existing = global.sessionStorage?.getItem(key);
       if (existing) return existing;
       const next = global.crypto?.randomUUID?.() || `chippy-${Date.now()}`;
-      global.sessionStorage?.setItem('__chippyClientId', next);
+      global.sessionStorage?.setItem(key, next);
       return next;
     } catch {
       return `chippy-${Date.now()}`;
     }
+  }
+
+  // The extension is the fallback integration. A live owner of another kind,
+  // such as the Storybook addon in its manager window, outranks it.
+  function isLiveForeignOwner(owner) {
+    if (!owner || !owner.integration || owner.integration.kind === 'extension') return false;
+    return !owner.staleAfterMs || Date.now() - (owner.heartbeatAt || 0) <= owner.staleAfterMs;
+  }
+
+  function isExtensionBridge() {
+    return config?.integration?.kind === 'extension';
   }
 
   function getStoryId() {
@@ -363,6 +408,7 @@
   let onLayoutLabUpdate = null;
   let onWindowMessage = null;
   let onExtCommand = null;
+  let onOwnerClaimed = null;
   let publishTimer = null;
   let snapshotSequence = 0;
   let lastLocationHref = global.location.href;
@@ -542,16 +588,53 @@
     const b = getBridge();
     return b
       ? b.readAvalancheStatus(getAvalancheApi(), getAvalancheModule())
-      : { ok: false, available: false, error: 'bridge module not loaded' };
+      : { ok: false, available: false, ...BRIDGE_MODULE_MISSING };
   }
 
   function evalAvalanche(command) {
     const b = getBridge();
     if (!b) {
       const action = String(command?.action || 'status');
-      return { ok: false, available: false, action, error: 'bridge module not loaded' };
+      return { ok: false, available: false, action, ...BRIDGE_MODULE_MISSING };
     }
     return b.evalAvalanche(command, getAvalancheApi(), getAvalancheModule());
+  }
+
+  // An armed reload must install Avalanche before the next document's React
+  // commits. The arm config travels in sessionStorage, which the next
+  // document's startup script reads synchronously; the extension registers that
+  // script for one navigation. Without the extension the wait times out and the
+  // page reloads anyway. Returns how early startup was prepared, for the ack.
+  function prepareReload(avalanche) {
+    if (!avalanche || !avalanche.autoStart) return Promise.resolve('not-armed');
+    try {
+      const startup = /** @type {any} */ (global).__CHIPPY_STARTUP_CONFIG || {};
+      global.sessionStorage.setItem(STARTUP_HANDOFF_KEY, JSON.stringify({
+        at: Date.now(),
+        helperBaseUrl: config.helperBaseUrl,
+        plugins: Array.isArray(startup.plugins) ? startup.plugins : undefined,
+        avalanche: avalanche,
+      }));
+    } catch (e) {
+      return Promise.resolve('storage-unavailable');
+    }
+    return new Promise(function(done) {
+      let settled = false;
+      function finish(state) {
+        if (settled) return;
+        settled = true;
+        global.document.removeEventListener('chippy-armed-reload-ready', onReady);
+        done(state);
+      }
+      function onReady(event) {
+        let detail = {};
+        try { detail = JSON.parse(String(event.detail || '{}')); } catch (e) {}
+        finish(detail.ok ? 'registered' : 'handoff-only');
+      }
+      global.document.addEventListener('chippy-armed-reload-ready', onReady);
+      setTimeout(function() { finish('handoff-only'); }, 500);
+      global.document.dispatchEvent(new CustomEvent('chippy-armed-reload-prepare'));
+    });
   }
 
   function handleCommand(command) {
@@ -581,15 +664,19 @@
         setContextUiEnabled(command.enabled !== false, 'set-context-ui');
         break;
       case 'reload':
-        try { send({ type: 'reload-ack', clientId, requestId: command.requestId || null }); } catch (e) {}
-        setTimeout(function() { try { window.location.reload(); } catch (e) {} }, 50);
+        prepareReload(command.avalanche).then(function(earlyStartup) {
+          try { send({ type: 'reload-ack', clientId, requestId: command.requestId || null, earlyStartup: earlyStartup }); } catch (e) {}
+          setTimeout(function() { try { window.location.reload(); } catch (e) {} }, 50);
+        });
         break;
       case 'storybook-force-remount': {
         // The Storybook addon owns the host API. The bridge only relays the
         // request so a Storybook SUT remount does not navigate its preview.
+        // The arm, when present, lets the addon install Avalanche before the
+        // remount commits.
         const remountEvent = new CustomEvent('chippy-storybook-force-remount', {
           cancelable: true,
-          detail: { requestId: command.requestId || null },
+          detail: { requestId: command.requestId || null, avalanche: command.avalanche || null },
         });
         global.dispatchEvent(remountEvent);
         try {
@@ -599,6 +686,7 @@
             requestId: command.requestId || null,
             action: 'storybook-force-remount',
             ok: remountEvent.defaultPrevented,
+            error: remountEvent.defaultPrevented ? undefined : 'The Storybook preview did not remount: no rendered story matched the current selection',
           });
         } catch (e) {}
         break;
@@ -655,8 +743,9 @@
       }
       case 'find-fibers': {
         const requestId = command.requestId || null;
-        const result = evalFindFibers(command.filters || {});
-        send({ type: 'eval-probe-result', clientId, requestId, result });
+        Promise.resolve(evalFindFibers(command.filters || {}))
+          .then((result) => send({ type: 'eval-probe-result', clientId, requestId, result }))
+          .catch((e) => send({ type: 'eval-probe-result', clientId, requestId, result: { count: 0, items: [], error: e?.message || String(e) } }));
         break;
       }
       case 'capture-fiber-state': {
@@ -873,35 +962,40 @@
       if (!t) return null;
       return t.displayName || t.name || (typeof t === 'string' ? t : null);
     }
+    // Return the live HostRoot fiber of every React root. A FiberRoot (from
+    // `getFiberRoots`) exposes it as `.current`; a HostRoot fiber reached from a
+    // DOM container or by climbing `.return` may be the stale alternate, so it
+    // is re-resolved through its FiberRoot (`stateNode.current`).
     function getRootFibers() {
       const hook = devtoolsHook();
       const out = [];
-      if (!hook?.renderers) return out;
       const seen = new Set();
-      for (const [rendererId] of hook.renderers) {
-        try {
-          if (hook.getFiberRoots) {
-            const roots = hook.getFiberRoots(rendererId);
-            if (roots && typeof roots.forEach === 'function') {
-              roots.forEach((root) => {
-                if (root && !seen.has(root)) {
-                  seen.add(root);
-                  out.push(root);
-                }
-              });
-            }
-          }
-        } catch (_) {}
+      function add(candidate) {
+        if (!candidate || typeof candidate !== 'object') return;
+        const fiberRoot = candidate.current ? candidate
+          : (candidate.tag === 3 && candidate.stateNode && candidate.stateNode.current ? candidate.stateNode : null);
+        const live = fiberRoot ? fiberRoot.current : candidate;
+        const key = fiberRoot || live;
+        if (!live || seen.has(key)) return;
+        seen.add(key);
+        out.push(live);
       }
-      // Robust fallback: walk all root containers via document
+      if (hook?.renderers && typeof hook.getFiberRoots === 'function') {
+        for (const [rendererId] of hook.renderers) {
+          try {
+            const roots = hook.getFiberRoots(rendererId);
+            if (roots && typeof roots.forEach === 'function') roots.forEach(add);
+          } catch (_) {}
+        }
+      }
+      // Fallback for hooks without getFiberRoots: walk root containers in the document.
       const containers = document.querySelectorAll('[id], body div, body main');
       containers.forEach((el) => {
         const key = Object.keys(el).find((k) => k.startsWith('__reactContainer$') || k.startsWith('__reactFiber$'));
         if (!key) return;
         let fiber = el[key];
-        // climb to root
         while (fiber && fiber.return) fiber = fiber.return;
-        if (fiber && !seen.has(fiber)) { seen.add(fiber); out.push(fiber); }
+        add(fiber);
       });
       return out;
     }
@@ -1119,7 +1213,7 @@
   // Delegated to avalanche.iife.js — see src/chippy-bridge/fiber-invoke.ts
   function evalFiberPropContract(fiberId, propName) {
     const b = getBridge();
-    if (!b || !b.evalFiberPropContract) return { ok: false, error: 'bridge module not loaded' };
+    if (!b || !b.evalFiberPropContract) return { ok: false, ...BRIDGE_MODULE_MISSING };
     return b.evalFiberPropContract(fiberId, propName, {
       normalizeRememberedFiberId,
       getRememberedFiber,
@@ -1130,7 +1224,7 @@
   // Returns a Promise. The handler routes async responses through `send` once resolved.
   function evalFiberInvoke(fiberId, propName, args) {
     const b = getBridge();
-    if (!b || !b.evalFiberInvoke) return Promise.resolve({ ok: false, error: 'bridge module not loaded' });
+    if (!b || !b.evalFiberInvoke) return Promise.resolve({ ok: false, ...BRIDGE_MODULE_MISSING });
     return Promise.resolve(b.evalFiberInvoke(fiberId, propName, args, {
       normalizeRememberedFiberId,
       getRememberedFiber,
@@ -1143,7 +1237,7 @@
   function evalFiberScheduleUpdate(fiberId, ownerIndex) {
     const b = getBridge();
     if (!b || !b.evalFiberScheduleUpdate) {
-      return { ok: false, reason: 'no-scheduleUpdate', error: 'bridge module not loaded' };
+      return { ok: false, reason: 'no-scheduleUpdate', ...BRIDGE_MODULE_MISSING };
     }
     return b.evalFiberScheduleUpdate(fiberId, ownerIndex, {
       normalizeRememberedFiberId,
@@ -1154,7 +1248,7 @@
   // Delegated to avalanche.iife.js — see src/chippy-bridge/eval-helpers.ts
   function evalElementDom(element, parentLevel) {
     const b = getBridge();
-    if (!b) return { error: 'bridge module not loaded' };
+    if (!b) return { ...BRIDGE_MODULE_MISSING };
     return b.evalElementDom(element, parentLevel, window.getComputedStyle.bind(window));
   }
 
@@ -1167,14 +1261,14 @@
   // Delegated to avalanche.iife.js — see src/chippy-bridge/eval-helpers.ts
   function evalFiberProps(baseFiber, ownerIndex) {
     const b = getBridge();
-    if (!b) return { error: 'bridge module not loaded' };
+    if (!b) return { ...BRIDGE_MODULE_MISSING };
     return b.evalFiberProps(baseFiber, ownerIndex, chippy.layoutLab?.getHookSummary, resolveOwnerFiber);
   }
 
   // Delegated to avalanche.iife.js — see src/chippy-bridge/eval-helpers.ts
   function evalFiberPropValue(baseFiber, propName, ownerIndex) {
     const b = getBridge();
-    if (!b) return { error: 'bridge module not loaded' };
+    if (!b) return { ...BRIDGE_MODULE_MISSING };
     return b.evalFiberPropValue(baseFiber, propName, ownerIndex, chippy.layoutLab?.getHookSummary, resolveOwnerFiber, safeSerialize);
   }
 
@@ -1188,7 +1282,7 @@
 
   function summarizeHookList(raw) {
     const b = getBridge();
-    return b ? b.summarizeHookList(raw) : (raw || { error: 'bridge module not loaded' });
+    return b ? b.summarizeHookList(raw) : (raw || { ...BRIDGE_MODULE_MISSING });
   }
 
   function formatCounts(counts) {
@@ -1372,15 +1466,20 @@
   }
 
   // Delegated to avalanche.iife.js — see src/chippy-bridge/eval-helpers.ts
-  function evalFindFibers(filters) {
+  async function evalFindFibers(filters) {
     const b = getBridge();
-    if (!b) return { count: 0, items: [], error: 'bridge module not loaded' };
-    return b.evalFindFibers(filters, buildScriptHelpers([]), rememberFiber);
+    if (!b) return { count: 0, items: [], ...BRIDGE_MODULE_MISSING };
+    const result = b.evalFindFibers(filters, buildScriptHelpers([]), rememberFiber);
+    // Map each item's source through the served module, as `explain` does.
+    if (b.resolveFindFiberSources && b.resolveFiberSource) {
+      await b.resolveFindFiberSources(result.items, getRememberedFiber, b.resolveFiberSource);
+    }
+    return result;
   }
 
   function evalCaptureFiberState(options) {
     const b = getBridge();
-    if (!b?.captureFiberState) return { ok: false, error: 'bridge module not loaded' };
+    if (!b?.captureFiberState) return { ok: false, ...BRIDGE_MODULE_MISSING };
     const helpers = buildScriptHelpers([]);
     return b.captureFiberState({
       ...options,
@@ -1393,7 +1492,7 @@
 
   function evalCompareFiberStates(before, after, options) {
     const b = getBridge();
-    if (!b?.compareFiberStates) return { ok: false, error: 'bridge module not loaded' };
+    if (!b?.compareFiberStates) return { ok: false, ...BRIDGE_MODULE_MISSING };
     return b.compareFiberStates(before, after, options);
   }
 
@@ -1401,7 +1500,7 @@
   // extension shim stays version-coupled but implementation-free.
   function evalBoundaryChain(fiber, max) {
     const b = getBridge();
-    if (!b) return { ok: false, error: 'bridge module not loaded' };
+    if (!b) return { ok: false, ...BRIDGE_MODULE_MISSING };
     return b.inspectDeclarativeBoundaryChain(fiber, max, {
       rememberFiber,
       getFiberDomNode: getAvalancheApi()?.layoutLab?.getFiberDomNode || getFiberDomNode,
@@ -1422,7 +1521,7 @@
 
   function evalPageBoundaries(max) {
     const b = getBridge();
-    if (!b) return { ok: false, error: 'bridge module not loaded' };
+    if (!b) return { ok: false, ...BRIDGE_MODULE_MISSING };
     const helpers = buildScriptHelpers([]);
     return b.inspectPageDeclarativeBoundaries(max, {
       rememberFiber,
@@ -1470,7 +1569,7 @@
     const fiber = getRememberedFiber(fiberId);
     if (!fiber) return { error: 'Unknown fiberId: ' + fiberId };
     const b = getBridge();
-    if (!b) return { error: 'bridge module not loaded' };
+    if (!b) return { ...BRIDGE_MODULE_MISSING };
     return b.inspectFiberStructure(fiber, fiberId, hookIndex, windowSize, replayComponentHooks, evalFiberHooks);
   }
 
@@ -1515,7 +1614,7 @@
 
   async function evalDescribeComponent(fiberIdRaw, nameRaw) {
     const b = getBridge();
-    if (!b) return { ok: false, error: 'bridge module not loaded' };
+    if (!b) return { ok: false, ...BRIDGE_MODULE_MISSING };
     const target = resolveFiberTarget(null, fiberIdRaw, nameRaw);
     if (target.error) return { ok: false, error: target.error };
     if (b.resolveFiberSource) await b.resolveFiberSource(target.fiber);
@@ -1576,7 +1675,7 @@
     const fiber = getRememberedFiber(fiberId);
     if (!fiber) return { error: 'Unknown fiberId: ' + fiberId };
     const b = getBridge();
-    if (!b) return { error: 'bridge module not loaded' };
+    if (!b) return { ...BRIDGE_MODULE_MISSING };
     return b.inspectFiberOwners(fiber, fiberId, buildScriptHelpers([]));
   }
 
@@ -1708,6 +1807,22 @@
   };
   global.document.addEventListener('chippy-ext-command', onExtCommand);
 
+  // An extension bridge that is already running stands down when another
+  // integration claims the page; the background's owner check covers bridges
+  // that have not loaded yet.
+  function standDown(owner) {
+    if (destroyed) return;
+    destroy();
+    try { chippy.layoutLab?.clearAll?.(); } catch (e) {}
+    try { chippy.layoutLab?.removeInPageUi?.(); } catch (e) {}
+    chippy.standDown = { at: Date.now(), owner: owner?.integration || null };
+    setConnState('yielded');
+  }
+  onOwnerClaimed = () => {
+    if (isExtensionBridge() && isLiveForeignOwner(global.__CHIPPY_OWNER__)) standDown(global.__CHIPPY_OWNER__);
+  };
+  global.addEventListener('chippy-owner-claimed', onOwnerClaimed);
+
   locationInterval = global.setInterval(() => {
     if (global.location.href !== lastLocationHref) {
       lastLocationHref = global.location.href;
@@ -1763,6 +1878,7 @@
     try { if (onLayoutLabUpdate) global.removeEventListener('layout-lab:update', onLayoutLabUpdate); } catch (e) {}
     try { if (onWindowMessage) global.removeEventListener('message', onWindowMessage); } catch (e) {}
     try { if (onExtCommand) global.document.removeEventListener('chippy-ext-command', onExtCommand); } catch (e) {}
+    try { if (onOwnerClaimed) global.removeEventListener('chippy-owner-claimed', onOwnerClaimed); } catch (e) {}
   }
 
   // ─── Public API ──────────────────────────────────────────────────────────
@@ -1829,5 +1945,9 @@
     chippy.layoutLab?.exposeDefaultMarkers?.();
   }
 
-  connect();
+  if (isExtensionBridge() && isLiveForeignOwner(global.__CHIPPY_OWNER__)) {
+    standDown(global.__CHIPPY_OWNER__);
+  } else {
+    connect();
+  }
 })(window);

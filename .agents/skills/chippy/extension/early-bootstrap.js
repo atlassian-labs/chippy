@@ -8,12 +8,14 @@
   if (globalThis.__CHIPPY_EARLY_BOOTSTRAP_INSTALLED__) {
     return;
   }
-  globalThis.__CHIPPY_EARLY_BOOTSTRAP_INSTALLED__ = true;
 
+  // Without a config this run does nothing, so a later run that has one (the
+  // background's startup injection) must still be able to bootstrap.
   const cfg = globalThis.__CHIPPY_STARTUP_CONFIG || null;
   if (!cfg || !cfg.enabled) {
     return;
   }
+  globalThis.__CHIPPY_EARLY_BOOTSTRAP_INSTALLED__ = true;
 
   globalThis.__CHIPPY = globalThis.__CHIPPY || {};
 

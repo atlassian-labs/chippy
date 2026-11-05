@@ -10,6 +10,8 @@ The extension is published to the Chrome Web Store. Any change to extension file
 - `.agents/skills/chippy/extension/avalanche.iife.js` (generated — do not edit directly; run `yarn avalanche:sync` first)
 - `.agents/skills/chippy/extension/early-bootstrap.js`
 - `.agents/skills/chippy/extension/background.js`
+- `.agents/skills/chippy/extension/armed-reload-startup.js`
+- `.agents/skills/chippy/extension/startup-handoff.js`
 - `.agents/skills/chippy/extension/content-script.js`
 - `.agents/skills/chippy/extension/chippy-page-bridge.js`
 - `.agents/skills/chippy/extension/manifest.json`

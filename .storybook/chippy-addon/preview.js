@@ -1,7 +1,7 @@
 import { addons } from 'storybook/preview-api';
 import { FORCE_REMOUNT, STORY_CHANGED, STORY_HOT_UPDATED } from 'storybook/internal/core-events';
 import { EVENTS, PREVIEW_MESSAGE_SOURCE } from './constants.js';
-import { OWNER_ID, ownerResult } from './setup.js';
+import { OWNER_ID, avalancheArmReady, ownerResult } from './setup.js';
 
 import '../../.agents/skills/chippy/extension/inspect-react.js';
 import '../../.agents/skills/chippy/extension/panel-dom.js';
@@ -12,20 +12,6 @@ import '../../.agents/skills/chippy/extension/chippy-page-bridge.js';
 
 if (ownerResult.ok) {
   globalThis.__AVALANCHE__ = globalThis.__AVALANCHE__ || avalanche;
-  // Static ESM imports evaluate before setup.js can finish stamping
-  // __CHIPPY_STARTUP_CONFIG. Honor reload-with-avalanche autoStart here too,
-  // after setup.js has run and the addon owns the page.
-  const arm = globalThis.__CHIPPY_STARTUP_CONFIG?.avalanche || null;
-  const api = globalThis.__AVALANCHE__;
-  if (arm?.autoStart && api && typeof api.install === 'function' && !api.status?.().installed) {
-    try {
-      api.install({
-        detectionMode: arm.options?.detectionMode || 'sources',
-        historySize: arm.max || 1000,
-        captureFibers: arm.options?.captureFibers !== false,
-      });
-    } catch (_) {}
-  }
 }
 
 function emit(channel, event, payload) {
@@ -57,8 +43,43 @@ let avalancheStoryId = null;
 let avalancheAutoCache = null;
 
 function currentStoryId() {
-  return new URLSearchParams(globalThis.location.search || '').get('id') || globalThis.__STORYBOOK_STORY_STORE__?.selection?.storyId || null;
+  return globalThis.__STORYBOOK_PREVIEW__?.selectionStore?.selection?.storyId
+    || new URLSearchParams(globalThis.location.search || '').get('id')
+    || globalThis.__STORYBOOK_STORY_STORE__?.selection?.storyId
+    || null;
 }
+
+// Storybook remounts only the render whose id matches FORCE_REMOUNT's storyId.
+// Return that id, or null when no rendered story matches.
+function remountTargetId() {
+  const storyId = currentStoryId();
+  const renders = globalThis.__STORYBOOK_PREVIEW__?.storyRenders;
+  if (!Array.isArray(renders)) return storyId;
+  return renders.some((render) => render.id === storyId) ? storyId : null;
+}
+
+// Install Avalanche with the options of a reload-with-avalanche arm. Returns
+// true when this call installed it.
+function installFromArm(arm) {
+  const api = getAvalancheApi();
+  if (!ownerResult.ok || !arm?.autoStart || typeof api?.install !== 'function' || api.status?.().installed) return false;
+  try {
+    api.install({
+      detectionMode: arm.options?.detectionMode || 'sources',
+      historySize: arm.max || 1000,
+      captureFibers: arm.options?.captureFibers !== false,
+    });
+  } catch (_) {
+    return false;
+  }
+  avalancheStoryId = currentStoryId();
+  avalancheAutoCache = null;
+  return true;
+}
+
+// The arm lookup in setup.js resolves after module evaluation; the global
+// loader below holds the first story render until it has been applied.
+const armApplied = avalancheArmReady.then(installFromArm, () => false);
 
 function ensureAvalancheInstalled({ resetForStory = false } = {}) {
   const storyId = currentStoryId();
@@ -234,8 +255,15 @@ window.addEventListener('message', (event) => {
 
 window.addEventListener('chippy-storybook-force-remount', (event) => {
   // Keep Storybook's manager and preview alive. FORCE_REMOUNT replaces only
-  // the rendered SUT, unlike reloading the preview iframe document.
-  emit(channel, FORCE_REMOUNT);
+  // the rendered SUT, unlike reloading the preview iframe document. The event
+  // stays unhandled, and the helper reports the remount as failed, when no
+  // rendered story can be remounted.
+  const storyId = remountTargetId();
+  if (!storyId) return;
+  // An armed remount installs Avalanche first; the FORCE_REMOUNT listener
+  // above then clears history, so the capture starts with the remount.
+  installFromArm(event.detail?.avalanche);
+  emit(channel, FORCE_REMOUNT, { storyId });
   event.preventDefault();
 });
 
@@ -260,4 +288,11 @@ publishState(channel, ownerResult.ok ? 'ready' : 'blocked');
 
 export const decorators = [
   (Story) => Story(),
+];
+
+export const loaders = [
+  async () => {
+    await armApplied;
+    return {};
+  },
 ];

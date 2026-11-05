@@ -92,7 +92,7 @@ Look for `installed`, `hasMetricsGlobal`, `commitCount`.
 ```bash
 chippy.sh reload-with-avalanche my-client http://localhost:9000 0 15000 5000
 ```
-Arms, reloads, waits for reconnect, waits settle window, then prints capture status.
+Arms, reloads, waits for reconnect, waits settle window, then prints capture status. With the extension or proxy mode, the reloaded document installs Avalanche before React's first commit, so boot commits are included. The reload step's ack reports `earlyStartup`: `registered` (extension), `handoff-only` (no extension; proxy mode still captures boot), or `not-armed`.
 
 ### `avalanche-hot-sources <clientId> [limit]`
 ```bash
@@ -175,7 +175,7 @@ chippy.sh avalanche-offline .chippy-captures/raf-1846.json source-search --name 
 ```
 Use saved captures without a live page. `commit-list`, `commit-peek`, `hot-sources`, and `describe-action` run the same code as the live commands and return the same shapes, so sort keys and include values match the live tables above (`unmounts` is live-only).
 
-`summary` returns commit count, first/last commit id, source count, and totals of the commit stats. `source-search --name <regex>` matches aggregate sources by `sourceId` and, for `detectionMode=full` captures, rendered components by name with per-instance render and self-source counts.
+`summary` returns commit count, first/last commit id, source count, and totals of the commit stats. `source-search --name <regex>` matches aggregate sources by `sourceId` and rendered components by name with per-instance render and self-source counts.
 
 ### `avalanche-arm <clientId> <origin> [maxCommits]`
 ```bash
@@ -263,7 +263,7 @@ Suspense reading:
 
 ## `renderedByCommit` — per-component render evidence
 
-Populated when the detector is armed with `detectionMode: 'full'`. Empty under `detectionMode: 'sources'` or `'stats'`. Pulled into `commit-peek` output via `include=rendered`.
+Populated in every detection mode. The mode decides which fields carry evidence: `stats` has no source tracking, so `isSelfSource` stays `false`; `trasherCounts` stay zero unless the mode is `full` or `amplifiers`. Pulled into `commit-peek` output via `include=rendered`.
 
 Top-level shape (`?` = optional, may be absent or `null`; everything else is required):
 

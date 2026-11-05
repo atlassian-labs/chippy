@@ -24,6 +24,15 @@
     if (global.__REACT_DEVTOOLS_GLOBAL_HOOK__) return;
 
     var renderers = new Map();
+    // Committed FiberRoots per renderer, tracked like React DevTools does so
+    // tree walks start from the live root instead of a container's stale
+    // HostRoot alternate.
+    var fiberRoots = new Map();
+    function rootsFor(id) {
+      var roots = fiberRoots.get(id);
+      if (!roots) { roots = new Set(); fiberRoots.set(id, roots); }
+      return roots;
+    }
     var hook = {
       __chippyShim: true,
       supportsFiber: true,
@@ -33,8 +42,16 @@
         renderers.set(id, renderer);
         return id;
       },
+      getFiberRoots: function getFiberRoots(id) { return rootsFor(id); },
       onScheduleFiberRoot: function () {},
-      onCommitFiberRoot: function () {},
+      onCommitFiberRoot: function onCommitFiberRoot(id, root) {
+        if (!root || !root.current) return;
+        var roots = rootsFor(id);
+        var state = root.current.memoizedState;
+        var unmounting = !state || state.element == null;
+        if (unmounting) roots.delete(root);
+        else roots.add(root);
+      },
       onCommitFiberUnmount: function () {},
       onPostCommitFiberRoot: function () {},
     };

@@ -75,6 +75,7 @@ import {
   evalFiberProps as evalFiberPropsImpl,
   evalFiberPropValue as evalFiberPropValueImpl,
   evalFindFibers as evalFindFibersImpl,
+  resolveFindFiberSources as resolveFindFiberSourcesImpl,
 } from './chippy-bridge/eval-helpers';
 import {
   safeJson as safeJsonImpl,
@@ -136,8 +137,10 @@ type GlobalWithChippyRuntime = typeof globalThis & {
 const runtime = globalThis as GlobalWithChippyRuntime;
 // A second injection must reuse the already-published runtime. Replacing it
 // would strand the bridge's references to the first detector and can create
-// two commit listeners observing the same React root.
-const avalanchePresent = !!runtime.__AVALANCHE__;
+// two commit listeners observing the same React root. An armed extension
+// reload evaluates this bundle twice: once from the one-shot document_start
+// registration and once from the background's navigation injection.
+const publishedApi = runtime.__AVALANCHE__;
 
 // Product-specific recognizers (Jira ownership markers, ATL commit metrics)
 // are plugins. None is enabled unless the page opts in or a packed build names
@@ -268,6 +271,7 @@ type AvalancheApi = {
     evalFiberProps: typeof evalFiberPropsImpl;
     evalFiberPropValue: typeof evalFiberPropValueImpl;
     evalFindFibers: typeof evalFindFibersImpl;
+    resolveFindFiberSources: typeof resolveFindFiberSourcesImpl;
     safeJson: typeof safeJsonImpl;
     resolveOwnerFiber: typeof resolveOwnerFiberImpl;
     findFiberByName: typeof findFiberByNameImpl;
@@ -415,6 +419,7 @@ const api: AvalancheApi = {
     evalFiberProps: evalFiberPropsImpl,
     evalFiberPropValue: evalFiberPropValueImpl,
     evalFindFibers: evalFindFibersImpl,
+    resolveFindFiberSources: resolveFindFiberSourcesImpl,
     safeJson: safeJsonImpl,
     resolveOwnerFiber: resolveOwnerFiberImpl,
     findFiberByName: findFiberByNameImpl,
@@ -435,8 +440,7 @@ const api: AvalancheApi = {
 if (__auto) {
   try {
     const requested = startupConfig?.avalanche?.options || {};
-    const existingApi = runtime.__AVALANCHE__;
-    const targetApi = existingApi && typeof existingApi.install === 'function' ? existingApi : api;
+    const targetApi = publishedApi && typeof publishedApi.install === 'function' ? publishedApi : api;
     const alreadyInstalled = !!(targetApi.status && targetApi.status().installed);
     if (!alreadyInstalled) {
       targetApi.install({
@@ -448,4 +452,6 @@ if (__auto) {
   } catch (e) { /* swallow */ }
 }
 
-export default api;
+// The IIFE build assigns this export to `__AVALANCHE__`, so a later evaluation
+// exports the runtime that is already published instead of replacing it.
+export default (publishedApi ?? api) as typeof api;

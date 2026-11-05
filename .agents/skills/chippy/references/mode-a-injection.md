@@ -26,7 +26,8 @@ Mode A has two supported runtime-loading variants. Both end with the same explic
 ## On reload (`page.reload(...)`)
 
 - Init scripts survive reload. The packaged loader restores its runtimes automatically; the ad-hoc variant must load them again.
-- Both variants receive a new client and detector instance. Re-resolve the client, then repeat the explicit install.
+- The client id is kept in the tab's `sessionStorage`, so the reloaded page normally reconnects under the same id (`page-wait-reload` reports `reloaded: true`). The connection and the detector are new: repeat the explicit install.
+- If the runtimes are not loaded again, the page never reconnects: `page-wait-reload` reports `reloaded: false`, and `reload-with-avalanche` exits with an error instead of reading status from a client that no longer exists.
 
 ## Boot-time commit loss — known limitation
 
@@ -61,8 +62,10 @@ Any React commit that fires between page mount and your `avalanche-install` call
 In Mode B, the extension does the following automatically and silently for every navigation:
 1. `webNavigation.onCommitted` fires
 2. Background fetches `armedAvalanche` config from helper
-3. `chrome.scripting.executeScript({ injectImmediately: true, world: 'MAIN' })` runs the early scripts (`devtools-hook-shim.js`, `avalanche.iife.js`, `early-bootstrap.js`) before any page script evaluates
+3. `chrome.scripting.executeScript({ injectImmediately: true, world: 'MAIN' })` runs the early scripts (`devtools-hook-shim.js`, `avalanche.iife.js`, `early-bootstrap.js`). Because steps 2–3 wait on network lookups, a fast page can evaluate React first.
 4. iife.ts reads `__CHIPPY_STARTUP_CONFIG.avalanche.autoStart` and self-installs
 5. `chrome.tabs.onUpdated` (`status === 'complete'`) injects late bundle scripts (bridge + probes)
+
+For a helper reload of an armed page (`page-reload` after `avalanche-arm`, as in `reload-with-avalanche`), the page bridge first stores the arm in `sessionStorage` and the extension registers the early scripts plus `startup-handoff.js` as a MAIN-world `document_start` content script for that one navigation. The next document installs Avalanche before any page script runs, so boot commits are captured. The reload ack's `earlyStartup` is `registered` when this path was prepared.
 
 The supported Mode A loaders do not provide the extension's pre-page `autoStart` configuration. They install only after client connection; that post-connection detector start is the structural reason for the boot-time gap.

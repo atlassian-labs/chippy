@@ -3,10 +3,11 @@
 // or packs a custom build with extra plugins (see pack.mjs).
 //   npx @atlassian/chippy install [--dir <path>] [--force]
 //   npx @atlassian/chippy pack [--config <file>]
-import { cpSync, existsSync, mkdirSync, readFileSync, realpathSync, rmSync } from 'node:fs';
+import { cpSync, mkdirSync, readFileSync, realpathSync, rmSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { isChippySkill, moveAside, ownsDirectory } from './skill-dir.mjs';
 
 const PACKAGE_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const HEALTH_URL = 'http://127.0.0.1:7823/__chippy/health';
@@ -15,21 +16,19 @@ export function defaultSkillDir() {
   return join(homedir(), '.agents', 'skills', 'chippy');
 }
 
-function isChippySkill(directory) {
-  const skill = join(directory, 'SKILL.md');
-  return existsSync(skill) && /^name:\s*chippy\s*$/m.test(readFileSync(skill, 'utf8'));
-}
-
-// Copies the bundled skill to `target`. An existing Chippy skill is replaced;
-// any other existing directory is left alone unless `force` is set.
-export function installSkill({ source = join(PACKAGE_ROOT, 'lib', 'mcp-skill'), target = defaultSkillDir(), force = false } = {}) {
+// Copies the bundled skill to `target`. An existing Chippy skill is replaced.
+// Any other non-empty directory is left alone; with `force` it is renamed to a
+// `.replaced-<time>` sibling first, never deleted. Returns the destination, and
+// `onMovedAside` receives the backup path.
+export function installSkill({ source = join(PACKAGE_ROOT, 'lib', 'mcp-skill'), target = defaultSkillDir(), force = false, onMovedAside = (/** @type {string} */ _backup) => {} } = {}) {
   const destination = resolve(target);
   if (!isChippySkill(source)) throw new Error(`Bundled skill not found at ${source}; build the package first`);
   if ([homedir(), dirname(homedir()), '/', resolve('.')].includes(destination)) {
     throw new Error(`Choose a dedicated skill directory, not ${destination}`);
   }
-  if (existsSync(destination) && !isChippySkill(destination) && !force) {
-    throw new Error(`${destination} exists and is not a Chippy skill; pass --force to replace it`);
+  if (!ownsDirectory(destination)) {
+    if (!force) throw new Error(`${destination} exists and is not a Chippy skill; pass --force to move it aside and install`);
+    onMovedAside(moveAside(destination));
   }
   mkdirSync(dirname(destination), { recursive: true });
   rmSync(destination, { recursive: true, force: true });
@@ -50,36 +49,63 @@ async function helperStatus() {
   }
 }
 
-function parseArgs(argv) {
-  const args = { command: argv[0], dir: undefined, force: false, config: 'chippy.config.mjs' };
+const COMMAND_OPTIONS = { install: ['--dir', '--force'], pack: ['--config'] };
+const HELP = new Set(['--help', '-h', 'help']);
+const VERSION = new Set(['--version', '-v']);
+
+export function parseArgs(argv) {
+  const args = { command: argv[0], dir: undefined, force: false, config: 'chippy.config.mjs', help: false, version: false };
+  if (HELP.has(args.command)) return { ...args, command: undefined, help: true };
+  if (VERSION.has(args.command)) return { ...args, command: undefined, version: true };
+  const allowed = COMMAND_OPTIONS[args.command] ?? [];
+  const value = (i) => {
+    if (i >= argv.length || argv[i].startsWith('-')) throw new Error(`${argv[i - 1]} needs a value`);
+    return argv[i];
+  };
   for (let i = 1; i < argv.length; i++) {
-    if (argv[i] === '--force') args.force = true;
-    else if (argv[i] === '--dir') args.dir = argv[++i];
-    else if (argv[i] === '--config') args.config = argv[++i];
-    else throw new Error(`Unknown option: ${argv[i]}`);
+    if (HELP.has(argv[i])) args.help = true;
+    else if (VERSION.has(argv[i])) args.version = true;
+    else if (!allowed.includes(argv[i])) throw new Error(`Unknown option for ${args.command}: ${argv[i]}`);
+    else if (argv[i] === '--force') args.force = true;
+    else if (argv[i] === '--dir') args.dir = value(++i);
+    else if (argv[i] === '--config') args.config = value(++i);
   }
   return args;
 }
 
+function usage(name) {
+  return `Usage: npx ${name} install [--dir <path>] [--force]
+       npx ${name} pack [--config <file>]
+       npx ${name} --version
+
+install  Installs the Chippy agent skill (default ${defaultSkillDir()}).
+         --force moves a directory that is not a Chippy skill aside first.
+pack     Builds a custom skill and extension with extra plugins from a config
+         file (default chippy.config.mjs). See the package README.
+`;
+}
+
 async function main(argv) {
-  const { name } = JSON.parse(readFileSync(join(PACKAGE_ROOT, 'package.json'), 'utf8'));
+  const { name, version } = JSON.parse(readFileSync(join(PACKAGE_ROOT, 'package.json'), 'utf8'));
   const args = parseArgs(argv);
+  if (args.version) {
+    process.stdout.write(`${version}\n`);
+    return;
+  }
+  if (args.help || !COMMAND_OPTIONS[args.command]) {
+    process.stdout.write(usage(name));
+    process.exitCode = args.help || args.command === undefined ? 0 : 2;
+    return;
+  }
   if (args.command === 'pack') {
     await pack(args.config);
     return;
   }
-  if (args.command !== 'install') {
-    process.stdout.write(`Usage: npx ${name} install [--dir <path>] [--force]
-       npx ${name} pack [--config <file>]
-
-install  Installs the Chippy agent skill (default ${defaultSkillDir()}).
-pack     Builds a custom skill and extension with extra plugins from a config
-         file (default chippy.config.mjs). See the package README.
-`);
-    process.exitCode = args.command === undefined || args.command === '--help' ? 0 : 2;
-    return;
-  }
-  const skillDir = installSkill({ target: args.dir ?? defaultSkillDir(), force: args.force });
+  const skillDir = installSkill({
+    target: args.dir ?? defaultSkillDir(),
+    force: args.force,
+    onMovedAside: (backup) => process.stdout.write(`Moved the existing directory to ${backup}\n`),
+  });
   process.stdout.write(`Installed the Chippy skill to ${skillDir}
 
 1. Install the browser extension: open chrome://extensions, turn on Developer

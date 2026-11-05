@@ -32,4 +32,38 @@ describe('debug-render helpers', () => {
       delete (globalThis as any).__REACT_DEVTOOLS_GLOBAL_HOOK__;
     }
   });
+
+  it('traps React 19 dispatcher assignments on shared internals `H`', () => {
+    const debugRender = createDebugRender();
+    const internals: Record<string, any> = { H: null, A: null, T: null, S: null };
+    (globalThis as any).__REACT_DEVTOOLS_GLOBAL_HOOK__ = {
+      renderers: new Map([[1, { currentDispatcherRef: internals }]]),
+    };
+
+    try {
+      expect(debugRender.install()).toEqual({ ok: true });
+      expect('current' in internals).toBe(false);
+      const original = () => 'state';
+      internals.H = { useState: original };
+      expect(internals.H.useState).not.toBe(original);
+      expect(internals.H.useState()).toBe('state');
+      expect(debugRender.dispatcherRef()!.current).toBe(internals.H);
+      expect(debugRender.status().hasDispatcherRef).toBe(true);
+    } finally {
+      debugRender.uninstall();
+      delete (globalThis as any).__REACT_DEVTOOLS_GLOBAL_HOOK__;
+    }
+    expect(Object.getOwnPropertyDescriptor(internals, 'H')!.writable).toBe(true);
+  });
+});
+
+describe('isHookFrameName', () => {
+  it('recognizes bare and qualified hook frame names', async () => {
+    const { isHookFrameName } = await import('../debug-render/core');
+    expect(isHookFrameName('useState')).toBe(true);
+    expect(isHookFrameName('exports.useState')).toBe(true);
+    expect(isHookFrameName('Object.useCounter')).toBe(true);
+    expect(isHookFrameName('StockCounter')).toBe(false);
+    expect(isHookFrameName('exports.user')).toBe(false);
+  });
 });

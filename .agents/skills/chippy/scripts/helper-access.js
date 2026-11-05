@@ -29,16 +29,15 @@ const PUBLIC_GET_PATHS = new Set([
   '/avalanche.es.js.map',
   '/avalanche.iife.js.map',
   '/devtools-hook-shim.js',
-  '/api/avalanche-arm',
-  '/proxy/go',
+  '/startup-handoff.js',
   '/ws',
 ]);
 
 // Routes the published browser extension calls from its service worker. The
 // extension sends no token, so these stay open to extension origins and
-// non-browser clients on every bind. They list pages and arm capture; they do
-// not run page code.
-const EXTENSION_ROUTES = new Set(['GET /api/pages', 'POST /api/avalanche-arm']);
+// non-browser clients on every bind. They list pages and read or arm capture;
+// they do not run page code.
+const EXTENSION_ROUTES = new Set(['GET /api/pages', 'GET /api/avalanche-arm', 'POST /api/avalanche-arm']);
 
 function stateDirectory(env = process.env) {
   return env.CHIPPY_STATE_DIR || path.join(os.homedir(), '.chippy');
@@ -109,6 +108,19 @@ function isExtensionOrigin(origin) {
   return typeof origin === 'string' && /^(chrome|moz)-extension:\/\//.test(origin);
 }
 
+function originOf(value) {
+  try { return new URL(value).origin; } catch { return null; }
+}
+
+// A page may ask whether its own origin is armed (the Storybook addon does this
+// at preview start). It may not list other origins or look up client ids.
+function isSelfArmLookup(method, route, origin, query) {
+  if (method !== 'GET' || route !== '/api/avalanche-arm' || !query || typeof origin !== 'string') return false;
+  if (query.get('clientId')) return false;
+  const asked = query.get('origin');
+  return !!asked && originOf(asked) === origin;
+}
+
 function tokensMatch(expected, received) {
   if (typeof received !== 'string' || !expected) return false;
   const a = Buffer.from(expected);
@@ -117,7 +129,8 @@ function tokensMatch(expected, received) {
 }
 
 // Returns null when the request may proceed, otherwise { status, error }.
-function authorizeRequest({ method, route, headers, token, loopback, env = process.env }) {
+// `query` is the request's URLSearchParams.
+function authorizeRequest({ method, route, headers, token, loopback, query = null, env = process.env }) {
   if (loopback && !isAllowedHost(headers.host, env)) {
     return { status: 403, error: 'Host header is not a loopback host; set CHIPPY_HELPER_ALLOWED_HOSTS to allow it' };
   }
@@ -127,6 +140,7 @@ function authorizeRequest({ method, route, headers, token, loopback, env = proce
   if (kind === 'extension') {
     const origin = headers.origin;
     if (origin === undefined || isExtensionOrigin(origin)) return null;
+    if (isSelfArmLookup(method, route, origin, query)) return null;
   }
   return { status: 401, error: 'Missing or invalid X-Chippy-Token header' };
 }

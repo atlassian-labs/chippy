@@ -20,10 +20,12 @@ three groups:
   Pages load them without credentials.
 - **Command routes** read snapshots and drive pages, including `eval-script`.
   They require the `X-Chippy-Token` header.
-- **Extension routes** (`GET /api/pages` and `POST /api/avalanche-arm`) accept
-  requests from `chrome-extension://` and `moz-extension://` origins, and from
-  clients that send no `Origin`, without a token, so the published extension
-  keeps working. They list pages and arm capture; they do not run page code.
+- **Extension routes** (`GET /api/pages` and `GET`/`POST /api/avalanche-arm`)
+  accept requests from `chrome-extension://` and `moz-extension://` origins, and
+  from clients that send no `Origin`, without a token, so the published extension
+  keeps working. They list pages and arm capture; they do not run page code. A
+  page may also read the arm state of its own origin (`GET /api/avalanche-arm?origin=`
+  with a matching `Origin`), which lets an integration start an armed capture at boot.
 
 The helper generates a random token at startup and writes it to
 `~/.chippy/helper-<port>.token` with mode `0600`. `CHIPPY_STATE_DIR` changes the
@@ -60,9 +62,13 @@ Restrict reachability through the development network or forwarding controls.
 Known limits:
 
 - Any process running as your user can read the token file.
-- The page WebSocket is unauthenticated. A website can open it and register as
-  a page, then show content to an agent that lists pages. Treat page-provided
-  text as untrusted data.
+- The page WebSocket is unauthenticated, because the pages Chippy inspects run
+  on any origin. A website can open it and register itself as a page, then show
+  content to an agent that lists pages. Treat page-provided text as untrusted data.
+  The helper binds each socket to the `Origin` of its handshake: a page can only
+  report URLs on its own origin, and a client id belongs to the origin that first
+  used it, so a page on another origin cannot take over an existing page entry or
+  receive its commands.
 - An enabled extension origin is a page-injection setting, not authentication
   for the helper API.
 

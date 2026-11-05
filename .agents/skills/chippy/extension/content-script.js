@@ -162,6 +162,29 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   }
 });
 
+// The page bridge asks for early startup on the next navigation before an armed
+// reload. Only the background can register the MAIN-world startup scripts. The
+// background also re-runs this file, so the relay is installed once per document.
+function relayArmedReload() {
+  const reply = (result) => {
+    try {
+      document.dispatchEvent(new CustomEvent('chippy-armed-reload-ready', { detail: JSON.stringify(result || {}) }));
+    } catch {}
+  };
+  try {
+    chrome.runtime.sendMessage({ type: 'chippy-register-armed-reload' }, (response) => {
+      if (chrome.runtime.lastError) reply({ ok: false, error: chrome.runtime.lastError.message });
+      else reply(response);
+    });
+  } catch (e) {
+    reply({ ok: false, error: e.message });
+  }
+}
+if (!globalThis.__chippyArmedReloadRelay) {
+  globalThis.__chippyArmedReloadRelay = true;
+  document.addEventListener('chippy-armed-reload-prepare', relayArmedReload);
+}
+
 applyStoredConfig();
 
 })();

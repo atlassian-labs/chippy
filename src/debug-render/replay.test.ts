@@ -92,7 +92,7 @@ function makeFiberWithFn(fn: Function, hookNode: HookNode | null): Fiber {
   };
 }
 
-function installFakeDevtoolsHook(dispatcherRef: { current: unknown }) {
+function installFakeDevtoolsHook(dispatcherRef: Record<string, unknown>) {
   (globalThis as any).__REACT_DEVTOOLS_GLOBAL_HOOK__ = {
     renderers: new Map([[1, { currentDispatcherRef: dispatcherRef }]]),
   };
@@ -449,6 +449,19 @@ describe('getDispatcherRef', () => {
     installFakeDevtoolsHook(ref);
     expect(getDispatcherRef()).toBe(ref);
   });
+
+  it('maps React 19 shared internals (`H`) to a stable { current } view', () => {
+    const contextOnly = { useState: () => {} };
+    const internals: Record<string, unknown> = { H: contextOnly, A: null, T: null, S: null };
+    installFakeDevtoolsHook(internals);
+    const ref = getDispatcherRef()!;
+    expect(ref.current).toBe(contextOnly);
+    expect(getDispatcherRef()).toBe(ref);
+    const next = {};
+    ref.current = next;
+    expect(internals.H).toBe(next);
+    expect('current' in internals).toBe(false);
+  });
 });
 
 describe('isDispatcherIdle', () => {
@@ -623,6 +636,24 @@ describe('replayComponentHooks', () => {
     // records are returned (not fiber-only fallback, since records.length > 0).
     // The replayStatus reflects the error.
     expect(result.replayStatus).toBe('partial-replay');
+  });
+
+  it('replays against React 19 shared internals and restores `H`', () => {
+    const contextOnly = { useState: () => { throw new Error('invalid hook call'); } };
+    const internals: Record<string, unknown> = { H: contextOnly, A: null, T: null, S: null };
+    installFakeDevtoolsHook(internals);
+
+    function NineteenComp() {
+      const [count] = (internals.H as any).useState(0);
+      return count;
+    }
+
+    const result = replayComponentHooks(makeFiberWithFn(NineteenComp, makeStateHook(7)));
+    expect(result.replayError).toBe('');
+    expect(result.replayStatus).toBe('complete');
+    expect(result.records[0].value).toBe(7);
+    expect(result.records[0].fiberOnly).toBe(false);
+    expect(internals.H).toBe(contextOnly);
   });
 
   it('restores the original dispatcher even when replay throws', () => {

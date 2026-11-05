@@ -20,7 +20,7 @@
  * seam (getDispatcherRef) that is injected via globalThis.__REACT_DEVTOOLS_GLOBAL_HOOK__.
  */
 
-import { parseStackFrames, type StackFrame } from './core';
+import { isHookFrameName, parseStackFrames, type StackFrame } from './core';
 import { readContextValueFromFiber, type ContextFiber } from './context-replay';
 // Renderer discovery is shared with the fiber-schedule-update capability — one
 // place knows how to enumerate __REACT_DEVTOOLS_GLOBAL_HOOK__.renderers.
@@ -389,7 +389,7 @@ export function customHookPathFromFrames(frames: StackFrame[], componentName: st
   const out: StackFrame[] = [];
   for (let i = relevant.length - 1; i >= 0; i--) {
     const { name, loc } = relevant[i];
-    if (/^use[A-Z0-9_]/.test(name) && !PRIMITIVE_HOOK_NAMES.has(name)) {
+    if (isHookFrameName(name) && !PRIMITIVE_HOOK_NAMES.has(name.slice(name.lastIndexOf('.') + 1))) {
       // V8 frame loc for a custom hook frame points at the line *inside that
       // hook* where it called the next inner hook/primitive. That changes for
       // every primitive and fragments one semantic invocation into many folders.

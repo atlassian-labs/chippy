@@ -30,7 +30,7 @@ async function openPage(kind = 'stock'): Promise<Page> {
 }
 
 describe('Chippy React compatibility', () => {
-  it.each(['stock'])('captures each %s React commit once and debugs a captured hook', async (kind) => {
+  it.each(['stock', 'react-19'])('captures each %s React commit once and debugs a captured hook', async (kind) => {
     const page = await openPage(kind);
     try {
       for (let n = 0; n < 3; n++) {
@@ -58,7 +58,7 @@ describe('Chippy React compatibility', () => {
     } finally { await page.close(); }
   }, 30000);
 
-  it.each(['stock'])('resolves source, owners, hooks, and scheduling on %s React', async (kind) => {
+  it.each(['stock', 'react-19'])('resolves source, owners, hooks, and scheduling on %s React', async (kind) => {
     const page = await openPage(kind);
     try {
       const before = await page.evaluate(() => (window as any).renderCount);
@@ -76,10 +76,11 @@ describe('Chippy React compatibility', () => {
         return { component: { ...component, props: { prefix: component.props.prefix } },
           replay: { status: replay.replayStatus, records: replay.records }, schedule };
       });
-      expect(inspection.component).toMatchObject({
-        name: 'StockCounter', props: { prefix: 'Count' }, hookCount: 2,
-        source: { fileName: '/fixture/StockCounter.jsx', lineNumber: 1 },
-      });
+      expect(inspection.component).toMatchObject({ name: 'StockCounter', props: { prefix: 'Count' }, hookCount: 2 });
+      // React <=18 reads `__source`; React 19 dropped it in favour of `_debugStack`.
+      if (kind === 'stock') {
+        expect(inspection.component.source).toMatchObject({ fileName: '/fixture/StockCounter.jsx', lineNumber: 1 });
+      }
       expect(inspection.component.owners.map((owner: any) => owner.name)).toContain('FixtureApp');
       expect(inspection.replay.status).toBe('complete');
       expect(inspection.replay.records.map((hook: any) => hook.primitive)).toContain('State');
@@ -87,6 +88,39 @@ describe('Chippy React compatibility', () => {
       // Replay itself executes the component once; the scheduled update executes it again.
       await expect.poll(() => page.evaluate(() => (window as any).renderCount)).toBe(before + 2);
       expect(await page.locator('#counter').textContent()).toBe('Count: 0');
+    } finally { await page.close(); }
+  }, 30000);
+
+  it.each(['stock', 'react-19'])('walks the live %s React tree after commits through the page bridge', async (kind) => {
+    const page = await openPage(kind);
+    try {
+      for (let n = 0; n < 2; n++) {
+        await page.locator('#counter').click();
+        await expect.poll(() => page.locator('#counter').textContent()).toBe(`Count: ${n + 1}`);
+      }
+      await page.evaluate(() => {
+        // An unreachable helper keeps the bridge offline; only its tree helpers are under test.
+        (window as any).__CHIPPY = { config: { helperBaseUrl: 'http://127.0.0.1:9' } };
+      });
+      await page.addScriptTag({ content: readFileSync(`${extension}/chippy-page-bridge.js`, 'utf8') });
+      const walked = await page.evaluate(() => {
+        const helpers = (window as any).__CHIPPY.pageBridge.helpers;
+        const hook = (window as any).__REACT_DEVTOOLS_GLOBAL_HOOK__;
+        const counts = () => helpers.findFibers((fiber: any) => helpers.getDisplayName(fiber) === 'StockCounter')
+          .map((fiber: any) => fiber.memoizedState.memoizedState);
+        const viaShim = { shimRoots: hook.getFiberRoots(1).size, roots: helpers.getRootFibers().length, counts: counts() };
+        // A hook without getFiberRoots falls back to DOM containers, whose
+        // HostRoot can be the stale alternate after a commit.
+        const getFiberRoots = hook.getFiberRoots;
+        delete hook.getFiberRoots;
+        try {
+          return { viaShim, viaContainers: { roots: helpers.getRootFibers().length, counts: counts() } };
+        } finally { hook.getFiberRoots = getFiberRoots; }
+      });
+      expect(walked).toEqual({
+        viaShim: { shimRoots: 1, roots: 1, counts: [2] },
+        viaContainers: { roots: 1, counts: [2] },
+      });
     } finally { await page.close(); }
   }, 30000);
 

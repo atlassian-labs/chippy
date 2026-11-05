@@ -91,9 +91,9 @@ Load [active-stimulus](active-stimulus.md) before an active command. A `fiber:*`
 
 | Mode | Use it for | Boundary |
 |---|---|---|
-| `sources` | Default source and commit attribution | No per-component `renderedByCommit` evidence |
-| `full` | Per-component render, prop-change, and trasher evidence | Higher collection cost |
-| `stats` | Aggregate capture statistics | No source or rendered detail needed |
+| `sources` | Default source and commit attribution; rendered components with prop changes and `isSelfSource` | `trasherCounts` stay zero |
+| `full` | Everything in `sources` plus amplifier (`trasherCounts`) evidence | Higher collection cost |
+| `stats` | Aggregate capture statistics; rendered components with prop changes | No source tracking: `isSelfSource` stays false |
 | `amplifiers` | Amplifier-focused capture | Specialized analysis; load Avalanche reference first |
 
 `avalanche-arm` and `reload-with-avalanche` also accept `captureFibers=true|false`. Keep it `true` when debug-hook or fiber-backed analysis may follow.
@@ -102,7 +102,7 @@ Load [active-stimulus](active-stimulus.md) before an active command. A `fiber:*`
 
 `avalanche-commit-list` live `by` values are `collateral`, `sources`, `restarts`, `performedWork`, `effects`, `memos`, `callbacks`, `contextUpdates`, `unmountedComponents`, and `unmountedSubtrees`.
 
-`avalanche-commit-peek` live `include` values are `stats`, `sources`, `timing`, `metrics`, `unmounts`, `actions`, and `rendered`; `atl` is a deprecated alias of `metrics`. `rendered` requires `detectionMode=full`.
+`avalanche-commit-peek` live `include` values are `stats`, `sources`, `timing`, `metrics`, `unmounts`, `actions`, and `rendered`; `atl` is a deprecated alias of `metrics`. `rendered` works in every mode; `trasherCounts` in it need `full` or `amplifiers`.
 
 Load [avalanche-detector](avalanche-detector.md) for schemas and evidence-reading rules.
 
@@ -112,7 +112,7 @@ Load [avalanche-detector](avalanche-detector.md) for schemas and evidence-readin
 |---|---|
 | `eval-snippets` | List packaged snippets. |
 | `eval-page` | Execute one packaged or local snippet in the connected page realm with `--key value` arguments. |
-| `page-reload`, `page-wait-reload` | Request a reload and wait for the helper's reconnect transition. For a Storybook integration, `page-reload` emits `FORCE_REMOUNT`, remounting only the current SUT without navigating the preview iframe. |
+| `page-reload`, `page-wait-reload` | Request a reload and wait for the helper's reconnect transition. For a Storybook integration, `page-reload` emits `FORCE_REMOUNT`, remounting only the current SUT without navigating the preview iframe; it fails with HTTP 409 when no rendered story matches the selection. |
 | `handoff-to-playwright` | Transfer a connected page URL and selected probes into a Playwright session configuration. |
 | `proxy-state`, `proxy-start`, `proxy-stop` | Inspect or control the helper's local proxy. |
 

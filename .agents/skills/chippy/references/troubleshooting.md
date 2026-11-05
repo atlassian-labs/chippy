@@ -47,6 +47,11 @@
 - the served URL and generated line remain as a bounded fallback; do not present them as a mapped repository position
 - check that the page can fetch its own module URL and that the dev server emits an inline or external Source Map v3 payload
 
+## React <=18 source line is offset from the file
+- `_debugSource` records the line the JSX transform saw; a transform that ran earlier and added lines shifts it
+- Chippy corrects the line when it can fetch the module the page loaded for that file and the module's source map maps the recorded literal back into the same file
+- if the line still looks offset, check that the page loaded the module from its own origin and that the dev server emits a source map
+
 ## Multiple pages on same URL
 - use `clientId`, title, `latestSnapshotAt`, and `lastMessageAt` to identify the right page
 - usually prefer the most recently updated page when one candidate is clearly newer than the rest

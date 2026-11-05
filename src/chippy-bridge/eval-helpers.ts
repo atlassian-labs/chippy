@@ -290,3 +290,25 @@ export function evalFindFibers(
 
   return { count: matches.length, items: matches };
 }
+
+// ─── resolveFindFiberSources ─────────────────────────────────────────────
+
+/**
+ * Replace each `find-fibers` item's synchronous source with the source-mapped
+ * one. The walk reads sources synchronously; React 19 call sites and shifted
+ * React <=18 `_debugSource` lines need the served module's map first.
+ */
+export async function resolveFindFiberSources<S>(
+  items: Array<Record<string, unknown>>,
+  getFiber: (fiberId: string) => Fiber | null | undefined,
+  resolve: (fiber: Fiber) => Promise<S | null>,
+): Promise<void> {
+  await Promise.all(items.map(async (item) => {
+    const fiber = item.fiberId == null ? null : getFiber(String(item.fiberId));
+    if (!fiber) return;
+    try {
+      const source = await resolve(fiber);
+      if (source) item.source = source;
+    } catch {}
+  }));
+}

@@ -1,8 +1,8 @@
-![Chippy logo](.agents/skills/chippy/extension/icon-48.png)
+![Chippy logo](https://raw.githubusercontent.com/atlassian-labs/chippy/main/.agents/skills/chippy/extension/icon-48.png)
 
 # Chippy
 
-[![Atlassian license](https://img.shields.io/badge/license-Apache%202.0-blue.svg?style=flat-square)](LICENSE) [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg?style=flat-square)](CONTRIBUTING.md)
+[![Atlassian license](https://img.shields.io/badge/license-Apache%202.0-blue.svg?style=flat-square)](https://github.com/atlassian-labs/chippy/blob/main/LICENSE) [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg?style=flat-square)](https://github.com/atlassian-labs/chippy/blob/main/CONTRIBUTING.md)
 
 **A friend who helps you understand what’s happening, find the cause, and fix it.**
 
@@ -18,7 +18,7 @@ on the page and leave it a note.
 
 Chippy works with standard React and needs no patched packages. Development
 builds give the most detail; production builds show less, and every answer says
-what was available. See [React compatibility](docs/react-compatibility.md).
+what was available. See [React compatibility](https://github.com/atlassian-labs/chippy/blob/main/docs/react-compatibility.md).
 
 ## What you can ask
 
@@ -60,7 +60,7 @@ The agent runs Chippy through the skill's `chippy.sh` script, which needs bash
 starts a local helper on `127.0.0.1:7823` when it needs one. A sandboxed agent
 asks for permission to reach it; approve the prompt or allow `chippy.sh`. If
 your agent runs in a container or a remote machine, see
-[MCP setup](.agents/skills/chippy/references/mcp.md) for reaching the helper.
+[MCP setup](https://github.com/atlassian-labs/chippy/blob/main/.agents/skills/chippy/references/mcp.md) for reaching the helper.
 
 **Optional: connect over MCP.** If your agent supports MCP, it can call Chippy
 as tools instead of running a script. Ask it:
@@ -69,7 +69,7 @@ as tools instead of running a script. Ask it:
 
 The agent adds the Chippy server to its own MCP configuration and checks the
 connection. Some agents need a restart before the new tools appear. To set it
-up yourself, see [MCP setup](.agents/skills/chippy/references/mcp.md).
+up yourself, see [MCP setup](https://github.com/atlassian-labs/chippy/blob/main/.agents/skills/chippy/references/mcp.md).
 
 ## Two ways to start
 
@@ -112,7 +112,7 @@ Install `@atlassian/chippy` in your project when the extension is not the right 
 - **Add Chippy to Storybook** as an addon.
 - **Ship your own build** with extra plugins for your stack.
 
-See the [package documentation](docs/npm-package.md) for setup.
+See the [package documentation](https://github.com/atlassian-labs/chippy/blob/main/docs/npm-package.md) for setup.
 
 ## How Chippy compares
 
@@ -171,19 +171,19 @@ change is verified.
 
 ## Learn more
 
-- [Agent skill](.agents/skills/chippy/SKILL.md) and its [references](.agents/skills/chippy/references/README.md)
-- [React compatibility](docs/react-compatibility.md)
-- [Plugins](docs/plugins.md) for app-specific knowledge
-- [Trust boundary](docs/trust-boundary.md): what page data Chippy sees and who can reach the helper
-- [Security policy](SECURITY.md)
-- [Changelog](CHANGELOG.md)
+- [Agent skill](https://github.com/atlassian-labs/chippy/blob/main/.agents/skills/chippy/SKILL.md) and its [references](https://github.com/atlassian-labs/chippy/blob/main/.agents/skills/chippy/references/README.md)
+- [React compatibility](https://github.com/atlassian-labs/chippy/blob/main/docs/react-compatibility.md)
+- [Plugins](https://github.com/atlassian-labs/chippy/blob/main/docs/plugins.md) for app-specific knowledge
+- [Trust boundary](https://github.com/atlassian-labs/chippy/blob/main/docs/trust-boundary.md): what page data Chippy sees and who can reach the helper
+- [Security policy](https://github.com/atlassian-labs/chippy/blob/main/SECURITY.md)
+- [Changelog](https://github.com/atlassian-labs/chippy/blob/main/CHANGELOG.md)
 
-To build, test, or change Chippy, see [Contributing](CONTRIBUTING.md) and the
-[code of conduct](CODE_OF_CONDUCT.md).
+To build, test, or change Chippy, see [Contributing](https://github.com/atlassian-labs/chippy/blob/main/CONTRIBUTING.md) and the
+[code of conduct](https://github.com/atlassian-labs/chippy/blob/main/CODE_OF_CONDUCT.md).
 
 ## License
 
 Copyright (c) 2026 Atlassian US., Inc.
-Apache 2.0 licensed, see [LICENSE](LICENSE) file.
+Apache 2.0 licensed, see [LICENSE](https://github.com/atlassian-labs/chippy/blob/main/LICENSE) file.
 
 [![With ❤️ from Atlassian](https://raw.githubusercontent.com/atlassian-internal/oss-assets/master/banner-cheers.png)](https://www.atlassian.com)

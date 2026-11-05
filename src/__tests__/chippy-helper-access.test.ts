@@ -52,6 +52,8 @@ describe('helper route classification', () => {
     expect(access.classifyRoute('GET', null)).toBe('public');
     expect(access.classifyRoute('GET', '/api/pages')).toBe('extension');
     expect(access.classifyRoute('POST', '/api/avalanche-arm')).toBe('extension');
+    expect(access.classifyRoute('GET', '/api/avalanche-arm')).toBe('extension');
+    expect(access.classifyRoute('GET', '/proxy/go')).toBe('protected');
     expect(access.classifyRoute('GET', '/api/state')).toBe('protected');
     expect(access.classifyRoute('POST', '/api/pages/x/eval-script')).toBe('protected');
     expect(access.classifyRoute('POST', '/health')).toBe('protected');
@@ -133,6 +135,23 @@ describe('helper access control (live HTTP)', () => {
     expect((await send(port, 'GET', '/__chippy/api/pages', { Origin: 'chrome-extension://abc' })).status).toBe(200);
     expect((await send(port, 'GET', '/__chippy/api/pages', { Origin: 'https://attacker.example' })).status).toBe(401);
     expect((await send(port, 'GET', '/__chippy/api/state', { Origin: 'chrome-extension://abc' })).status).toBe(401);
+  });
+
+  it('lets a page look up only its own avalanche arm state', async () => {
+    const arm = '/__chippy/api/avalanche-arm';
+    const self = `${arm}?origin=${encodeURIComponent('http://localhost:6006/iframe.html?id=x')}`;
+    expect((await send(port, 'GET', arm)).status).toBe(200);
+    expect((await send(port, 'GET', arm, { Origin: 'chrome-extension://abc' })).status).toBe(200);
+    expect((await send(port, 'GET', self, { Origin: 'http://localhost:6006' })).status).toBe(200);
+    expect((await send(port, 'GET', self, { Origin: 'https://attacker.example' })).status).toBe(401);
+    expect((await send(port, 'GET', arm, { Origin: 'https://attacker.example' })).status).toBe(401);
+    expect((await send(port, 'GET', `${self}&clientId=victim`, { Origin: 'http://localhost:6006' })).status).toBe(401);
+  });
+
+  it('does not serve the removed proxy redirect', async () => {
+    const response = await send(port, 'GET', '/__chippy/proxy/go?redirectTo=https%3A%2F%2Fattacker.example');
+    expect(response.status).toBe(401);
+    expect(response.body).not.toContain('attacker.example');
   });
 
   it('serves page assets and health without a token', async () => {

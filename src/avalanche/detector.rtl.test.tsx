@@ -154,6 +154,26 @@ describe('createAvalancheDetector — structural render evidence', () => {
     const hit = rendered.find((entry) => entry.name === 'Child' && entry.propChanges.some((p: any) => p.name === 'count' && p.kind === 'scalar-changed'));
     expect(hit).toBeDefined();
   });
+  // Rendered evidence comes from the commit walk in every mode; the mode only
+  // decides whether amplifier (trasher) attribution is collected.
+  it.each(['stats', 'sources', 'amplifiers', 'full'] as const)('records rendered components in %s mode', (detectionMode) => {
+    function Parent() { return null; }
+    function Child() { return null; }
+    const prevChild = { tag: 0, type: Child, flags: 0, subtreeFlags: 0, child: null, sibling: null, return: null, memoizedState: null, memoizedProps: { count: 0 }, alternate: null } as unknown as Fiber;
+    const child = { tag: 0, type: Child, flags: PerformedWork, subtreeFlags: 0, child: null, sibling: null, return: null, memoizedState: null, memoizedProps: { count: 1 }, alternate: prevChild } as unknown as Fiber;
+    const parent = { tag: 0, type: Parent, flags: PerformedWork, subtreeFlags: PerformedWork, child, sibling: null, return: null, memoizedState: null, memoizedProps: {}, alternate: null } as unknown as Fiber;
+    child.return = parent;
+    prevChild.return = parent;
+
+    const hook = installDevtoolsShim();
+    const detector = createAvalancheDetector({ historySize: 20, detectionMode });
+    detector.install();
+    hook.onCommitFiberRoot(1, { current: parent, memoizedUpdaters: new Set([parent]) });
+    const report = detector.report(20, 'effect') as any;
+    const rendered = Object.values(report.renderedByCommit || {}).flat() as any[];
+    expect(rendered.map((entry) => entry.name)).toEqual(expect.arrayContaining(['Parent', 'Child']));
+    expect(rendered.find((entry) => entry.name === 'Child').hasPropChanges).toBe(true);
+  });
 });
 
 // ─── Unmount + Suspense lifecycle tests ──────────────────────────────────────

@@ -7,6 +7,7 @@ import {
   evalFiberProps,
   evalFiberPropValue,
   evalFindFibers,
+  resolveFindFiberSources,
   type Fiber,
   type ScriptHelpers,
 } from './eval-helpers';
@@ -321,5 +322,27 @@ describe('evalFindFibers', () => {
     ];
     const out = evalFindFibers(null, makeHelpers(items), (() => 'x') as never);
     expect(out.count).toBe(1);
+  });
+});
+
+describe('resolveFindFiberSources', () => {
+  it('replaces each item source with the resolved one and keeps it on failure', async () => {
+    const mapped: Fiber = { type: { name: 'Mapped' } };
+    const failing: Fiber = { type: { name: 'Failing' } };
+    const fibers = new Map<string, Fiber>([['fiber:1', mapped], ['fiber:2', failing]]);
+    const items: Array<Record<string, unknown>> = [
+      { fiberId: 'fiber:1', name: 'Mapped', source: { fileName: 'http://host/src/A.jsx', lineNumber: 40 } },
+      { fiberId: 'fiber:2', name: 'Failing', source: { fileName: '/src/B.jsx', lineNumber: 3 } },
+      { fiberId: 'fiber:3', name: 'Gone', source: null },
+    ];
+    await resolveFindFiberSources(items, (id) => fibers.get(id), async (fiber) => {
+      if (fiber === failing) throw new Error('map fetch failed');
+      return { fileName: 'src/A.jsx', lineNumber: 21, columnNumber: 5 };
+    });
+    expect(items.map((item) => item.source)).toEqual([
+      { fileName: 'src/A.jsx', lineNumber: 21, columnNumber: 5 },
+      { fileName: '/src/B.jsx', lineNumber: 3 },
+      null,
+    ]);
   });
 });
