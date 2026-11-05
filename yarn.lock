@@ -41,7 +41,7 @@ __metadata:
     "@vitejs/plugin-react": "npm:^4.3.4"
     esbuild: "npm:^0.25.12"
     jsdom: "npm:^26.1.0"
-    playwright: "npm:^1.58.2"
+    playwright: "npm:^1.64.1"
     react: "npm:^18.3.1"
     react-dom: "npm:^18.3.1"
     storybook: "npm:^10.3.3"
@@ -3574,21 +3574,21 @@ __metadata:
   languageName: node
   linkType: hard
 
-"playwright-core@npm:1.58.2":
-  version: 1.58.2
-  resolution: "playwright-core@npm:1.58.2"
-  bin:
-    playwright-core: cli.js
-  checksum: 10c0/5aa15b2b764e6ffe738293a09081a6f7023847a0dbf4cd05fe10eed2e25450d321baf7482f938f2d2eb330291e197fa23e57b29a5b552b89927ceb791266225b
-  languageName: node
-  linkType: hard
-
 "playwright-core@npm:1.61.0-alpha-1778188671000":
   version: 1.61.0-alpha-1778188671000
   resolution: "playwright-core@npm:1.61.0-alpha-1778188671000"
   bin:
     playwright-core: cli.js
   checksum: 10c0/2e07ce03250869ac5045e5b99035696f86cf1b288b34fbd93abd41c96c4ef72736f28e73f77d3a37c645f6438cf02799f270528220c927346f180fa69b2c511b
+  languageName: node
+  linkType: hard
+
+"playwright-core@npm:1.64.1":
+  version: 1.64.1
+  resolution: "playwright-core@npm:1.64.1"
+  bin:
+    playwright-core: cli.js
+  checksum: 10c0/91c4f5ed1cff4b0e18b6ac62f66770f5f1b6c204d4aebd6a321c07466dca18a70822ac692597c6059705a703f9768097ac551df179fb49294d639509148e04f3
   languageName: node
   linkType: hard
 
@@ -3607,18 +3607,14 @@ __metadata:
   languageName: node
   linkType: hard
 
-"playwright@npm:^1.58.2":
-  version: 1.58.2
-  resolution: "playwright@npm:1.58.2"
+"playwright@npm:^1.64.1":
+  version: 1.64.1
+  resolution: "playwright@npm:1.64.1"
   dependencies:
-    fsevents: "npm:2.3.2"
-    playwright-core: "npm:1.58.2"
-  dependenciesMeta:
-    fsevents:
-      optional: true
+    playwright-core: "npm:1.64.1"
   bin:
     playwright: cli.js
-  checksum: 10c0/d060d9b7cc124bd8b5dffebaab5e84f6b34654a553758fe7b19cc598dfbee93f6ecfbdc1832b40a6380ae04eade86ef3285ba03aa0b136799e83402246dc0727
+  checksum: 10c0/edf52d0a79feca37bf383e841a467aa68750684128218eac560063991c9e4b615a94901f580cd8a088bb05fd53008ab4a0e5e8d976067698b60ae5d1de2459f3
   languageName: node
   linkType: hard
 
