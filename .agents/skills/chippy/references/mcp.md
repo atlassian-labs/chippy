@@ -5,11 +5,32 @@ or reuses the helper automatically, so the agent does not need a shell command t
 start a background server. The browser still needs the extension, module import,
 or Storybook integration.
 
-## Configure the host
+## Connect your agent
 
-Install the Chippy skill, then add this server to your host's MCP configuration.
-Replace the example path with the **absolute installed skill path**; JSON arguments
-do not expand `~`.
+Follow these steps when the user asks you to connect Chippy over MCP. They apply
+to any agent host that supports stdio MCP servers.
+
+1. Resolve the absolute path of the directory that contains this skill's
+   `SKILL.md`. It may be a user-level or a project-local install; do not assume
+   `~/.agents/skills/chippy`. Confirm that `scripts/chippy-mcp.cjs` exists there. Check that `node --version` reports 22.12 or later.
+2. Register a stdio MCP server named `chippy` that runs `node` with that
+   absolute `scripts/chippy-mcp.cjs` path as its only argument. Use your host's
+   documented way to add an MCP server: its own command if it has one, otherwise
+   its MCP configuration file. Register it for the user, not one project, unless
+   the user asks otherwise.
+3. Merge the entry into the existing configuration. Keep the other servers, and
+   update an existing `chippy` entry instead of adding a second one.
+4. If your host loads MCP servers only at startup, tell the user to restart or
+   reload it.
+5. Verify the connection with `chippy_status`. If the Chippy tools do not
+   appear, report what you changed and use `scripts/chippy.sh` until they do.
+
+If your host has no MCP support, skip these steps and use `scripts/chippy.sh`.
+
+## Server configuration
+
+The server entry, in the common `mcpServers` JSON shape. Replace the example path
+with the **absolute installed skill path**; JSON arguments do not expand `~`.
 
 ```json
 {

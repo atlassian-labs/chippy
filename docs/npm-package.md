@@ -91,11 +91,18 @@ for the config format.
 
 ## MCP
 
-The package includes `chippy-mcp`, which connects an agent host to the helper. For
-Claude Code, from your project:
+The package includes `chippy-mcp`, which connects an agent host to the helper. Add
+it to your agent's MCP configuration, run from your project:
 
-```sh
-claude mcp add chippy -- npx chippy-mcp
+```json
+{
+  "mcpServers": {
+    "chippy": {
+      "command": "npx",
+      "args": ["chippy-mcp"]
+    }
+  }
+}
 ```
 
 Install the skill too (`npx @atlassian/chippy install`) so the agent knows how to

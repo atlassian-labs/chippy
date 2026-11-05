@@ -80,7 +80,6 @@ pack     Builds a custom skill and extension with extra plugins from a config
     return;
   }
   const skillDir = installSkill({ target: args.dir ?? defaultSkillDir(), force: args.force });
-  const mcp = join(skillDir, 'scripts', 'chippy-mcp.cjs');
   process.stdout.write(`Installed the Chippy skill to ${skillDir}
 
 1. Install the browser extension: open chrome://extensions, turn on Developer
@@ -90,13 +89,14 @@ pack     Builds a custom skill and extension with extra plugins from a config
    the page's console:
    import('http://127.0.0.1:7823/__chippy/inject.mjs')
 
-2. Connect your agent over MCP (optional; agents can also run ${join(skillDir, 'scripts', 'chippy.sh')}).
-   Claude Code:  claude mcp add chippy -- node ${mcp}
-   Other hosts:
-${JSON.stringify(mcpConfig(skillDir), null, 2).replace(/^/gm, '   ')}
+2. Enable Chippy for your page's origin in the extension popup, then ask your
+   agent to use Chippy on the page. The agent runs
+   ${join(skillDir, 'scripts', 'chippy.sh')}
 
-3. Enable Chippy for your page's origin in the extension popup, then ask your
-   agent to use Chippy on the page.
+Optional: connect over MCP if your agent supports it. Ask your agent:
+  Connect Chippy over MCP by following ${join(skillDir, 'references', 'mcp.md')}
+Or add this server to your agent's MCP configuration yourself:
+${JSON.stringify(mcpConfig(skillDir), null, 2).replace(/^/gm, '  ')}
 
 Helper: ${await helperStatus()}
 `);
