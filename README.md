@@ -27,6 +27,11 @@ what was available. See [React compatibility](https://github.com/atlassian-labs/
 - **Compare:** "What changed in the tree between these two states, or these two pages?"
 - **Investigate:** "Why is this click slow?" or "What re-renders on initial load?"
 
+<p align="center">
+  <a href="assets/chippy-call.mp4"><img src="assets/chippy-call.svg" width="900" alt="Animated clip: the asks roll in and Jira keeps them in line, so you call a chippy. Chippy gives your coding agent a hand in the running app: it finds the component and source line for a button to move, reads live props and state to show why a button stays disabled, compares before and after, finds what set off a slow click, connects the page, React, and your code, and turns the page into an experimentation lab."></a>
+  <br><a href="assets/chippy-call.mp4">Watch with sound</a>
+</p>
+
 ## Install
 
 You need Node.js 22.12 or later and Chrome or another Chromium browser.
