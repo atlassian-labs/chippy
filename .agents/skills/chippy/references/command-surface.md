@@ -102,7 +102,7 @@ Load [active-stimulus](active-stimulus.md) before an active command. A `fiber:*`
 
 `avalanche-commit-list` live `by` values are `collateral`, `sources`, `restarts`, `performedWork`, `effects`, `memos`, `callbacks`, `contextUpdates`, `unmountedComponents`, and `unmountedSubtrees`.
 
-`avalanche-commit-peek` live `include` values are `stats`, `sources`, `timing`, `metrics`, `unmounts`, `actions`, and `rendered`; `atl` is a deprecated alias of `metrics`. `rendered` works in every mode; `trasherCounts` in it need `full` or `amplifiers`.
+`avalanche-commit-peek` live `include` values are `stats`, `sources`, `timing`, `metrics`, `unmounts`, `actions`, and `rendered`; `atl` is a deprecated alias of `metrics`. `rendered` works in every mode; `trasherCounts` in it need `full` or `amplifiers`. `timing` returns `startTime` and `endTime` on the page's `performance.now()` clock, plus `timeSinceLastCommit` and `detectorOverhead`.
 
 Load [avalanche-detector](avalanche-detector.md) for schemas and evidence-reading rules.
 
@@ -170,7 +170,7 @@ avalanche-install <clientId> [detectionMode]
 avalanche-recapture <clientId> [detectionMode]
 avalanche-debug-hook <clientId> <sourceId> <hookIndex> [window]
 avalanche-save <clientId> <file> [count]
-avalanche-offline <file> <summary|commit-list|commit-peek|source-search> [args...]
+avalanche-offline <file> <summary|commit-list|commit-peek|hot-sources|describe-action|source-search> [args...]
 eval-page <clientId> <snippet-file-or-name> [--key value ...]
 eval-snippets
 avalanche-arm <clientId> <origin> [maxCommits] [captureFibers=true|false] [detectionMode=sources|full|stats|amplifiers]

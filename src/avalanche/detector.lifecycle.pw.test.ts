@@ -227,14 +227,14 @@ describe('Avalanche report shape — regression', () => {
     }
   }, 30000);
 
-  it('report version is 6', async () => {
+  it('report version is 7', async () => {
     const page = await openAvalanchePage();
     try {
       const { report } = await runScenario(
         page,
         `await new Promise(r => setTimeout(r, 100));`,
       );
-      expect(report.meta.version).toBe(6);
+      expect(report.meta.version).toBe(7);
     } finally {
       await page.close();
     }

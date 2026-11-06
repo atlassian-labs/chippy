@@ -69,6 +69,10 @@ export type ATLCommitDeltaDTO = CommitMetricsDeltaDTO;
  * Commit timing data - measures React commit duration and detector overhead.
  */
 export interface CommitTimingDTO {
+  /** performance.now() at commit hook start, on the `meta.timeOrigin` clock. */
+  startTime: number;
+  /** performance.now() when detector processing for this commit finished. */
+  endTime: number;
   timeSinceLastCommit: number;
   detectorOverhead: number;
 }
@@ -78,6 +82,8 @@ export interface CommitTimingDTO {
  */
 export interface ReportMetaDTO {
   version: number;
+  /** `performance.timeOrigin` of the page (Unix epoch ms); the clock for every absolute timestamp. */
+  timeOrigin: number;
   commits: number;
   config: {
     detectionLevel: 'stats' | 'sources' | 'amplifierMetrics' | 'amplifiers' | 'full';
@@ -191,6 +197,8 @@ export interface CommitInteractionActionDTO {
   id: number;
   lastCommitId: number;
   deltaTime: number;
+  /** performance.now() at event capture time, on the `meta.timeOrigin` clock. */
+  timestamp: number;
   action: string;
   location: {
     dom: {
@@ -227,7 +235,7 @@ export interface ReportDTO {
   metricsByCommit?: Record<number, CommitMetricsDeltaDTO>;
   /** @deprecated Alias of `metricsByCommit`, kept for one release. */
   atlByCommit?: Record<number, CommitMetricsDeltaDTO>;
-  timing?: Record<number, CommitTimingDTO>;
+  commitTimings?: Record<number, CommitTimingDTO>;
 }
 
 // ============================================================================
@@ -274,7 +282,7 @@ export function serializeReport(report: {
   metricsByCommit?: Record<number, CommitMetricsDeltaDTO>;
   /** @deprecated Alias of `metricsByCommit`, kept for one release. */
   atlByCommit?: Record<number, CommitMetricsDeltaDTO>;
-  timing?: Record<number, CommitTimingDTO>;
+  commitTimings?: Record<number, CommitTimingDTO>;
 }): ReportDTO {
   // Just extract the fields we need - no conversion necessary
   const sources: SourceDTO[] = report.sources.map((source) => ({
@@ -330,6 +338,6 @@ export function serializeReport(report: {
       metricsByCommit: report.metricsByCommit || report.atlByCommit,
       atlByCommit: report.metricsByCommit || report.atlByCommit,
     }),
-    ...(report.timing && { timing: report.timing }),
+    ...(report.commitTimings && { commitTimings: report.commitTimings }),
   };
 }

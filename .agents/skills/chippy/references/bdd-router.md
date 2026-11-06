@@ -69,6 +69,7 @@ Read the GIVEN column first. Pick the row that best matches the situation. Follo
 |---|---|---|---|---|---|
 | R-10 | Open page, user reports lag on interaction | "Why is clicking X slow?" | P-14 → P-04 → P-15 | `avalanche-arm` → interact → `avalanche-status` → `hot-sources` → `commit-list` → `commit-peek` | Proof packet: trigger + role + file:line |
 | R-11 | Open page, jank during scroll/animation | "Why is scrolling janky?" | P-14 → P-04 → P-15 | Same as R-10 | Hot source identified; blast radius measured; cause not inferred from hotspot alone |
+| R-11A | Page reports layout shift, long frames, or slow INP | "What moved the layout?" / "Why is this frame long?" | P-14 → P-04 → P-15 | `avalanche-arm` → interact → `eval-page perf-entries` → `commit-peek <commits.before or during> stats,sources,rendered` | Entry named with its component and nearest commit; that commit's source proven separately, not inferred from timing |
 | R-12 | Capture has >100 commits | Analyse without losing context | P-09 → P-15 | `avalanche-save` → `avalanche-offline` → subagent per wave | Crime scene rebuilt: setup → wave → noise |
 | R-13 | Suspected unstable memo or context | "Does this re-render when it shouldn't?" | P-14 → P-06 → P-15 | `avalanche-recapture full` → schedule one target render → settle → status → commit-list → commit-peek `stats,sources,rendered` → classify | `commitCount`, `collateral`, `trasherCounts`, verdict, render invariant |
 | R-14 | Stability-render shows leak, hook role unclear | "Which hook causes this?" | P-07 → P-15 | `avalanche-recapture` → reproduce trigger → `avalanche-debug-hook` | `target.primitive` confirmed; remediation branch chosen |
@@ -94,6 +95,7 @@ Read the GIVEN column first. Pick the row that best matches the situation. Follo
 | ID | GIVEN | WHEN | THEN: Procedure | THEN: Key Commands | THEN: Verified By |
 |---|---|---|---|---|---|
 | R-20 | Page is slow to first paint | "Why is initial load slow?" | P-14 → P-05 → P-15 | `reload-with-avalanche` → `avalanche-status` → `hot-sources` → `commit-list` → `commit-peek` | Load invariant + integration mode + top sources ranked |
+| R-20A | LCP or CLS is poor on load | "Why is LCP late?" / "What shifts during load?" | P-14 → P-05 → P-15 | `reload-with-avalanche` → `eval-page perf-entries` → `commit-peek` on the commits before the LCP entry and each shift | LCP element and shift sources named with components; commits before them read for sources |
 | R-21 | Load capture has low commit count | "Did capture miss early commits?" | Prove capture quality before cause | `reload-with-avalanche` with higher `settleMs` (5000+) | commitCount increases or gap is reported as capture limitation |
 | R-22 | After load perf fix | "Did the fix improve load?" | P-05 again + P-12 | Re-run `reload-with-avalanche`, compare hot-sources | Same sources lower rank or absent |
 | R-23 | Load wave looks large | Decide necessary vs avoidable work | P-05 → before/during/after read → P-15 | `commit-peek` on N-2/N-1/N/N+1 | Setup/main/noise roles separated |

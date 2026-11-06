@@ -193,6 +193,14 @@ export const commitStatsKeys = {
 export interface ReportMeta {
   /** Report format version - increment when changing data structure */
   version: number;
+  /**
+   * `performance.timeOrigin` of the captured page (Unix epoch ms). Every
+   * absolute timestamp in the report (`commitTimings[N].startTime/endTime`,
+   * `interactionsByCommit[N][i].timestamp`) is `performance.now()` on this
+   * clock, so `timeOrigin + startTime` is the commit's wall-clock time and
+   * the raw value lines up with DevTools traces and PerformanceObserver entries.
+   */
+  timeOrigin: number;
   /** Total commits processed */
   commits: number;
   /** Detector configuration used during profiling */
@@ -378,6 +386,8 @@ export interface CommitInteractionAction {
   lastCommitId: number;
   /** Milliseconds from action capture to the linked commit. */
   deltaTime: number;
+  /** performance.now() at event capture time, on the `meta.timeOrigin` clock. */
+  timestamp: number;
   action: string;
   location: InteractionAction['location'];
 }
@@ -537,6 +547,15 @@ export interface AmplifierSourceState {
  * All times in milliseconds.
  */
 export interface CommitTiming {
+  /**
+   * performance.now() when the commit hook started, on the `meta.timeOrigin`
+   * clock. React calls the hook after the commit's mutation and layout phases
+   * and before passive effects, so this marks the end of React's synchronous
+   * commit, not the start of render.
+   */
+  startTime: number;
+  /** performance.now() when the detector finished processing this commit. */
+  endTime: number;
   /** Time from previous commit end to this commit end (includes React work + idle time) */
   timeSinceLastCommit: number;
   /** Time spent in avalanche detector processing (our overhead) */
@@ -903,7 +922,8 @@ export function buildReport(
   const metricsAdapter = adapterIdFromMode(integrationMode);
   const metricsAvailable = metricsAdapter !== null && hasMetricsData;
   const meta: ReportMeta = {
-    version: 6, // v6: CommitStats[8,9] = unmountedComponents/unmountedSubtrees; suspenseByCommit
+    version: 7, // v7: meta.timeOrigin; absolute commitTimings[N].startTime/endTime; action timestamps
+    timeOrigin: performance.timeOrigin,
     commits: state.commits,
     config: {
       detectionLevel: detectorConfig?.detectionLevel ?? 'full',

@@ -274,10 +274,13 @@ Choose capture mode from the symptom:
 |---|---|---|
 | Slow click, typing, scroll, route interaction, or live re-render | `avalanche-arm`, then reproduce, then read | Do not reload; capture the real interaction. |
 | First paint, cold start, or initial-load settling | `reload-with-avalanche` | It reloads and may lose early commits; tune the settle window before blaming injection timing. |
+| Layout shift, long frame, slow interaction (INP), or late LCP | Either capture above, then `eval-page <clientId> perf-entries` | Entries are matched to commits by time: proximity, not cause. Only interactions of 104 ms or more are buffered. |
 
 Read broad to narrow: `avalanche-status` → `avalanche-hot-sources` → `avalanche-commit-list` → one `avalanche-commit-peek`. Do not open the full export first.
 
 Arm before the user or harness performs the slow interaction. Probes drill into the captured wave afterward; do not make probe placement a prerequisite for starting the recorder.
+
+Commit timings (`commit-peek ... timing`) are absolute `performance.now()` values on the page clock, shared with `PerformanceObserver` entries and DevTools traces. The `perf-entries` snippet reads the browser's buffered layout shifts, long animation frames, slow interactions, LCP, FCP, and TTFB, names the component behind each shift source, interaction target, and LCP element, and lists the commits near each entry. Use it when the symptom is a browser metric, then read the listed commits with `commit-peek`.
 
 `latestAction` is a clue, not causality. A confirmed root cause needs a source-to-collateral chain or source code that proves the update origin. Unmount and Suspense fields are branch signals; report DOM regions before wrapper names when the question is about DOM teardown.
 

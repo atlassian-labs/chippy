@@ -166,6 +166,7 @@ export function createInteractionCapture(options: InteractionCaptureOptions = {}
           id: action.id,
           lastCommitId: Math.max(0, commitId - 1),
           deltaTime: Math.round((commitTime - action.timestamp) * 100) / 100,
+          timestamp: action.timestamp,
           action: action.action,
           location: action.location,
         }));

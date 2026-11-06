@@ -31,8 +31,21 @@ The shell wrapper forwards every `--key value` pair into `ctx.args`, coercing nu
 | `hook-metrics-sample` | Active, bounded (ATL plugin) | Measure a labeled before/after `setStateCount` delta, optionally clicking one test-id. |
 | `hook-tracker` | Stateful instrument (ATL plugin) | Install, query, reset, or remove the `onHookUpdate` recomputation tracker. |
 | `stability-nudge` | Active stimulus | Schedule one controlled component render for the stability-render procedure. |
+| `perf-entries` | Read-only | Read buffered layout shifts, long animation frames, slow interactions, LCP, FCP, and TTFB; name the component behind each, and list nearby Avalanche commits. |
 
 Read [hook metrics](../references/hook-metrics.md) before using the metrics snippets. Read [stability render](../references/stability-render.md) before using `stability-nudge`.
+
+### `perf-entries`
+
+```bash
+./scripts/chippy.sh eval-page <clientId> perf-entries [--types layout-shift,event] [--since <ms>] [--max 20] [--scripts 5] [--commits 10]
+```
+
+`--types` defaults to `layout-shift`, `long-animation-frame`, `event`, `largest-contentful-paint`, `paint`, and `navigation`, limited to what the browser supports (`unsupported` lists the rest). `--since` drops entries that started before a `performance.now()` value, for example a commit's `startTime`. `--max` caps entries per type; layout shifts, long frames, and events are ranked largest first. `--scripts` caps the scripts kept per long frame, and `--commits` caps the ids in `commits.during`.
+
+The result has `summary` (`cls` as the largest session window, `layoutShifts`, `longFrames`, `totalBlockingMs`, `interactions`, `worstInteractionMs`, `lcpMs`, `fcpMs`, `ttfbMs`) and `entries[type].items`. Shift sources, interaction targets, and the LCP element carry `component`, `source`, `testId`, and `element`; `component` is `null` when the node is not rendered by React, for example `body`. With Avalanche installed, `avalanche` reports the commit count and report version, and each entry carries `commits.during` and `commits.before`. Report version 7 or later is required for the commit join.
+
+Limits come from the browser: each entry type keeps a bounded buffer (about 150 entries; 200 for long animation frames), and only events of 104 ms or more are buffered. `worstInteractionMs` is the worst buffered interaction, not a percentile INP. Run the snippet soon after the interaction you are measuring.
 
 ## Authoring contract
 

@@ -27,6 +27,7 @@ import type {
 function makeMeta(): ReportMetaDTO {
   return {
     version: 1,
+    timeOrigin: 1_700_000_000_000.5,
     commits: 0,
     config: {
       detectionLevel: 'sources',
@@ -49,6 +50,7 @@ function makeAction(id: number): CommitInteractionActionDTO {
     id,
     lastCommitId: id - 1,
     deltaTime: 12.3,
+    timestamp: 4321.25,
     action: 'click',
     location: {
       dom: { tag: 'button', text: 'Save', nearestTestId: 'save-btn' },
@@ -75,6 +77,8 @@ function makeAction(id: number): CommitInteractionActionDTO {
 
 function makeTiming(): CommitTimingDTO {
   return {
+    startTime: 4333.5,
+    endTime: 4334.0,
     timeSinceLastCommit: 5.5,
     detectorOverhead: 0.4,
   };
@@ -120,6 +124,7 @@ describe('serializeReport — DTO field parity', () => {
     expect(out.id).toBe(7);
     expect(out.lastCommitId).toBe(6);
     expect(out.deltaTime).toBe(12.3);
+    expect(out.timestamp).toBe(4321.25);
     expect(out.action).toBe('click');
     // Verify nested DOM
     expect(out.location.dom.tag).toBe('button');
@@ -158,7 +163,7 @@ describe('serializeReport — DTO field parity', () => {
 
   it('handles targetFiber=null without throwing', () => {
     const action: CommitInteractionActionDTO = {
-      id: 1, lastCommitId: 0, deltaTime: 0, action: 'click',
+      id: 1, lastCommitId: 0, deltaTime: 0, timestamp: 0, action: 'click',
       location: {
         dom: { tag: null, text: '', nearestTestId: null },
         targetFiber: null,
@@ -348,9 +353,9 @@ describe('serializeReport — DTO field parity', () => {
       meta: makeMeta(),
       sources: [],
       commitStats: {},
-      timing: { 1: timing },
+      commitTimings: { 1: timing },
     });
-    expect(dto.timing![1]).toEqual(timing);
+    expect(dto.commitTimings![1]).toEqual(timing);
   });
 
   it('preserves commitStats as Record passthrough', () => {
@@ -371,7 +376,7 @@ describe('serializeReport — DTO field parity', () => {
     expect(dto.meta).toBe(meta);
   });
 
-  it('omits sourcesByCommit/interactionsByCommit/atlByCommit/timing when undefined', () => {
+  it('omits sourcesByCommit/interactionsByCommit/atlByCommit/commitTimings when undefined', () => {
     const dto = serializeReport({
       meta: makeMeta(),
       sources: [],
@@ -380,7 +385,7 @@ describe('serializeReport — DTO field parity', () => {
     expect(dto.sourcesByCommit).toBeUndefined();
     expect(dto.interactionsByCommit).toBeUndefined();
     expect(dto.atlByCommit).toBeUndefined();
-    expect(dto.timing).toBeUndefined();
+    expect(dto.commitTimings).toBeUndefined();
   });
 
   it('returns JSON-serializable output for full report shape', () => {
@@ -395,7 +400,7 @@ describe('serializeReport — DTO field parity', () => {
       suspenseByCommit: { 0: [{ depth: 0, entered: true, left: false }] },
       interactionsByCommit: { 0: [makeAction(1)] },
       atlByCommit: { 0: makeAtlDelta() },
-      timing: { 0: makeTiming() },
+      commitTimings: { 0: makeTiming() },
     });
     expect(() => JSON.stringify(dto)).not.toThrow();
     const json = JSON.stringify(dto);
@@ -403,6 +408,8 @@ describe('serializeReport — DTO field parity', () => {
     expect(parsed.interactionsByCommit['0'][0].id).toBe(1);
     expect(parsed.sources[0].sourceId).toBe('s');
     expect(parsed.atlByCommit['0'].mountWorkCount).toBe(1);
+    expect(parsed.commitTimings['0'].startTime).toBe(4333.5);
+    expect(parsed.meta.timeOrigin).toBe(1_700_000_000_000.5);
   });
 });
 

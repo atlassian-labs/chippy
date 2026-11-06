@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { StoreReader } from './DebugHookSUT.jsx';
 import { atlCommitMetricsAdapter } from '../plugins/atl/commit-metrics-adapter';
 import { createAvalancheDetector } from './detector';
+import { evalAvalanche } from '../chippy-bridge/avalanche-commands';
 import { ChildDeletion, PerformedWork, type Fiber } from './internals';
 
 function installDevtoolsShim() {
@@ -422,6 +423,7 @@ describe('createAvalancheDetector — report shape contracts', () => {
         id: 1,
         lastCommitId: 0,
         deltaTime: expect.any(Number),
+        timestamp: expect.any(Number),
         action: 'click',
         location: {
           dom: {
@@ -440,6 +442,26 @@ describe('createAvalancheDetector — report shape contracts', () => {
       },
     ]);
     expect(report.toSerializable().interactionsByCommit[1][0]).toMatchObject({ action: 'click', lastCommitId: 0 });
+
+    // Absolute timestamps share the page's performance clock, so exports can be
+    // aligned with DevTools traces and PerformanceObserver entries.
+    const dto = report.toSerializable();
+    const timing = dto.commitTimings[1];
+    const action = dto.interactionsByCommit[1][0];
+    expect(dto.meta.timeOrigin).toBe(performance.timeOrigin);
+    expect(timing.startTime).toBeGreaterThan(0);
+    expect(timing.endTime).toBeGreaterThanOrEqual(timing.startTime);
+    expect(timing.endTime).toBeLessThanOrEqual(performance.now());
+    expect(timing.detectorOverhead).toBeCloseTo(timing.endTime - timing.startTime, 6);
+    expect(action.timestamp).toBeLessThanOrEqual(timing.startTime);
+    expect(action.deltaTime).toBeCloseTo(timing.endTime - action.timestamp, 1);
+
+    const peek = evalAvalanche(
+      { action: 'commit-peek', commitId: 1, include: ['timing', 'actions'] },
+      { report: () => detector.report() } as any,
+      null,
+    ) as any;
+    expect(peek.payload.timing).toEqual(timing);
 
     detector.uninstall();
   });

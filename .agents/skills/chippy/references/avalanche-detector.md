@@ -200,7 +200,7 @@ Low-level reload helpers. Use when debugging injection timing.
 
 Avalanche records bounded browser event breadcrumbs while armed. Defaults are explicit user actions only: click, keydown, keyup, input, change, submit. Noisy streams such as wheel/scroll/move are opt-in via detector options (`interactionCapture: 'noisy' | 'all'`) or explicit `interactionEvents`.
 
-Breadcrumb linking is intentionally minimal: action id, action name, last commit id, delta time, DOM target, nearest test id, target fiber, and locality stack. The agent reconstructs deeper source context on demand.
+Breadcrumb linking is intentionally minimal: action id, action name, last commit id, delta time, capture `timestamp`, DOM target, nearest test id, target fiber, and locality stack. The agent reconstructs deeper source context on demand.
 
 Read order:
 1. `avalanche-commit-list` — compact latestAction clues only.
@@ -228,6 +228,16 @@ Start with these fields:
 - `commitStats[N]` — fixed tuple for commit `N`
 - `metricsByCommit[N]` — low-level adapter metrics for commit `N` (deprecated alias `atlByCommit`)
 - `restartWasteByCommit[N]` — restart-heavy source attribution for commit `N`
+- `commitTimings[N]` — `startTime`, `endTime`, `timeSinceLastCommit`, `detectorOverhead` for commit `N` (`commit-peek ... timing`)
+- `meta.timeOrigin` — the page's `performance.timeOrigin` (Unix epoch ms)
+
+### Aligning commits with browser performance data
+
+`commitTimings[N].startTime` / `endTime` and each action's `timestamp` are `performance.now()` values on the page clock described by `meta.timeOrigin`. They share that clock with `PerformanceObserver` entries (`layout-shift`, `long-animation-frame`, `event`, `largest-contentful-paint`) and with DevTools Performance traces of the same page, so a commit can be placed next to the layout shift, long frame, or input it overlaps. `meta.timeOrigin + startTime` is the wall-clock time.
+
+`startTime` is when React called the commit hook: after the commit's DOM mutations and layout effects, before passive effects. It marks the end of React's synchronous commit, not the start of render. Overlapping timestamps show temporal proximity; confirm causality with the commit's sources and rendered components.
+
+`eval-page <clientId> perf-entries` does this alignment in the page. For each buffered entry it returns `commits.during` (commits whose `startTime` falls inside the entry) and `commits.before` (the latest commit at or before the entry, with `gapMs`). Layout shifts and LCP are point-in-time entries reported at the frame after the DOM moved, so `during` is almost always empty for them: read `before`. For long frames and interactions, read `during`. Arguments and limits are in the [snippet catalog](../snippets/README.md).
 
 `commitStats[N]` tuple:
 ```text

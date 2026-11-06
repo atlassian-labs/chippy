@@ -25,7 +25,7 @@ Choose the Chippy decision in front of you—position evidence, trace the page, 
 
 | Need | Read | What it gives you |
 |---|---|---|
-| Capture and interpret commits | [Avalanche detector](avalanche-detector.md) | Capture modes, schemas, causality reading, unmounts, Suspense, and large-capture analysis |
+| Capture and interpret commits | [Avalanche detector](avalanche-detector.md) | Capture modes, schemas, causality reading, unmounts, Suspense, large-capture analysis, and aligning commits with browser performance entries |
 | Choose the fix layer | [Fixing performance](fixing-performance.md) | Source/boundary/collateral classification and targeted remediation |
 | Grade one subtree | [Stability render](stability-render.md) | Deterministic nudge procedure and clean/leak/cascade/trasher verdicts |
 | Identify one captured hook | [Debug-hook](debug-hook.md) | Hook primitive, custom-hook ownership, confidence, and remediation branch |

@@ -702,7 +702,7 @@ this.__AVALANCHE__ = (function() {
         metricsByCommit: report.metricsByCommit || report.atlByCommit,
         atlByCommit: report.metricsByCommit || report.atlByCommit
       },
-      ...report.timing && { timing: report.timing }
+      ...report.commitTimings && { commitTimings: report.commitTimings }
     };
   }
   let active$1 = null;
@@ -889,8 +889,9 @@ this.__AVALANCHE__ = (function() {
     const metricsAdapter = adapterIdFromMode(integrationMode);
     const metricsAvailable = metricsAdapter !== null && hasMetricsData;
     const meta = {
-      version: 6,
-      // v6: CommitStats[8,9] = unmountedComponents/unmountedSubtrees; suspenseByCommit
+      version: 7,
+      // v7: meta.timeOrigin; absolute commitTimings[N].startTime/endTime; action timestamps
+      timeOrigin: performance.timeOrigin,
       commits: state.commits,
       config: {
         detectionLevel: (detectorConfig == null ? void 0 : detectorConfig.detectionLevel) ?? "full",
@@ -1582,6 +1583,7 @@ this.__AVALANCHE__ = (function() {
           id: action.id,
           lastCommitId: Math.max(0, commitId - 1),
           deltaTime: Math.round((commitTime - action.timestamp) * 100) / 100,
+          timestamp: action.timestamp,
           action: action.action,
           location: action.location
         }));
@@ -2470,6 +2472,8 @@ this.__AVALANCHE__ = (function() {
       const commitHookEndTime = performance.now();
       interactionCapture.linkRecent(state.commits, commitHookEndTime);
       state.commitTimings[state.commits] = {
+        startTime: commitHookStartTime,
+        endTime: commitHookEndTime,
         timeSinceLastCommit,
         detectorOverhead: commitHookEndTime - commitHookStartTime
       };

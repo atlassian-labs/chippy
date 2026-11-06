@@ -1510,6 +1510,8 @@ export function createAvalancheDetector(options: DetectorOptions = {}) {
     const commitHookEndTime = performance.now();
     interactionCapture.linkRecent(state.commits, commitHookEndTime);
     state.commitTimings[state.commits] = {
+      startTime: commitHookStartTime,
+      endTime: commitHookEndTime,
       timeSinceLastCommit,
       detectorOverhead: commitHookEndTime - commitHookStartTime,
     };

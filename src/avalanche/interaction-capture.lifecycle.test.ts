@@ -79,7 +79,7 @@ describe('createInteractionCapture — install / uninstall / reset', () => {
   it('reset clears state.byCommit', () => {
     cap.install();
     cap.state.byCommit[7] = [
-      { id: 1, lastCommitId: 6, deltaTime: 1, action: 'click', location: {} as never },
+      { id: 1, lastCommitId: 6, deltaTime: 1, timestamp: 0, action: 'click', location: {} as never },
     ];
     cap.reset();
     expect(cap.state.byCommit).toEqual({});
@@ -148,7 +148,7 @@ describe('createInteractionCapture — linkRecent', () => {
     });
     cap.linkRecent(7, 600);
     expect(cap.state.byCommit[7]).toEqual([
-      { id: 42, lastCommitId: 6, deltaTime: 100, action: 'click', location: {} },
+      { id: 42, lastCommitId: 6, deltaTime: 100, timestamp: 500, action: 'click', location: {} },
     ]);
   });
 

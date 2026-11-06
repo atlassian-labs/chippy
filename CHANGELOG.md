@@ -28,6 +28,15 @@ must stay compatible with the extension version in the store.
   The repository's maintainer skills are marked internal, so the skills CLI
   offers only `chippy`.
 - CI for unit and browser tests, type checking, and staleness of committed bundles.
+- Avalanche exports carry absolute timestamps on the page's performance clock:
+  `meta.timeOrigin`, `commitTimings[N].startTime` and `endTime`, and a
+  `timestamp` on each linked action. Commits can be aligned with
+  `PerformanceObserver` entries and DevTools traces. Report version is 7.
+- The `perf-entries` snippet (`eval-page <clientId> perf-entries`) reads the
+  browser's buffered layout shifts, long animation frames, slow interactions,
+  LCP, FCP, and TTFB. It names the component behind each layout-shift source,
+  interaction target, and LCP element, and lists the Avalanche commits near
+  each entry.
 - Jira and ATL support are plugins, off by default. Enable them in the Chippy
   panel's settings or with `__AVALANCHE__.enablePlugins()`. Extension 0.4.24.
 - `npx @atlassian/chippy pack` builds a custom skill and extension with extra
@@ -37,6 +46,9 @@ must stay compatible with the extension version in the store.
 
 ### Fixed
 
+- `avalanche-commit-peek ... timing` and Avalanche exports return per-commit
+  timing. The serializer previously dropped `commitTimings`, so the slice was
+  always `null`.
 - The helper binds each page WebSocket to its handshake `Origin`. A page on
   another origin can no longer report a foreign page URL or reuse another page's
   client id to take over its entry and receive its commands.
