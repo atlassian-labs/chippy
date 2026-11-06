@@ -4,7 +4,10 @@ import { execFileSync } from 'node:child_process';
 import { join, resolve } from 'node:path';
 
 const root = process.cwd();
-execFileSync(process.execPath, ['scripts/build-chippy-mcp.mjs'], { stdio: 'inherit' });
+// Rebuild the shipped bundles so the package never depends on committed output.
+for (const script of ['scripts/sync-avalanche.mjs', 'scripts/build-chippy-mcp.mjs']) {
+  execFileSync(process.execPath, [script], { stdio: 'inherit' });
+}
 const output = resolve('lib');
 rmSync(output, { recursive: true, force: true });
 mkdirSync(output, { recursive: true });

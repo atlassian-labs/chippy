@@ -22,9 +22,13 @@ updates local assets; publication is a separate step.
    `yarn chippy:extension:zip`. They are written to the repository root, ignored by
    git, and attached to the GitHub release.
 7. For the npm library, run `yarn chippy:library:build`, verify the packed-consumer
-   suite, then run `npm pack` in the repository root. Its build requires the
-   current generated extension assets from step 2. The library version is the
-   `version` in the root `package.json`.
+   suite, then run `npm pack` in the repository root. The library build rebuilds
+   the Avalanche bundles and the MCP executable first, so the package never ships
+   stale committed output. The library version is the `version` in the root
+   `package.json`.
+
+Before pushing, `yarn shipped:check` confirms the committed bundles match a fresh
+build; the pre-push hook and CI run it too.
 
 The skill archive contains `SKILL.md`, references, scripts, browser support,
 snippets, and extension assets. Keep external project links, credentials, local

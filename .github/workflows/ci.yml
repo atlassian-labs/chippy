@@ -32,10 +32,8 @@ jobs:
           node-version: 22
       - run: corepack enable
       - run: yarn install --immutable
-      - run: yarn avalanche:sync
-      - run: yarn chippy:mcp:build
       - name: Fail when committed bundles are stale
-        run: git diff --exit-code -- .agents/skills/chippy
+        run: yarn shipped:check
 
   browser:
     runs-on: ubuntu-latest

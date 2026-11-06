@@ -50,7 +50,7 @@
     "build-storybook": "storybook build",
     "chippy:helper": "node .agents/skills/chippy/scripts/chippy-helper-server.js",
     "avalanche:build": "vite build --config vite.avalanche.config.ts",
-    "avalanche:sync": "yarn avalanche:build && cp dist/avalanche.iife.js .agents/skills/chippy/extension/avalanche.iife.js && cp dist/avalanche.es.js .agents/skills/chippy/extension/avalanche.es.js && cp dist/avalanche.iife.js.map .agents/skills/chippy/extension/avalanche.iife.js.map && cp dist/avalanche.es.js.map .agents/skills/chippy/extension/avalanche.es.js.map",
+    "avalanche:sync": "node scripts/sync-avalanche.mjs",
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit && tsc -p tsconfig.helper.json",
@@ -59,7 +59,8 @@
     "chippy:extension:zip": "node scripts/package-chippy.mjs extension",
     "chippy:library:build": "node scripts/build-chippy-library.mjs",
     "chippy:mcp:build": "node scripts/build-chippy-mcp.mjs",
-    "chippy:mcp": "node .agents/skills/chippy/scripts/chippy-mcp.cjs"
+    "chippy:mcp": "node .agents/skills/chippy/scripts/chippy-mcp.cjs",
+    "shipped:check": "node scripts/check-shipped-artifacts.mjs"
   },
   "peerDependencies": {
     "esbuild": ">=0.20",

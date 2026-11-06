@@ -4,7 +4,7 @@
 
 - [ ] `yarn test --project unit`
 - [ ] `yarn test --project browser` (runtime, bridge, or extension changes)
-- [ ] `yarn avalanche:sync` and `yarn chippy:mcp:build` rerun, and the rebuilt bundles committed (source under `src/` changed)
+- [ ] `yarn shipped:check` passes, with the rebuilt bundles committed (source under `src/` changed)
 - [ ] Docs updated: `SKILL.md`, references, or `CHANGELOG.md`
 
 See [CONTRIBUTING.md](../CONTRIBUTING.md).

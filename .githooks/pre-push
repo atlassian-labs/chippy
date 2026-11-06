@@ -1,0 +1,4 @@
+#!/bin/sh
+# Rejects a push whose committed bundles are stale. Enable with
+# `git config core.hooksPath .githooks`; bypass once with `git push --no-verify`.
+exec yarn shipped:check
