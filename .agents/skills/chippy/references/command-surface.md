@@ -42,7 +42,7 @@ Use recipe search when the operation or recovery route is not already obvious. I
 | `probe-dom` | Read the exact DOM target, text, attributes, source, styles, and test-id boundary. |
 | `probe-parents` | Read the `fiber.return` parent chain from a probe target. This is the production-safe fiber-walk command. |
 | `probe-boundaries` | Read every Error/Suspense boundary from the probe target to the root, ordered inner → outer. |
-| `probe-owners`, `probe-owner` | Read the React debug-build `_debugOwner` chain or one owner by positional index. This is not a production-build parent-chain route. |
+| `probe-owners`, `probe-owner` | Read the React debug-build `_debugOwner` chain or one owner by positional index. On production builds the result falls back to the component parent chain and says so with `ownerStackKind: "parents"`. |
 | `probe-props`, `probe-prop-value` | Read serializable props, reference identities, or one named prop at a chosen owner. |
 | `probe-hooks`, `probe-hooks-summary` | Read the hook tree or its prepared compact summary. |
 

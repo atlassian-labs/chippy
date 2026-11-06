@@ -22,6 +22,8 @@
 // while the page-specific fiber registry and computed-style access stay owned
 // by the bridge shell.
 
+import { collectOwnerFibers, isComponentFiber } from './owner-chain';
+
 // ─── Type aliases (intentionally loose; React internals are duck-typed) ───
 
 export type Fiber = {
@@ -143,12 +145,12 @@ export function evalFiberProps(
   const nonPod: Array<{ prop: string; type: string; ref: string; terminatesAt: unknown }> = [];
   let refCounter = 0;
 
-  const ownerFibersChain: Fiber[] = [];
-  let oc: Fiber | null = targetFiber._debugOwner || null;
-  while (oc) {
-    ownerFibersChain.push(oc);
-    oc = oc._debugOwner || null;
-  }
+  // Production builds have no debug owners; trace through component parents
+  // instead, which can still show where a passed-down reference stops.
+  const { ownerStackKind, fibers: ownerFibersChain } = collectOwnerFibers<Fiber>(
+    targetFiber,
+    (candidate, kind) => kind === 'owners' || isComponentFiber(candidate),
+  );
 
   for (const [k, v] of Object.entries(props)) {
     if (k === 'children') continue;
@@ -193,7 +195,7 @@ export function evalFiberProps(
     else childrenSummary = { type: typeof children };
   }
 
-  return { name, ownerIndex: ownerIndex ?? null, ...hookSummary, pod, nonPod, children: childrenSummary };
+  return { name, ownerIndex: ownerIndex ?? null, ownerStackKind, ...hookSummary, pod, nonPod, children: childrenSummary };
 }
 
 // ─── evalFiberPropValue ──────────────────────────────────────────────────

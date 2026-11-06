@@ -37,7 +37,7 @@ probe-dom → probe-owners → probe-props/probe-prop-value → open file at sou
 2. `probe-owners <clientId> <probeId>` — walk owner chain; read propNames at each level.
 3. `probe-prop-value <clientId> <probeId> <propName> [ownerIndex]` — find which owner carries the value.
 4. Open `source.fileName` at `lineNumber`. Read it. No grep.
-5. If the task is to walk the React fiber path, use `probe-parents <clientId> <probeId>` for the `fiber.return` parent chain. If starting from a remembered fiber, run the [debug replay preflight](active-stimulus.md#debug-replay-preflight) only when `explain-component` is needed, then use `inspect-fiber-parents <clientId> <fiberId>`. Use `probe-owners` only on debug builds where `_debugOwner` exists; it is not a production-build route.
+5. If the task is to walk the React fiber path, use `probe-parents <clientId> <probeId>` for the `fiber.return` parent chain. If starting from a remembered fiber, run the [debug replay preflight](active-stimulus.md#debug-replay-preflight) only when `explain-component` is needed, then use `inspect-fiber-parents <clientId> <fiberId>`. `probe-owners` reads `_debugOwner` on debug builds; on production builds it falls back to component parents labeled `ownerStackKind: "parents"`.
 6. If large component (`hookCount > 50`): run the [debug replay preflight](active-stimulus.md#debug-replay-preflight), then `explain-component`; use `describe-component` only if needed.
 7. State finding in reporting format (📏 probe resolved to…).
 
@@ -236,9 +236,9 @@ find-fibers → describe-component → inspect-fiber-structure → open file
 **When:** Neither `_debugSource` nor a usable React 19 `_debugStack` source is available, and component names are minified.
 
 1. Fall back to `data-testid`, `nearestTestId` on marker.
-2. Use `componentStack` entries as owner chain; walk leaf → root.
+2. Use `componentStack` entries (the component parent chain) as locality context; walk leaf → root. Owner results carry `ownerStackKind: "parents"` here; do not describe them as owners.
 3. Load `jira-taxonomy.md` for Jira-like wrappers; filter noise before ranking.
-4. Use `probe-parents` for the `fiber.return` parent chain. Use `probe-owners` only when `_debugOwner` data is present; it may be empty in production.
+4. Use `probe-parents` for the `fiber.return` parent chain. `probe-owners` falls back to the same parent chain when `_debugOwner` is absent and labels it `ownerStackKind: "parents"`.
 5. Be explicit: "source precision is weaker; component name may be minified."
 
 ---

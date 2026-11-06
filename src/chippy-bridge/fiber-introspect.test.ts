@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import {
   safeJson,
   resolveOwnerFiber,
+  getOwnerStackKind,
   findFiberByName,
   inspectFiberOwners,
   inspectFiberStructure,
@@ -101,6 +102,24 @@ describe('resolveOwnerFiber', () => {
     const owner = comp('A');
     expect(resolveOwnerFiber({ _debugOwner: owner } as Fiber, 5)).toBeNull();
   });
+
+  it('reports which chain owner indices refer to', () => {
+    const owner = comp('A');
+    expect(getOwnerStackKind({ _debugOwner: owner } as Fiber)).toBe('owners');
+    const parent = { type: function Layout() {} } as Fiber;
+    expect(getOwnerStackKind({ return: parent } as Fiber)).toBe('parents');
+  });
+
+  it('falls back to component parents when the build has no debug owners', () => {
+    // Production fibers carry no `_debugOwner` field at all.
+    const app = { type: function App() {} } as Fiber;
+    const host = { type: 'div', return: app } as Fiber;
+    const layout = { type: function Layout() {}, return: host } as Fiber;
+    const fiber = { type: function Button() {}, return: layout } as Fiber;
+    expect(resolveOwnerFiber(fiber, 0)).toBe(layout);
+    expect(resolveOwnerFiber(fiber, 1)).toBe(app);
+    expect(resolveOwnerFiber(fiber, 2)).toBeNull();
+  });
 });
 
 // ─── findFiberByName ─────────────────────────────────────────────────────
@@ -172,6 +191,21 @@ describe('inspectFiberOwners', () => {
     const fiber = buildChain(names);
     const out = inspectFiberOwners(fiber, 'fiber:1', helpers) as { count: number };
     expect(out.count).toBe(100);
+  });
+
+  it('labels a debug-owner chain as owners', () => {
+    const out = inspectFiberOwners(buildChain(['A']), 'fiber:1', helpers) as { ownerStackKind: string };
+    expect(out.ownerStackKind).toBe('owners');
+  });
+
+  it('falls back to component parents and labels them when no debug owners exist', () => {
+    const app = { type: function App() {}, name: 'App' } as Fiber;
+    const host = { type: 'div', name: 'div', return: app } as Fiber;
+    const layout = { type: function Layout() {}, name: 'Layout', return: host } as Fiber;
+    const fiber = { type: function Button() {}, return: layout } as Fiber;
+    const out = inspectFiberOwners(fiber, 'fiber:1', helpers) as { ownerStackKind: string; count: number; items: Array<{ ownerIndex: number; name: string }> };
+    expect(out.ownerStackKind).toBe('parents');
+    expect(out.items).toEqual([{ ownerIndex: 0, name: 'Layout' }, { ownerIndex: 1, name: 'App' }]);
   });
 
   it('coerces fiberId to string in result', () => {

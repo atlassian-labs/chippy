@@ -80,6 +80,7 @@ import {
 import {
   safeJson as safeJsonImpl,
   resolveOwnerFiber as resolveOwnerFiberImpl,
+  getOwnerStackKind as getOwnerStackKindImpl,
   findFiberByName as findFiberByNameImpl,
   inspectFiberOwners as inspectFiberOwnersImpl,
   inspectFiberStructure as inspectFiberStructureImpl,
@@ -274,6 +275,7 @@ type AvalancheApi = {
     resolveFindFiberSources: typeof resolveFindFiberSourcesImpl;
     safeJson: typeof safeJsonImpl;
     resolveOwnerFiber: typeof resolveOwnerFiberImpl;
+    getOwnerStackKind: typeof getOwnerStackKindImpl;
     findFiberByName: typeof findFiberByNameImpl;
     inspectFiberOwners: typeof inspectFiberOwnersImpl;
     inspectFiberStructure: typeof inspectFiberStructureImpl;
@@ -422,6 +424,7 @@ const api: AvalancheApi = {
     resolveFindFiberSources: resolveFindFiberSourcesImpl,
     safeJson: safeJsonImpl,
     resolveOwnerFiber: resolveOwnerFiberImpl,
+    getOwnerStackKind: getOwnerStackKindImpl,
     findFiberByName: findFiberByNameImpl,
     inspectFiberOwners: inspectFiberOwnersImpl,
     inspectFiberStructure: inspectFiberStructureImpl,

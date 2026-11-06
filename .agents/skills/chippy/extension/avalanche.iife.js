@@ -458,7 +458,7 @@ this.__AVALANCHE__ = (function() {
   const SuspenseTag = 13;
   const ChildDeletion = 16;
   const Update = 4;
-  function isComponentFiber(tag) {
+  function isComponentFiber$1(tag) {
     return COMPONENT_TAGS.has(tag);
   }
   function isContextProviderFiber(tag) {
@@ -1306,6 +1306,29 @@ this.__AVALANCHE__ = (function() {
       }
     };
   }
+  function walk(fiber, next, include, limit) {
+    const fibers = [];
+    let current = next(fiber);
+    while (current && fibers.length < limit) {
+      if (include(current)) fibers.push(current);
+      current = next(current);
+    }
+    return fibers;
+  }
+  const debugOwnerOf = (fiber) => fiber._debugOwner || null;
+  const returnOf = (fiber) => fiber.return || null;
+  function collectOwnerFibers(fiber, include, limit = Number.POSITIVE_INFINITY) {
+    if (!fiber) return { ownerStackKind: "owners", fibers: [] };
+    const owners = walk(fiber, debugOwnerOf, (candidate) => include(candidate, "owners"), limit);
+    if (owners.length > 0) return { ownerStackKind: "owners", fibers: owners };
+    const parents = walk(fiber, returnOf, (candidate) => include(candidate, "parents"), limit);
+    if (parents.length > 0) return { ownerStackKind: "parents", fibers: parents };
+    return { ownerStackKind: "_debugOwner" in fiber ? "owners" : "parents", fibers: [] };
+  }
+  function isComponentFiber(fiber) {
+    const t = fiber.type;
+    return typeof t === "function" || typeof t === "object" && t !== null && Boolean(t.$$typeof || t.render);
+  }
   function getFiberKey(node) {
     if (!node) return null;
     const keys = Object.getOwnPropertyNames(node);
@@ -1365,31 +1388,23 @@ this.__AVALANCHE__ = (function() {
     }
     return { hookCount, hookCountTruncated, hookCountMax: MAX_HOOKS2 };
   }
+  function describeOwnerEntry(fiber) {
+    return {
+      name: getDisplayName(fiber.type),
+      key: fiber.key || null,
+      props: fiber.memoizedProps ? Object.keys(fiber.memoizedProps) : [],
+      ...getHookSummary(fiber),
+      source: describeFiberSource(fiber)
+    };
+  }
+  function getOwnerChainFibers(fiber) {
+    return collectOwnerFibers(fiber, isUserComponent);
+  }
   function getOwnerChain(fiber) {
-    const chain = [];
-    let current = (fiber == null ? void 0 : fiber._debugOwner) || null;
-    while (current) {
-      if (isUserComponent(current)) {
-        chain.push({
-          name: getDisplayName(current.type),
-          key: current.key || null,
-          props: current.memoizedProps ? Object.keys(current.memoizedProps) : [],
-          ...getHookSummary(current),
-          source: describeFiberSource(current)
-        });
-      }
-      current = current._debugOwner || null;
-    }
-    return chain;
+    return getOwnerChainFibers(fiber).fibers.map(describeOwnerEntry);
   }
   function getOwnerFibers(fiber) {
-    const fibers = [];
-    let current = (fiber == null ? void 0 : fiber._debugOwner) || null;
-    while (current) {
-      if (isUserComponent(current)) fibers.push(current);
-      current = current._debugOwner || null;
-    }
-    return fibers;
+    return getOwnerChainFibers(fiber).fibers;
   }
   function getFiberDomNode(fiber) {
     if (!fiber) return null;
@@ -1406,15 +1421,7 @@ this.__AVALANCHE__ = (function() {
     const chain = [];
     let current = (fiber == null ? void 0 : fiber.return) || null;
     while (current) {
-      if (isUserComponent(current)) {
-        chain.push({
-          name: getDisplayName(current.type),
-          key: current.key || null,
-          props: current.memoizedProps ? Object.keys(current.memoizedProps) : [],
-          ...getHookSummary(current),
-          source: describeFiberSource(current)
-        });
-      }
+      if (isUserComponent(current)) chain.push(describeOwnerEntry(current));
       current = current.return || null;
     }
     return chain;
@@ -1454,6 +1461,7 @@ this.__AVALANCHE__ = (function() {
   }
   function describeComponent(fiber) {
     if (!fiber) return null;
+    const ownerChain = getOwnerChainFibers(fiber);
     return {
       name: getDisplayName(fiber.type),
       key: fiber.key || null,
@@ -1461,7 +1469,8 @@ this.__AVALANCHE__ = (function() {
       ...getHookSummary(fiber),
       source: describeFiberSource(fiber),
       stateNode: fiber.stateNode instanceof Element ? fiber.stateNode.tagName.toLowerCase() : null,
-      owners: getOwnerChain(fiber),
+      ownerStackKind: ownerChain.ownerStackKind,
+      owners: ownerChain.fibers.map(describeOwnerEntry),
       parents: getReturnComponentChain(fiber)
     };
   }
@@ -1508,7 +1517,7 @@ this.__AVALANCHE__ = (function() {
     function nearestComponentFiber(node) {
       let fiber = nearestFiberFromNode(node);
       while (fiber) {
-        if (isComponentFiber(fiber.tag)) return fiber;
+        if (isComponentFiber$1(fiber.tag)) return fiber;
         fiber = fiber.return || null;
       }
       return null;
@@ -1537,8 +1546,9 @@ this.__AVALANCHE__ = (function() {
           name: describedComponent.name,
           key: describedComponent.key,
           source: describedComponent.source,
-          ownerStackKind: describedComponent.owners.length > 0 ? "owners" : "parents",
-          ownerStack: describedComponent.owners.length > 0 ? describedComponent.owners : describedComponent.parents
+          // describeComponent already falls back to parents and labels the chain.
+          ownerStackKind: describedComponent.ownerStackKind,
+          ownerStack: describedComponent.owners
         } : null
       };
     }
@@ -1906,7 +1916,7 @@ this.__AVALANCHE__ = (function() {
         if ((fiber.flags & ChildDeletion) !== 0 && fiber.deletions && fiber.deletions.length > 0) {
           for (let di = 0; di < fiber.deletions.length; di++) {
             let collectDeletions = function(df, parentIsComponent, branchStartDepth, currentBranch) {
-              const dfIsComponent = isComponentFiber(df.tag);
+              const dfIsComponent = isComponentFiber$1(df.tag);
               let nextBranch = currentBranch;
               if (dfIsComponent) {
                 perCommit.unmountedComponents++;
@@ -1941,12 +1951,12 @@ this.__AVALANCHE__ = (function() {
             if (perCommit.unmountSamples == null) perCommit.unmountSamples = [];
             if (perCommit.unmountSamples.length < 30) {
               let labelFiber = deleted;
-              if (!isComponentFiber(labelFiber.tag)) {
+              if (!isComponentFiber$1(labelFiber.tag)) {
                 const stack = [labelFiber];
                 labelFiber = null;
                 while (stack.length) {
                   const f = stack.pop();
-                  if (isComponentFiber(f.tag)) {
+                  if (isComponentFiber$1(f.tag)) {
                     labelFiber = f;
                     break;
                   }
@@ -1970,7 +1980,7 @@ this.__AVALANCHE__ = (function() {
             collectDeletions(deleted, false, depth, null);
           }
         }
-        const isComponent = isComponentFiber(fiber.tag);
+        const isComponent = isComponentFiber$1(fiber.tag);
         let ownerSourceId = currentOwnerSourceId;
         if (isSuspenseFiber(fiber.tag)) {
           const suspenseChange = didSuspenseStateChange(fiber);
@@ -2018,7 +2028,7 @@ this.__AVALANCHE__ = (function() {
           }
           if (!ignoreSet.has(type) && !isReactInternalComponentType(type)) {
             const componentSourceId = sourceIdManager.getSourceId(fiber, type, depth);
-            const parentFiber = fiber.return && isComponentFiber(fiber.return.tag) ? fiber.return : null;
+            const parentFiber = fiber.return && isComponentFiber$1(fiber.return.tag) ? fiber.return : null;
             const parentSourceId = parentFiber ? sourceIdManager.getSourceId(parentFiber, parentFiber.type, depth - 1) : null;
             const existingRenderEvidenceIndex = perCommit.rendered.findIndex(
               (entry) => entry.sourceId === componentSourceId
@@ -2376,7 +2386,7 @@ this.__AVALANCHE__ = (function() {
     let integrationMode = "none";
     function countUnmountedComponentSubtree(fiber, parentIsComponent = false) {
       if (!fiber) return { components: 0, subtrees: 0 };
-      const isComponent = isComponentFiber(fiber.tag);
+      const isComponent = isComponentFiber$1(fiber.tag);
       let components = isComponent ? 1 : 0;
       let subtrees = isComponent && !parentIsComponent ? 1 : 0;
       if (fiber.child) {
@@ -2411,7 +2421,7 @@ this.__AVALANCHE__ = (function() {
         if (arr.length > max) arr.length = max;
       };
       const top = (map) => Array.from(map.entries()).sort((a, b) => b[1] - a[1]).slice(0, 6);
-      const walk = (f) => {
+      const walk2 = (f) => {
         if (!f) return;
         if (f.tag === 5) {
           elements++;
@@ -2426,10 +2436,10 @@ this.__AVALANCHE__ = (function() {
           text++;
           addHint(textHints, f.memoizedProps);
         }
-        walk(f.child);
-        walk(f.sibling);
+        walk2(f.child);
+        walk2(f.sibling);
       };
-      walk(fiber);
+      walk2(fiber);
       return { elements, text, tagsTop: top(tags), testIdsTop: top(testIds), rolesTop: top(roles), ariaLabels, textHints };
     }
     function recordMetricsEvidence(commitId, committedComponents, before, after) {
@@ -2581,12 +2591,12 @@ this.__AVALANCHE__ = (function() {
           pendingDevtoolsUnmounts.subtrees += counts.subtrees;
           if (counts.components > 0 && pendingDevtoolsUnmountSamples.length < 30) {
             let labelFiber = fiber;
-            if (!isComponentFiber(labelFiber.tag)) {
+            if (!isComponentFiber$1(labelFiber.tag)) {
               const stack = [labelFiber];
               labelFiber = null;
               while (stack.length) {
                 const f = stack.pop();
-                if (isComponentFiber(f.tag)) {
+                if (isComponentFiber$1(f.tag)) {
                   labelFiber = f;
                   break;
                 }
@@ -4379,12 +4389,10 @@ this.__AVALANCHE__ = (function() {
     const pod = {};
     const nonPod = [];
     let refCounter = 0;
-    const ownerFibersChain = [];
-    let oc = targetFiber._debugOwner || null;
-    while (oc) {
-      ownerFibersChain.push(oc);
-      oc = oc._debugOwner || null;
-    }
+    const { ownerStackKind, fibers: ownerFibersChain } = collectOwnerFibers(
+      targetFiber,
+      (candidate, kind) => kind === "owners" || isComponentFiber(candidate)
+    );
     for (const [k, v] of Object.entries(props)) {
       if (k === "children") continue;
       if (v === null || v === void 0) {
@@ -4427,7 +4435,7 @@ this.__AVALANCHE__ = (function() {
       else if (typeof children === "object") childrenSummary = { type: "element" };
       else childrenSummary = { type: typeof children };
     }
-    return { name, ownerIndex: ownerIndex ?? null, ...hookSummary, pod, nonPod, children: childrenSummary };
+    return { name, ownerIndex: ownerIndex ?? null, ownerStackKind, ...hookSummary, pod, nonPod, children: childrenSummary };
   }
   function evalFiberPropValue(baseFiber, propName, ownerIndex, getHookSummary2, resolveOwnerFiber2, safeSerialize2) {
     if (!propName) return { error: "prop name required" };
@@ -4543,19 +4551,14 @@ this.__AVALANCHE__ = (function() {
     return String(value);
   }
   function resolveOwnerFiber(baseFiber, ownerIndex) {
-    let f = (baseFiber == null ? void 0 : baseFiber._debugOwner) || null;
-    let count = 0;
-    const target = ownerIndex != null ? Number(ownerIndex) : null;
-    while (f) {
-      const t = f.type;
-      const isComponent = typeof t === "function" || typeof t === "object" && t !== null && (t.$$typeof || t.render);
-      if (isComponent) {
-        if (target !== null && count === target) return f;
-        count++;
-      }
-      f = f._debugOwner || null;
-    }
-    return null;
+    if (ownerIndex == null) return null;
+    const target = Number(ownerIndex);
+    if (!Number.isInteger(target) || target < 0) return null;
+    const { fibers } = collectOwnerFibers(baseFiber, isComponentFiber, target + 1);
+    return fibers[target] || null;
+  }
+  function getOwnerStackKind(baseFiber) {
+    return collectOwnerFibers(baseFiber, isComponentFiber, 1).ownerStackKind;
   }
   function findFiberByName(name, helpers) {
     const re = new RegExp("^" + String(name).replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "$");
@@ -4568,15 +4571,13 @@ this.__AVALANCHE__ = (function() {
     return found;
   }
   function inspectFiberOwners(fiber, fiberId, helpers) {
-    const owners = [];
-    let owner = fiber._debugOwner || null;
-    let idx = 0;
-    while (owner && idx < 100) {
-      owners.push({ ownerIndex: idx, ...helpers.fiberInfo(owner) || {} });
-      owner = owner._debugOwner || null;
-      idx++;
-    }
-    return { fiberId: String(fiberId), count: owners.length, items: owners };
+    const { ownerStackKind, fibers } = collectOwnerFibers(
+      fiber,
+      (candidate, kind) => kind === "owners" || isComponentFiber(candidate),
+      100
+    );
+    const owners = fibers.map((owner, idx) => ({ ownerIndex: idx, ...helpers.fiberInfo(owner) || {} }));
+    return { fiberId: String(fiberId), ownerStackKind, count: owners.length, items: owners };
   }
   function inspectFiberStructure(fiber, fiberId, hookIndex, windowSize, replayComponentHooks2, evalFiberHooks2) {
     const { componentName, records, replayAttempted, replayError, replayErrorDetails, replayStatus } = replayComponentHooks2(fiber);
@@ -5505,6 +5506,7 @@ this.__AVALANCHE__ = (function() {
       resolveFindFiberSources,
       safeJson,
       resolveOwnerFiber,
+      getOwnerStackKind,
       findFiberByName,
       inspectFiberOwners,
       inspectFiberStructure,

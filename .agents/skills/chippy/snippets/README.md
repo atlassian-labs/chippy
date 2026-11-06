@@ -2,7 +2,7 @@
 
 Snippets are version-controlled page-realm programs executed through `chippy.sh eval-page`. Use them for a reusable inspection question or reproducible procedure that existing commands cannot answer and that does not justify another bridge round trip.
 
-Do not add a snippet to walk React fibers from a probe or remembered fiber until `probe-parents`, `explain-component`, `inspect-fiber-parents`, and `find-fibers` have proven the command surface cannot supply the path evidence. `probe-owners` reads debug-build `_debugOwner`, not the `fiber.return` parent chain; do not use it as a production-build route.
+Do not add a snippet to walk React fibers from a probe or remembered fiber until `probe-parents`, `explain-component`, `inspect-fiber-parents`, and `find-fibers` have proven the command surface cannot supply the path evidence. `probe-owners` reads debug-build `_debugOwner`; on production builds it falls back to the component parent chain and labels it `ownerStackKind: "parents"`.
 
 Most snippets are read-only. Active or stateful snippets declare the target they touch, the state they own, and what becomes ambiguous after execution.
 

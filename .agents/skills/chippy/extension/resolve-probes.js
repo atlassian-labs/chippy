@@ -70,29 +70,6 @@
     return Object.keys(props).filter((k) => k !== 'children');
   }
 
-  // ─── Component stack fallback for production ──────────────────────────────
-  // When _debugSource is absent we still try to provide a useful component
-  // stack by walking fiber.return. Names may be minified in production.
-
-  function getComponentStack(fiber) {
-    if (!fiber) return [];
-    const stack = [];
-    let current = fiber.return;
-    while (current) {
-      const name =
-        current.type?.displayName ||
-        current.type?.name ||
-        current.type?.render?.displayName ||
-        current.type?.render?.name ||
-        null;
-      if (name && typeof current.type !== 'string') {
-        stack.push({ name, key: current.key ?? null, source: null });
-      }
-      current = current.return;
-    }
-    return stack;
-  }
-
   // ─── Full probe summary ───────────────────────────────────────────────────
 
   function summarizeProbe(probe) {
@@ -116,6 +93,7 @@
           ? 'High enough hook count to inspect carefully before changing local logic.'
           : null,
         source: best?.component?.source,
+        ownerStackKind: best?.component?.ownerStackKind || null,
         owners: best?.component?.owners,
         parents: best?.component?.parents,
       },
@@ -128,18 +106,12 @@
     const best = probe?.probe?.best;
 
     const componentSource = summarizeSource(best?.component?.source);
+    // describeComponent already falls back to component parents when the
+    // build records no debug owners, and labels the chain in ownerStackKind.
     const owners = (best?.component?.owners || []).map(summarizeChainEntry);
+    const ownerStackKind = best?.component?.ownerStackKind || null;
+    const parents = (best?.component?.parents || []).map(summarizeChainEntry);
     const confidence = sourceConfidence(componentSource, owners);
-
-    // In production, owners from _debugOwner chain are absent.
-    // Fall back to the fiber return-chain component stack.
-    let resolvedOwners = owners;
-    let componentStack = null;
-    if (confidence === 'production') {
-      // Try to get the raw fiber for fallback stack
-      const rawFiber = probe?.probe?.rawFiber || null;
-      componentStack = getComponentStack(rawFiber);
-    }
 
     // Matched CSS rules — rules from all sheets whose selector matches the target element
     const targetEl = probe?.probe?._targetEl || null;
@@ -208,16 +180,20 @@
           ? 'High enough hook count to inspect carefully before changing local logic.'
           : null,
         source: componentSource,
-        owners: resolvedOwners,
-        // In production: source-free stack from fiber.return walk
-        componentStack: confidence !== 'dev' ? componentStack : null,
-        parents: (best?.component?.parents || []).map(summarizeChainEntry),
+        ownerStackKind,
+        owners,
+        // Without development source metadata, the component parent chain is
+        // the best available component stack.
+        componentStack: confidence !== 'dev'
+          ? parents.map((entry) => ({ name: entry.name, key: entry.key, source: entry.source }))
+          : null,
+        parents,
       },
       // Human-readable note about what is and isn't available
       note: confidence === 'dev'
         ? null
         : confidence === 'production'
-          ? 'Production build: no React development source metadata is available. Component names may be minified. Source locations are not reliable. Use component stack and names only.'
+          ? 'Production build: no React development source metadata is available. Component names may be minified and source locations are unavailable. Owners fall back to the component parent chain (ownerStackKind: parents); use names, props, test IDs, and that chain.'
           : 'Could not determine build mode. Probe data may be incomplete.',
     };
   }

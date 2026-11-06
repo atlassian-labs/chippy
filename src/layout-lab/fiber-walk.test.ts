@@ -146,6 +146,32 @@ describe('fiber-walk', () => {
     });
   });
 
+  describe('owner fallback in production builds', () => {
+    // Production fibers have no `_debugOwner`; Chippy uses the parent chain.
+    const app: Fiber = { type: { name: 'App' } };
+    const host: Fiber = { type: 'div', return: app };
+    const layout: Fiber = { type: { name: 'Layout' }, return: host };
+    const fiber: Fiber = { type: { name: 'Button' }, return: layout };
+
+    it('returns component parents from getOwnerChain and getOwnerFibers', () => {
+      expect(getOwnerChain(fiber).map((entry) => entry.name)).toEqual(['Layout', 'App']);
+      expect(getOwnerFibers(fiber)).toEqual([layout, app]);
+    });
+
+    it('labels the chain in describeComponent', () => {
+      const desc = describeComponent(fiber);
+      expect(desc?.ownerStackKind).toBe('parents');
+      expect(desc?.owners.map((entry) => entry.name)).toEqual(['Layout', 'App']);
+    });
+
+    it('keeps debug owners and labels them when React records them', () => {
+      const owner: Fiber = { type: { name: 'Owner' } };
+      const desc = describeComponent({ type: { name: 'Button' }, _debugOwner: owner, return: layout });
+      expect(desc?.ownerStackKind).toBe('owners');
+      expect(desc?.owners.map((entry) => entry.name)).toEqual(['Owner']);
+    });
+  });
+
   describe('getOwnerFibers', () => {
     it('returns empty array for null', () => {
       expect(getOwnerFibers(null)).toEqual([]);

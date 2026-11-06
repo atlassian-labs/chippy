@@ -133,6 +133,22 @@ describe('evalFiberProps', () => {
     expect(out.nonPod[0].terminatesAt.note).toBe('last known owner');
   });
 
+  it('labels the chain and traces through component parents without debug owners', () => {
+    const shared = { y: 2 };
+    const app = { type: function App() {}, memoizedProps: { other: shared } } as unknown as Fiber;
+    const host = { type: 'div', memoizedProps: {}, return: app } as unknown as Fiber;
+    const fiber = { type: { name: 'Leaf' }, memoizedProps: { other: shared }, return: host } as unknown as Fiber;
+    const out = evalFiberProps(fiber, null, noopGetHookSummary, passOwner) as { ownerStackKind: string; nonPod: Array<{ terminatesAt: { ownerIndex: number; name: string } }> };
+    expect(out.ownerStackKind).toBe('parents');
+    expect(out.nonPod[0].terminatesAt).toMatchObject({ ownerIndex: 0, name: 'App' });
+  });
+
+  it('labels a debug-owner chain as owners', () => {
+    const owner = { type: { name: 'Parent' }, memoizedProps: {}, _debugOwner: null } as Fiber;
+    const out = evalFiberProps({ type: { name: 'Leaf' }, memoizedProps: {}, _debugOwner: owner }, null, noopGetHookSummary, passOwner) as { ownerStackKind: string };
+    expect(out.ownerStackKind).toBe('owners');
+  });
+
   it('summarizes children: string, array, element, primitive', () => {
     const cases: Array<[unknown, unknown]> = [
       ['hi', { type: 'string', value: 'hi' }],

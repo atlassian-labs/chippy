@@ -106,8 +106,9 @@ export function createInteractionCapture(options: InteractionCaptureOptions = {}
         name: describedComponent.name,
         key: describedComponent.key,
         source: describedComponent.source,
-        ownerStackKind: describedComponent.owners.length > 0 ? 'owners' : 'parents',
-        ownerStack: describedComponent.owners.length > 0 ? describedComponent.owners : describedComponent.parents,
+        // describeComponent already falls back to parents and labels the chain.
+        ownerStackKind: describedComponent.ownerStackKind,
+        ownerStack: describedComponent.owners,
       } : null,
     };
   }

@@ -578,6 +578,7 @@ function sliceMarker(marker, mode, boundaryRe) {
       hookCountTruncated: r.component?.hookCountTruncated ?? false,
       hookCountMax: r.component?.hookCountMax ?? null,
       source: r.component?.source,
+      ownerStackKind: r.component?.ownerStackKind ?? null,
       owners: owners.slice(0, 10),
       componentStack: r.component?.componentStack,
       parents: boundaryRe ? parents : parents.slice(0, 20),
@@ -1629,7 +1630,7 @@ async function handleChippyHttp(req, res, url) {
       hookCountMax: o.hookCountMax ?? null,
       source: o.source || null,
     }));
-    json(res, 200, { ok: true, targetClientId: resolved.clientId, resolvedFrom: resolved.resolvedFrom || null, source: 'snapshot', probeId, component: { name: comp.name, propNames: comp.propNames || [], hookCount: comp.hookCount ?? null, hookCountTruncated: comp.hookCountTruncated ?? false, hookCountMax: comp.hookCountMax ?? null }, owners });
+    json(res, 200, { ok: true, targetClientId: resolved.clientId, resolvedFrom: resolved.resolvedFrom || null, source: 'snapshot', probeId, component: { name: comp.name, propNames: comp.propNames || [], hookCount: comp.hookCount ?? null, hookCountTruncated: comp.hookCountTruncated ?? false, hookCountMax: comp.hookCountMax ?? null }, ownerStackKind: comp.ownerStackKind ?? null, owners });
     return true;
   }
 
@@ -1649,7 +1650,7 @@ async function handleChippyHttp(req, res, url) {
     const owners = marker.resolved.component?.owners || [];
     const owner = owners[ownerIndex];
     if (!owner) { json(res, 404, { ok: false, error: 'Owner index ' + ownerIndex + ' not found (chain length: ' + owners.length + ')' }); return true; }
-    json(res, 200, { ok: true, targetClientId: resolved.clientId, resolvedFrom: resolved.resolvedFrom || null, probeId, ownerIndex, name: owner.name || null, key: owner.key ?? null, propNames: owner.propNames || [], hookCount: owner.hookCount ?? null, hookCountTruncated: owner.hookCountTruncated ?? false, hookCountMax: owner.hookCountMax ?? null, source: owner.source || null });
+    json(res, 200, { ok: true, targetClientId: resolved.clientId, resolvedFrom: resolved.resolvedFrom || null, probeId, ownerIndex, ownerStackKind: marker.resolved.component?.ownerStackKind ?? null, name: owner.name || null, key: owner.key ?? null, propNames: owner.propNames || [], hookCount: owner.hookCount ?? null, hookCountTruncated: owner.hookCountTruncated ?? false, hookCountMax: owner.hookCountMax ?? null, source: owner.source || null });
     return true;
   }
 

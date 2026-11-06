@@ -33,5 +33,42 @@ can retain DOM, props, parent paths, and boundary evidence while losing authored
 source, owner metadata, replay, or scheduling capabilities. Read result status
 and warnings rather than inferring support from a global's presence.
 
+## Production builds
+
+Chippy can be used on a production build, with limits. It always uses the best
+evidence the build provides and labels what it fell back to.
+
+Available in production:
+
+- Elements, props, the parent path, and Error and Suspense boundaries.
+- Performance profiling with Avalanche: which commits ran, which components
+  rendered, and which prop changes caused them. The DevTools hook must be
+  installed before React evaluates, which the browser extension does.
+  Production React does not record which fibers scheduled an update, so
+  Avalanche detects update sources by comparing hook state with the previous
+  commit it saw. The first commit after Avalanche starts has no earlier state,
+  so it reports renders but no sources; later commits are attributed normally.
+
+Limited or unavailable in production:
+
+- **Component names** are minified unless the code keeps them, so a component
+  may appear as `c` or `eu`.
+- **Source locations** are unavailable, because production React omits
+  `_debugSource` and `_debugStack`.
+- **Owner chains** are unavailable. Chippy reports the parent chain instead and
+  labels it as parents, which shows where a component is rendered but not which
+  component created it.
+- **Custom-hook structure, hook replay, and forced re-renders** need
+  development internals.
+
+Keeping display names in production code helps the most. Chippy reads a
+component's `displayName`, then its function or class name, so either of these
+keeps results readable:
+
+- Set `displayName` on the components you want to find, for example
+  `ProjectList.displayName = 'ProjectList'`.
+- Configure the minifier to keep names, for example esbuild `keepNames` or
+  Terser `keep_fnames` and `keep_classnames`.
+
 For safe replay and recovery, use the packaged [active-stimulus guide](../.agents/skills/chippy/references/active-stimulus.md)
 and [troubleshooting guide](../.agents/skills/chippy/references/troubleshooting.md).

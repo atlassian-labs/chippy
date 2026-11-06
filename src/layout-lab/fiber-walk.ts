@@ -7,6 +7,7 @@ import {
   getFiberSource as readFiberSource,
   resolveFiberSource as resolveSourceLocation,
 } from '../chippy-bridge/fiber-source';
+import { collectOwnerFibers, type OwnerChain, type OwnerStackKind } from '../chippy-bridge/owner-chain';
 
 /**
  * Minimal duck-typed Fiber shape.
@@ -66,6 +67,8 @@ export type ComponentDescription = {
   props: Record<string, unknown>;
   source: DescribedSource | null;
   stateNode: string | null;
+  /** Which chain `owners` holds: React's debug owners, or the parent fallback. */
+  ownerStackKind: OwnerStackKind;
   owners: OwnerEntry[];
   parents: OwnerEntry[];
 } & HookSummary;
@@ -162,39 +165,38 @@ export function getHookSummary(fiber: Fiber | null | undefined): HookSummary {
   return { hookCount, hookCountTruncated, hookCountMax: MAX_HOOKS };
 }
 
-/**
- * Walk fiber._debugOwner chain; collect all user components with metadata.
- * Returns empty array if fiber or owner chain is null.
- */
-export function getOwnerChain(fiber: Fiber | null | undefined): OwnerEntry[] {
-  const chain: OwnerEntry[] = [];
-  let current = fiber?._debugOwner || null;
-  while (current) {
-    if (isUserComponent(current)) {
-      chain.push({
-        name: getDisplayName(current.type),
-        key: current.key || null,
-        props: current.memoizedProps ? Object.keys(current.memoizedProps) : [],
-        ...getHookSummary(current),
-        source: describeFiberSource(current),
-      });
-    }
-    current = current._debugOwner || null;
-  }
-  return chain;
+function describeOwnerEntry(fiber: Fiber): OwnerEntry {
+  return {
+    name: getDisplayName(fiber.type),
+    key: fiber.key || null,
+    props: fiber.memoizedProps ? Object.keys(fiber.memoizedProps) : [],
+    ...getHookSummary(fiber),
+    source: describeFiberSource(fiber),
+  };
 }
 
 /**
- * Walk fiber._debugOwner chain; return raw fiber nodes (for navigation).
+ * Best available owner fibers: the `_debugOwner` chain in development, or the
+ * user-component parent chain when the build records no owners. See
+ * `collectOwnerFibers` for the selection rule.
+ */
+export function getOwnerChainFibers(fiber: Fiber | null | undefined): OwnerChain<Fiber> {
+  return collectOwnerFibers(fiber, isUserComponent);
+}
+
+/**
+ * Best available owner chain with metadata; check `getOwnerChainFibers` or
+ * `describeComponent().ownerStackKind` for which chain it came from.
+ */
+export function getOwnerChain(fiber: Fiber | null | undefined): OwnerEntry[] {
+  return getOwnerChainFibers(fiber).fibers.map(describeOwnerEntry);
+}
+
+/**
+ * Best available owner chain as raw fiber nodes (for navigation).
  */
 export function getOwnerFibers(fiber: Fiber | null | undefined): Fiber[] {
-  const fibers: Fiber[] = [];
-  let current = fiber?._debugOwner || null;
-  while (current) {
-    if (isUserComponent(current)) fibers.push(current);
-    current = current._debugOwner || null;
-  }
-  return fibers;
+  return getOwnerChainFibers(fiber).fibers;
 }
 
 /**
@@ -221,15 +223,7 @@ export function getReturnComponentChain(fiber: Fiber | null | undefined): OwnerE
   const chain: OwnerEntry[] = [];
   let current = fiber?.return || null;
   while (current) {
-    if (isUserComponent(current)) {
-      chain.push({
-        name: getDisplayName(current.type),
-        key: current.key || null,
-        props: current.memoizedProps ? Object.keys(current.memoizedProps) : [],
-        ...getHookSummary(current),
-        source: describeFiberSource(current),
-      });
-    }
+    if (isUserComponent(current)) chain.push(describeOwnerEntry(current));
     current = current.return || null;
   }
   return chain;
@@ -293,6 +287,7 @@ export function describeFiberTarget(fiber: Fiber | null | undefined, domNode: El
  */
 export function describeComponent(fiber: Fiber | null | undefined): ComponentDescription | null {
   if (!fiber) return null;
+  const ownerChain = getOwnerChainFibers(fiber);
   return {
     name: getDisplayName(fiber.type),
     key: fiber.key || null,
@@ -300,7 +295,8 @@ export function describeComponent(fiber: Fiber | null | undefined): ComponentDes
     ...getHookSummary(fiber),
     source: describeFiberSource(fiber),
     stateNode: fiber.stateNode instanceof Element ? fiber.stateNode.tagName.toLowerCase() : null,
-    owners: getOwnerChain(fiber),
+    ownerStackKind: ownerChain.ownerStackKind,
+    owners: ownerChain.fibers.map(describeOwnerEntry),
     parents: getReturnComponentChain(fiber),
   };
 }

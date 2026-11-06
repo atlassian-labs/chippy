@@ -110,13 +110,14 @@ Compact results include:
 - `confidence` and `note`
 - `nearestTestId`
 - `dom` — `tag`, `text`, `fiberType`, `source`, DOM `parents`, `matchedStyles`
-- `component` — see below; non-dev builds also carry `componentStack`
+- `component` — see below; non-dev builds also carry `componentStack`, the component parent chain as `name`/`key`/`source` entries
 - `__crossSourceHints` — present when the probes come from different build modes
 - `__commonParent` — nearest component shared by both probes, when one exists
 
 `component` includes:
 - `propNames` — all prop keys (excluding `children`) on the probe component
 - `hookCount` / `hookCountTruncated` / `hookCountMax` — hook-count complexity signal on the probe component
+- `ownerStackKind` — `owners` when `owners` is the `_debugOwner` chain; `parents` when the build has no owner data and `owners` holds the component parent chain instead
 - `owners[N].propNames` — prop keys on each owner in the chain
 - `owners[N].hookCount` / `hookCountTruncated` / `hookCountMax` — same complexity signal for each owner
 

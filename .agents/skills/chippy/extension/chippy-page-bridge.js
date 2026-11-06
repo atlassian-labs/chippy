@@ -1337,7 +1337,8 @@
   // ─── Probe props eval ─────────────────────────────────────────────────────
 
   // Delegated to avalanche.iife.js — see src/chippy-bridge/fiber-introspect.ts
-  // Walks _debugOwner chain for component fibers; ownerIndex is deterministic.
+  // Walks the _debugOwner chain for component fibers, or component parents when
+  // the build records no owners; ownerIndex is deterministic.
   function resolveOwnerFiber(baseFiber, ownerIndex) {
     const b = getBridge();
     if (b) return b.resolveOwnerFiber(baseFiber, ownerIndex);
@@ -1434,6 +1435,9 @@
         hookCountTruncated: componentHooks?.truncated ?? false,
         hookCountMax: componentHooks?.maxHooks ?? null,
       },
+      // 'parents' when the build records no debug owners; ownerIndex values
+      // then address the component parent chain.
+      ownerStackKind: getBridge()?.getOwnerStackKind?.(resolved.fiber) ?? null,
       owners,
     };
   }

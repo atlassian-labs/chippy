@@ -42,8 +42,11 @@
 
 ## Production page
 - neither React <=18 `_debugSource` nor React 19 `_debugStack` source evidence is available
-- rely on component names, stacks, notes, and cross-source hints
-- be explicit with the user that source precision is weaker
+- the `_debugOwner` chain is absent; owner results fall back to the `fiber.return` parent chain and are labeled `ownerStackKind: "parents"`
+- component names may be minified; rely on names that survived, props, test IDs, parent chains, notes, and cross-source hints
+- Avalanche commit capture still works when the DevTools hook was installed before React evaluated, so performance profiling remains available
+- production React records no update owners, so Avalanche finds sources by comparing hook state with the previous commit; the first commit after Avalanche starts shows renders with `sources: 0`, so repeat the interaction before ranking sources
+- be explicit with the user that source precision is weaker; if minified names block the investigation, suggest keeping `displayName`s or function names in the build (for example esbuild `keepNames`, Terser `keep_fnames`)
 
 ## React 19 source stays on a served-module URL
 - `_debugStack` produced a project frame, but the page could not fetch the module or its source map

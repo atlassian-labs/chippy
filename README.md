@@ -17,8 +17,10 @@ what re-rendered during a slow interaction. Ask the agent, or point at an elemen
 on the page and leave it a note.
 
 Chippy works with standard React and needs no patched packages. Development
-builds give the most detail; production builds show less, and every answer says
-what was available. See [React compatibility](https://github.com/atlassian-labs/chippy/blob/main/docs/react-compatibility.md).
+builds give the most detail. Chippy also works on production builds, including
+for performance profiling, with limits: names may be minified and source
+locations are unavailable, and every answer says what was available. Keeping
+`displayName`s in production code helps a lot. See [React compatibility](https://github.com/atlassian-labs/chippy/blob/main/docs/react-compatibility.md#production-builds).
 
 ## What you can ask
 

@@ -19,6 +19,7 @@
 // private fiber objects, but they must not mutate fibers or execute product
 // callbacks; active behavior belongs to fiber-invoke and explicit stimuli.
 import type { Fiber, ScriptHelpers } from './eval-helpers';
+import { collectOwnerFibers, isComponentFiber, type OwnerStackKind } from './owner-chain';
 
 // ─── safeJson ────────────────────────────────────────────────────────────
 
@@ -50,21 +51,19 @@ export function safeJson(value: unknown, depth: number = 6, seen: WeakSet<object
 // ─── resolveOwnerFiber ───────────────────────────────────────────────────
 
 export function resolveOwnerFiber(baseFiber: Fiber | null | undefined, ownerIndex: number | string | null | undefined): Fiber | null {
-  let f: Fiber | null = baseFiber?._debugOwner || null;
-  let count = 0;
-  const target = ownerIndex != null ? Number(ownerIndex) : null;
-  while (f) {
-    const t = f.type as { $$typeof?: unknown; render?: unknown } | unknown;
-    const isComponent =
-      typeof t === 'function' ||
-      (typeof t === 'object' && t !== null && ((t as { $$typeof?: unknown }).$$typeof || (t as { render?: unknown }).render));
-    if (isComponent) {
-      if (target !== null && count === target) return f;
-      count++;
-    }
-    f = f._debugOwner || null;
-  }
-  return null;
+  if (ownerIndex == null) return null;
+  const target = Number(ownerIndex);
+  if (!Number.isInteger(target) || target < 0) return null;
+  // Production builds have no `_debugOwner`; the shared chain falls back to
+  // component parents so owner-indexed reads still resolve. `probe-owners`
+  // reports which chain the indices refer to.
+  const { fibers } = collectOwnerFibers<Fiber>(baseFiber, isComponentFiber, target + 1);
+  return fibers[target] || null;
+}
+
+/** Which chain `resolveOwnerFiber` indices refer to for this fiber. */
+export function getOwnerStackKind(baseFiber: Fiber | null | undefined): OwnerStackKind {
+  return collectOwnerFibers<Fiber>(baseFiber, isComponentFiber, 1).ownerStackKind;
 }
 
 // ─── findFiberByName ─────────────────────────────────────────────────────
@@ -83,15 +82,15 @@ export function findFiberByName(name: string, helpers: ScriptHelpers): Fiber | n
 // ─── inspectFiberOwners ──────────────────────────────────────────────────
 
 export function inspectFiberOwners(fiber: Fiber, fiberId: string | number, helpers: ScriptHelpers): unknown {
-  const owners: Array<Record<string, unknown>> = [];
-  let owner: Fiber | null = fiber._debugOwner || null;
-  let idx = 0;
-  while (owner && idx < 100) {
-    owners.push({ ownerIndex: idx, ...(helpers.fiberInfo(owner) || {}) });
-    owner = owner._debugOwner || null;
-    idx++;
-  }
-  return { fiberId: String(fiberId), count: owners.length, items: owners };
+  // Debug owners are listed unfiltered, as React records them; the parent
+  // fallback keeps only component fibers so it lines up with resolveOwnerFiber.
+  const { ownerStackKind, fibers } = collectOwnerFibers<Fiber>(
+    fiber,
+    (candidate, kind) => kind === 'owners' || isComponentFiber(candidate),
+    100,
+  );
+  const owners = fibers.map((owner, idx) => ({ ownerIndex: idx, ...(helpers.fiberInfo(owner) || {}) }));
+  return { fiberId: String(fiberId), ownerStackKind, count: owners.length, items: owners };
 }
 
 // ─── inspectFiberStructure ───────────────────────────────────────────────

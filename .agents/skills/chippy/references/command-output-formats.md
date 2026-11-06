@@ -144,7 +144,7 @@ Records are separated by one blank line. `score` is useful only for ordering res
 | `position`, `docked`, `intent`, `comment` | ✓ | ✓ | ✓ |
 | `confidence`, `note`, `nearestTestId`, `dom.tag`, `dom.text`, `component.name`, `component.key` | ✓ | ✓ | ✓ |
 | full `dom`, `component.props`, `component.source` | — | ✓ | ✓ |
-| `component.owners` (up to 10), `component.parents` (up to 20), `componentStack`, `component.hookCount` | — | ✓ | ✓ |
+| `component.owners` (up to 10), `component.ownerStackKind`, `component.parents` (up to 20), `componentStack`, `component.hookCount` | — | ✓ | ✓ |
 | full `owners` + `parents` (all, unbounded) | — | — | ✓ |
 
 **`nearestTestId`** is present on every marker in all slice modes (`string | null`). It is the nearest ancestor—including the probed element—with `data-testid`; it is `null` when none exists.
@@ -603,12 +603,15 @@ Timeout / client not found: same shape as `get-computed-style`.
 
 `probe-owners` reads the live `_debugOwner` chain (up to 50 owners). When the live read fails, it falls back to the latest snapshot. Top-level `source` reports which path answered: `live` or `snapshot`.
 
+`ownerStackKind` reports which chain `owners` holds: `owners` for `_debugOwner`, or `parents` when the build has no owner data (production) and the list is the component `fiber.return` chain. `ownerIndex` then counts component-parent hops, and `probe-props` / `probe-prop-value` resolve the same index against the same chain.
+
 ```json
 {
   "ok": true,
   "source": "live",
   "probeId": "1",
   "component": { "name": "IssueCard", "propNames": ["issue"], "hookCount": 37, "hookCountTruncated": false, "hookCountMax": 500 },
+  "ownerStackKind": "owners",
   "owners": [
     { "ownerIndex": 0, "name": "IssueRow", "key": null, "propNames": ["issue"], "hookCount": 4, "hookCountTruncated": false, "hookCountMax": 500, "source": { "fileName": "…/IssueRow.tsx", "lineNumber": 12, "columnNumber": 3 } }
   ],
@@ -619,7 +622,7 @@ Timeout / client not found: same shape as `get-computed-style`.
 
 Each owner's `source` is its source location, not the live/snapshot flag. When the live read fails and there is no snapshot, no such probe, or no resolved probe data, the response is `ok: false` with an `error`, `probesActive`, and `latestSnapshotAt`, returned with HTTP 200.
 
-`probe-owner` returns one owner entry from the latest snapshot only, flattened to the top level with `probeId` and `ownerIndex`; it can be stale, so run `request-snapshot` first. A missing snapshot, probe, or owner index fails with HTTP 404.
+`probe-owner` returns one owner entry from the latest snapshot only, flattened to the top level with `probeId`, `ownerIndex`, and `ownerStackKind`; it can be stale, so run `request-snapshot` first. A missing snapshot, probe, or owner index fails with HTTP 404.
 
 ---
 
@@ -837,7 +840,7 @@ Props inspection for a fiber found via `find-fibers`. Returns same shape as `pro
 
 ## `inspect-fiber-owners <clientId> <fiberId>`
 
-Owner chain for a fiber found via `find-fibers`.
+Owner chain for a fiber found via `find-fibers`. The result has `fiberId`, `ownerStackKind`, `count`, and `items`; `ownerStackKind: "parents"` means the build has no `_debugOwner` data and `items` is the component parent chain.
 
 ## `inspect-fiber-structure <clientId> <fiberId> <hookIndex> [windowSize]`
 
