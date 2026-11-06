@@ -98,6 +98,11 @@ helper on the default port for Storybook. If your Storybook build targets older
 browsers, set the build target to `es2022`, for example `build.target` in
 `viteFinal`.
 
+When you open a story's preview on its own, for example
+`iframe.html?id=<story>&viewMode=story`, there is no Storybook manager and no
+addon panel. The addon then shows Chippy's in-page panel in the preview, so you
+can still place probes.
+
 ## Custom builds with plugins
 
 To teach Chippy about your own stack, write plugins with `@atlassian/chippy/plugin`

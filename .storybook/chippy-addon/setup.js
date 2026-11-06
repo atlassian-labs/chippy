@@ -2,6 +2,10 @@ const OWNER_ID = 'storybook-addon';
 const OWNER_TYPE = 'storybook-addon';
 const HELPER_BASE_URL = 'http://127.0.0.1:7823';
 const STALE_AFTER_MS = 15_000;
+// A preview opened on its own (`iframe.html` as the top frame) has no manager
+// panel to switch probes on, so it uses Chippy's in-page panel instead.
+const STANDALONE_PREVIEW = globalThis.top === globalThis;
+const UI = STANDALONE_PREVIEW ? 'in-page' : 'storybook-panel';
 const INTEGRATION = Object.freeze({
   kind: 'storybook',
   who: 'Chippy Storybook addon',
@@ -35,7 +39,7 @@ function acquireOwner(mode = 'chippy') {
       ownerId: OWNER_ID,
       ownerType: OWNER_TYPE,
       transport: 'storybook-static',
-      ui: 'storybook-panel',
+      ui: UI,
       mode,
       helperBaseUrl: HELPER_BASE_URL,
       integration: INTEGRATION,
@@ -74,8 +78,8 @@ if (!ownerResult.ok) {
   globalThis.__CHIPPY_STARTUP_CONFIG = {
     ...(globalThis.__CHIPPY_STARTUP_CONFIG || {}),
     helperBaseUrl: HELPER_BASE_URL,
-    activated: false,
-    ui: 'storybook-panel',
+    activated: STANDALONE_PREVIEW,
+    ui: UI,
     ownerType: OWNER_TYPE,
     ownerId: OWNER_ID,
     transport: 'storybook-static',

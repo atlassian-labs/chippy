@@ -148,6 +148,19 @@ describe('Chippy Storybook addon', () => {
     }
   }, 60_000);
 
+  it('shows the in-page panel when the preview is opened without the manager', async () => {
+    const { page } = await openStory();
+    try {
+      await page.locator('[data-layout-lab-panel]').waitFor({ state: 'attached' });
+      expect(await page.evaluate(() => ({
+        ui: (window as any).__CHIPPY?.config?.ui,
+        activated: (window as any).__CHIPPY?.config?.activated,
+      }))).toEqual({ ui: 'in-page', activated: true });
+    } finally {
+      await page.close();
+    }
+  }, 60_000);
+
   it('reports a remount that matched no rendered story as failed', async () => {
     const { page, clientId } = await openStory();
     try {
