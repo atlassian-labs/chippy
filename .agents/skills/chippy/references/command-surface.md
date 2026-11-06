@@ -20,10 +20,10 @@ Use recipe search when the operation or recovery route is not already obvious. I
 
 | Command | Purpose |
 |---|---|
-| `start`, `stop`, `health` | Own the local helper lifecycle and readiness check. `start` backgrounds itself and binds `127.0.0.1`; `start --host 0.0.0.0` binds wide only when the user asks for network access. |
+| `start`, `stop`, `health` | Own the local helper lifecycle and readiness check. `start` backgrounds itself and binds `127.0.0.1`; `start --host 0.0.0.0` binds wide only when the user asks for network access. `chippy.sh` always uses port 7823 and ignores `CHIPPY_HELPER_PORT`, so it cannot reach a helper that MCP started on another port. `start` honors `CHIPPY_HELPER_HOST`. Every command reads the token from `CHIPPY_HELPER_TOKEN`, or from `${CHIPPY_STATE_DIR:-~/.chippy}/helper-7823.token`. |
 | `inject-url` | Print the classic `inject.js` URL to stdout, and the document-scoped reload warning plus the second required asset to stderr. `inject.js` alone installs Chippy without the bridge; load `avalanche.iife.js` after it, or prefer the single ESM import for new injection workflows. |
 | `pages [slice]` | List currently connected pages. This is connection truth. |
-| `recent-pages` | List recently disconnected page summaries for reload/navigation diagnosis. |
+| `recent-pages` | List the ten newest page activity records (hello, snapshot, focus/visibility/pointer, command) from helper memory, including pages that have since disconnected. Use it to trace a reload or navigation; it is not connection truth. |
 | `page <clientId> [slice]` | Read one connected page with `minimal`, `standard`, or `full` detail. |
 | `snapshot <clientId> [slice]` | Read the helper's latest stored snapshot for a page. Probe `intent` and `comment` survive `minimal`, `standard`, and `full` slices. |
 | `request-snapshot <clientId>` | Ask the connected page to emit a fresh snapshot. |
@@ -31,7 +31,7 @@ Use recipe search when the operation or recovery route is not already obvious. I
 | `activate`, `deactivate` | Change Chippy activation state for one connected page. |
 | `context-ui <clientId> <on\|off>` | Show or hide context-provider enrichment (for example Jira ownership and error-boundary fields) in the active probe UI, including Storybook marker cards. It defaults to `on`; this command changes the current connected page at runtime. |
 | `ensure-probes`, `clear-probes` | Install or remove probe markers. Preserve probes while they remain evidence. |
-| `show-status`, `hide-status` | Control the page-visible Chippy status message. |
+| `show-status`, `hide-status` | Accepted for compatibility; the page renders no status text, so `show-status` shows nothing to the user. Connection state appears in the Chippy panel. Report progress in chat. |
 | `command <type> [clientId]` | Generic command escape hatch. Prefer explicit subcommands. |
 
 ## Probe inspection
@@ -83,7 +83,7 @@ Load [active-stimulus](active-stimulus.md) before an active command. A `fiber:*`
 | `avalanche-commit-peek` | Join bounded detail for one commit. |
 | `avalanche-describe-action` | Expand one action breadcrumb and its owner/parent context. |
 | `avalanche-debug-hook` | Interrogate one captured `sourceId + hookIndex`. |
-| `avalanche-export` | Return the full export or last N commits. Do not open this first. |
+| `avalanche-export` | Return the full export, optionally written to a file; `lastN` does not trim it. Use `avalanche-save ... N` for the last N commits. Do not open this first. |
 | `avalanche-save` | Save a full or bounded export for repeated offline analysis. |
 | `avalanche-offline` | Run `summary`, `commit-list`, `commit-peek`, `hot-sources`, `describe-action`, or `source-search --name` over a saved export; shapes match the live commands. |
 
@@ -94,7 +94,7 @@ Load [active-stimulus](active-stimulus.md) before an active command. A `fiber:*`
 | `sources` | Default source and commit attribution; rendered components with prop changes and `isSelfSource` | `trasherCounts` stay zero |
 | `full` | Everything in `sources` plus amplifier (`trasherCounts`) evidence | Higher collection cost |
 | `stats` | Aggregate capture statistics; rendered components with prop changes | No source tracking: `isSelfSource` stays false |
-| `amplifiers` | Amplifier-focused capture | Specialized analysis; load Avalanche reference first |
+| `amplifiers` | Same capture as `full` | Alias kept for compatibility |
 
 `avalanche-arm` and `reload-with-avalanche` also accept `captureFibers=true|false`. Keep it `true` when debug-hook or fiber-backed analysis may follow.
 
@@ -113,7 +113,7 @@ Load [avalanche-detector](avalanche-detector.md) for schemas and evidence-readin
 | `eval-snippets` | List packaged snippets. |
 | `eval-page` | Execute one packaged or local snippet in the connected page realm with `--key value` arguments. |
 | `page-reload`, `page-wait-reload` | Request a reload and wait for the helper's reconnect transition. For a Storybook integration, `page-reload` emits `FORCE_REMOUNT`, remounting only the current SUT without navigating the preview iframe; it fails with HTTP 409 when no rendered story matches the selection. |
-| `handoff-to-playwright` | Transfer a connected page URL and selected probes into a Playwright session configuration. |
+| `handoff-to-playwright` | Launch a helper-owned Playwright browser on the page URL with the selected probe descriptors, register it as a helper client, and return the new `targetClientId`. |
 | `proxy-state`, `proxy-start`, `proxy-stop` | Inspect or control the helper's local proxy. |
 
 `eval-page` has a fixed five-second page-script timeout through the shell wrapper. The helper HTTP API accepts a timeout field, but `chippy.sh eval-page` does not expose a timeout option.
@@ -161,7 +161,7 @@ describe-component <clientId> <fiberIdOrName> [--text|--json]
 explain-component <clientId> <probeId|fiberId|name> [--text|--json|--complexity]
 avalanche-clear <clientId>
 avalanche-status <clientId>
-avalanche-export <clientId> [lastN]
+avalanche-export <clientId> [lastN] [outFile]
 avalanche-hot-sources <clientId> [limit]
 avalanche-commit-list <clientId> [top] [by]
 avalanche-commit-peek <clientId> <commitId> [include] [depth] [maxItems]

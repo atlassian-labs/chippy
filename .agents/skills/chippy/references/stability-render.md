@@ -110,21 +110,21 @@ Two cases drive different targets:
 ./scripts/chippy.sh avalanche-recapture <clientId> full
 ```
 
-No reload. `avalanche-recapture ... full` installs a fresh detector and clears history so the nudge is the only thing in the window. Full mode is required for the `renderedByCommit` and `trasherCounts` signatures used below.
+No reload. `avalanche-recapture ... full` installs a fresh detector and clears history so the nudge is the only thing in the window. Full mode is required for the `trasherCounts` signatures used below; `commit-peek` `rendered` entries are recorded in every mode.
 
 ### Step 4 — nudge the fiber
 
 ```bash
-./scripts/chippy.sh eval-page <clientId> stability-nudge \
-  --testId stability-chain     # or --probeId 1
-  [--ownerIndex 0]             # 0 = target itself, N = walk owner chain
-  [--label parent-nudge]       # surfaces in ctx.log
-  [--dryRun true]              # resolve target, do not schedule
+./scripts/chippy.sh eval-page <clientId> stability-nudge --testId <data-testid> [--ownerIndex N] [--label <text>] [--dryRun true]
+# Example: nudge the parent of the test-id target
+./scripts/chippy.sh eval-page <clientId> stability-nudge --testId stability-chain --ownerIndex 1 --label parent-nudge
 ```
 
-Pick exactly one of `--testId` or `--probeId`:
+`--ownerIndex` defaults to `0` (the target itself); `--label` is echoed into `ctx.log`; `--dryRun true` resolves the target without scheduling.
+
+Target selection:
 - `--testId <data-testid>` — fully automated. DOM → fiber via the React fiber key. Use this for fixtures and any component that already exposes a `data-testid`.
-- `--probeId <id>` — uses a placed probe. Use when the target has no stable testid, or when you want the snippet to share targeting with the rest of the Chippy probe workflow.
+- `--probeId <id>` — targets the nearest component of a placed probe (`1`, `2`, or `3`), using the same probe resolution as `probe-props` and `probe-hooks`. Returns `reason: probe-not-placed: <id>` when that probe is not placed.
 
 The snippet returns `{ ok, fiberName, source, ownerIndex }`. If `ok: false`, read `reason` — on a dev build the common cause is the devtools-hook shim missing at page boot (`no-scheduleUpdate`). To nudge a parent instead of the target, use `--ownerIndex 1`. See **Update mechanism** below.
 
@@ -157,14 +157,14 @@ One second covers the nudge commit plus any synchronous follow-up commits schedu
 Read in this order:
 1. `avalanche-status.commitCount` — how many waves occurred; count alone is not a verdict.
 2. `avalanche-commit-list` — the complete set of commit IDs in this fresh bounded window.
-3. Each `commit-peek.stats` — `componentRenders`, collateral, restarts, and `externalStoreRestarts`.
-4. Each `commit-peek.sourcesByCommit` — whether the nudged or another source repeats.
-5. Each `commit-peek.renderedByCommit` — exact target/collateral entries, `propChanges`, and every `trasherCounts` field.
+3. Each `commit-peek.stats` — `collateral`, `sources`, and `restarts`.
+4. Each `commit-peek.sources` — whether the nudged or another source repeats.
+5. Each `commit-peek.rendered` — exact target/collateral entries (`renderedTotal` is the full count), `propChanges`, and every `trasherCounts` field.
 6. `hot-sources` — ranking corroboration after the per-commit verdict evidence is present.
 
 ### Step 7 — classify
 
-| Verdict | `commitCount` | `sourcesByCommit` pattern | `renderedByCommit` pattern |
+| Verdict | `commitCount` | `commit-peek.sources` pattern | `commit-peek.rendered` pattern |
 |---|---|---|---|
 | **clean** | 1 | nudged sourceId only (or empty) | nudged target only; every `trasherCounts` field is zero |
 | **leak** | 1 | nudged sourceId only | high collateral count under target; `propChanges` empty on collateral entries |
@@ -177,7 +177,7 @@ Apply the rows as mutually exclusive classifications: persistent non-zero `trash
 
 For **leak** (Case A):
 - `avalanche-commit-list <clientId> 20 collateral`.
-- Walk the top commit's collaterals top → bottom from the nudged fiber.
+- Walk the top commit's `commit-peek <commitId> rendered` entries with `isSelfSource: false` top → bottom from the nudged fiber.
 - The first collateral with stable inputs but no `React.memo` is the boundary fix. The first collateral with `React.memo` but unstable props (inline object, fresh callback, new JSX) is a boundary that needs prop stabilization above it.
 
 > **Attribute the leak.** When the offending fiber is identified but its hook role is unclear, run [debug-hook](./debug-hook.md) on **the same nudged source** with the changed `hookIndex` from this commit. Do not switch sources. The primitive + `parents` chain pins down whether the cause is selector identity, dispatcher churn, or unstable deps.
@@ -202,8 +202,8 @@ Re-enter at Step 1 and re-resolve the current page and target before Step 3. A r
 
 Then re-run from Step 3 with the same semantic target, `--ownerIndex`, and `--label`. Compare:
 - `commitCount` should drop toward 1.
-- `componentRenders` should drop.
-- `collateral` should drop.
+- `commit-peek.renderedTotal` should drop.
+- `commit-peek.stats.collateral` should drop.
 - The previously top hot-source should disappear or fall in rank.
 
 If the numbers do not move, the fix was at the wrong layer. Re-classify before editing again.
@@ -219,7 +219,7 @@ The snippet uses one mechanism: the React DevTools renderer's **`scheduleUpdate(
 The mechanism is a **bundle capability**, not snippet logic. It ships in `avalanche.iife.js` (source `src/chippy-bridge/fiber-schedule-update.ts`) and is exposed two ways:
 
 - **Bridge command** — `fiber-schedule-update <clientId> <fiberId> [--ownerIndex N]`. Use this directly when you already have a `fiberId` from `find-fibers` and just want one re-render. Returns `{ ok, scheduled, fiberName, source, ownerIndex }`.
-- **`stability-nudge` snippet** — the **procedure** layer. It resolves a `--probeId`/`--testId` to a fiber (DOM context the bridge does not have), climbs `--ownerIndex`, then delegates the re-render to the same capability.
+- **`stability-nudge` snippet** — the **procedure** layer. It resolves a `--probeId` or `--testId` to a fiber (DOM context the bridge does not have), climbs `--ownerIndex`, then delegates the re-render to the same capability.
 
 The split keeps version-coupled React internals in one bundled capability while the snippet owns probe/test-id resolution and procedure composition.
 
@@ -261,7 +261,10 @@ Why this is the only strategy:
 | `missing-target` | Neither `--probeId` nor `--testId` was supplied. | Pass one. |
 | `testid-not-found` | The DOM does not contain that `data-testid`. | Snapshot the page state; story may not have rendered. |
 | `no-composite-fiber-for-testid` | The element is detached or not React-owned. | Pick a different node. |
-| `no-fiber` / `owner-out-of-range` | Probe did not resolve, or `--ownerIndex` overshot the chain. | Lower `ownerIndex` or replace the probe. |
+| `owner-out-of-range` | `--ownerIndex` overshot the owner chain. | Lower `ownerIndex`. |
+| `probe-not-placed` / `no-resolver` / `no-composite-fiber` | The `--probeId` probe is not placed, the probe runtime is not loaded, or the probe has no composite fiber. | Place the probe, use `--testId`, or resolve a `fiberId` and run `fiber-schedule-update`. |
+| `bridge-capability-missing` | The Avalanche bridge runtime is not loaded in the page. | Check that `window.__AVALANCHE__` is present; reconnect through a route that loads Avalanche. |
+| `schedule-failed` | The capability returned no reason. | Read `error`, capture the page console, and retry once on a freshly resolved fiber. |
 | `no-scheduleUpdate` | Production React build, or the devtools-hook shim was not installed before `react-dom` evaluated. | Use a dev build; ensure the shim runs at page boot (extension `document_start` / Playwright `addInitScript`). |
 | `scheduleUpdate-threw` | React threw synchronously while scheduling. | Capture the page console — usually a render error masking the schedule. |
 
@@ -273,8 +276,8 @@ Why this is the only strategy:
 
 | arg | required | meaning |
 |---|---|---|
-| `--probeId <id>` | one of these two | probe id (`1`, `2`, `3`) — resolves via placed probe |
-| `--testId <string>` | one of these two | `data-testid` attribute — resolves DOM → fiber directly |
+| `--testId <string>` | one of | `data-testid` attribute — resolves DOM → fiber directly |
+| `--probeId <id>` | one of | placed probe (`1`, `2`, `3`) — resolves to its nearest composite fiber |
 | `--ownerIndex <N>` | no | walk N steps up the owner chain (0 = target itself) |
 | `--label <string>` | no | echoed into `ctx.log` for human-readable trace |
 | `--dryRun <true\|false>` | no | resolve + report fiber, do not schedule |
@@ -298,7 +301,7 @@ See **Update mechanism → Failure modes** for the `ok: false` reasons.
 
 ```
 📏 stability render: <FiberName> @ <file>:<line>
-   waves: <commitCount>  renders: <componentRenders>  collateral: <N>
+   waves: <commitCount>  renders: <renderedTotal>  collateral: <N>
    verdict: clean | leak | leak+cascade | trasher
    first offender: <ComponentName> @ <file>:<line>  reason: <missing memo | unstable prop | unstable dep | …>
    confidence: confirmed | likely | partial
@@ -343,7 +346,7 @@ Nudge target: `Parent` (`StabilityChain`). One nudge.
 |---|---|
 | `commitCount` | `>1` — the effect's `setState` schedules a follow-up commit |
 | Top hot-source | `Leaf` — re-renders not because of its own logic, but because its effect dispatches |
-| `hookChanges[]` on `Leaf` | a state hook flipping each commit (the effect-driven setState) |
+| `commit-peek <commitId> sources` `trashers` on `Leaf` | a hook flipping each commit (the effect-driven setState) |
 | Effect re-attach count | grows linearly with commits — visible in DOM as `attach/detach: N/N-1` |
 
 That last row is the smoking gun. **An effect re-attaching every commit is not a perf issue, it is a correctness issue.** Subscriptions get torn down and rebuilt; cleanup ordering matters; analytics double-fire; fetches race themselves.
@@ -352,7 +355,7 @@ That last row is the smoking gun. **An effect re-attaching every commit is not a
 
 Chippy reads the chain in **damage order**, not in source order:
 
-1. **Effect re-fire** = worst. Run `avalanche-commit-peek` on the top commit, look at `Leaf`'s hookChanges. If a `useEffect` is in the changed-hook list every commit, the effect is re-firing.
+1. **Effect re-fire** = worst. Run `avalanche-commit-peek` on the top commit, look at `Leaf`'s `trashers` in the `sources` section. If a `useEffect` appears there every commit, the effect is re-firing.
 2. **Callback identity flip** = the cause of the effect re-fire. Inspect `Leaf`'s `useCallback` (probe-hooks shows the dep array). If the dep is a non-primitive that changes identity, that's the link.
 3. **Object identity flip** = the cause of the callback identity flip. Walk `_debugOwner` up to `Parent`, read `probe-props`. If `opts` is a fresh object each render with no upstream `useMemo`, that's the root.
 
@@ -424,5 +427,5 @@ If a pointer omits any of those, it is not a deep enough explanation. State the 
 
 - [avalanche-detector](./avalanche-detector.md) — capture surface, commit join, restart semantics.
 - [fixing-performance](./fixing-performance.md) — where the fix lives (above / boundary / below).
-- [browser-runtime-api](./browser-runtime-api.md) — `__resolveProbes`, `__inspectReact`.
-- [hooks-inspection](./hooks-inspection.md) — hook walk shape, used to read `hookChanges` after a nudge.
+- [browser-runtime-api](./browser-runtime-api.md) — `window.__CHIPPY.resolveProbes`, `window.__CHIPPY.inspectReact`.
+- [hooks-inspection](./hooks-inspection.md) — hook walk shape, used to read hook state after a nudge.

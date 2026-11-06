@@ -20,6 +20,8 @@ import('http://127.0.0.1:7823/__chippy/inject.mjs')
 
 In that mode the import activates probes for the current page without the extension's in-page controls.
 
+`inject.mjs` accepts `activated=false` (load without activating probes) and `ui=panel` (show the in-page Chippy panel; default `ui=none`), for example `inject.mjs?ui=panel`. Only one integration owns a page: when another live owner, such as the Storybook addon, holds it, the import rejects with `Chippy runtime already owned by <owner>`. Use the existing integration's client from `chippy.sh pages` instead of importing again.
+
 The import lasts only for the current document. A full reload or navigation removes the imported runtime because no extension, proxy, or Storybook host remains to inject it. The user—or Playwright—must run the import command again after every reload/navigation. To keep Chippy across reloads without the extension, use the packaged init-script loader in [mode-a-injection](mode-a-injection.md) or the helper's local proxy.
 
 ## Steps

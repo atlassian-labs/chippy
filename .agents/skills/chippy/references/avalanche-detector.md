@@ -88,11 +88,11 @@ chippy.sh avalanche-status my-client
 ```
 Look for `installed`, `hasMetricsGlobal`, `commitCount`.
 
-### `reload-with-avalanche <clientId> <origin> [maxCommits] [timeoutMs] [settleMs]`
+### `reload-with-avalanche <clientId> <origin> [maxCommits] [timeoutMs] [settleMs] [captureFibers] [detectionMode]`
 ```bash
 chippy.sh reload-with-avalanche my-client http://localhost:9000 0 15000 5000
 ```
-Arms, reloads, waits for reconnect, waits settle window, then prints capture status. With the extension or proxy mode, the reloaded document installs Avalanche before React's first commit, so boot commits are included. The reload step's ack reports `earlyStartup`: `registered` (extension), `handoff-only` (no extension; proxy mode still captures boot), or `not-armed`.
+Arms, reloads, waits for reconnect, waits settle window, then prints `avalanche-status` and the top 12 hot sources. Defaults: `0 5000 3000 true sources`. It exits 1 when the page does not reconnect within `timeoutMs`, and it leaves the arm in place until `avalanche-disarm`. With the extension or proxy mode, the reloaded document installs Avalanche before React's first commit, so boot commits are included. The reload step's ack reports `earlyStartup`: `registered` (extension), `handoff-only` (no extension; proxy mode still captures boot), `not-armed`, or `storage-unavailable` (the page blocked `sessionStorage`, so boot commits may be missed).
 
 ### `avalanche-hot-sources <clientId> [limit]`
 ```bash
@@ -100,19 +100,21 @@ chippy.sh avalanche-hot-sources my-client 20
 ```
 Top sources by collateral damage. Start here for a quick overview, but use `commit-list` + `commit-peek` for commit-level reasoning.
 
+Output: `total` sources and `payload.items[]` sorted by `collateralUpdates` (default limit 20). Each item has `sourceId` (`Name#n@depth`), `depth`, `causedUpdates`, `collateralUpdates` (total renders it caused), `maxCollateralUpdates` (largest single wave), `maxPenetrationDepth` (levels below the source), and `restartWaste` (adapter modes only).
+
 ### `avalanche-commit-list <clientId> [top] [by]`
 ```bash
 chippy.sh avalanche-commit-list my-client 15 collateral
 chippy.sh avalanche-commit-list my-client 15 contextUpdates
 ```
-Ranks commits. Rows are intentionally compact. If an event/action breadcrumb is linked to the commit, `latestAction` is clue-only: action name, delta from previous commit, DOM tag/text/test id, target fiber name, `ownerStackKind`, closest 10 owner/parent names, and full stack count. Do not treat `commit-list` as the full event dump.
+Ranks commits. Rows are intentionally compact. If an event/action breadcrumb is linked to the commit, `latestAction` is clue-only: action name, delta from previous commit, DOM tag/text/test id, target fiber name, `ownerStackKind`, closest 10 owner/parent names, and full stack count. Do not treat `commit-list` as the full event dump. Defaults: top 20, by `collateral`.
 
-Valid live sort keys:
+Valid sort keys (live and offline):
 ```text
 collateral sources restarts performedWork effects memos callbacks contextUpdates unmountedComponents unmountedSubtrees
 ```
 
-Do **not** use undocumented keys like `byDuration`. The live bridge rejects unsupported keys and returns `ok:false` with `validBy`. Offline analysis has a different, richer derived-key set; do not mix live and offline sort keys.
+Do **not** use undocumented keys like `byDuration`. Live and offline `commit-list` accept the same keys and return `ok:false` with `validBy` for any other key. The live shell command still exits 0: the helper envelope is `ok:true`, and the rejection is in `result.ok:false`, `result.error`, and `result.validBy`, so read `result.ok` before reading rows.
 
 ### `avalanche-commit-peek <clientId> <commitId> [include] [depth] [maxItems]`
 ```bash
@@ -122,7 +124,9 @@ chippy.sh avalanche-commit-peek my-client 42 stats,rendered 3 20
 ```
 Pull one commit across slices. Use `include` CSV to limit payload. `actions` returns full event breadcrumbs attached to this commit. `rendered` returns bounded structural evidence for components that rendered in the commit, including parent/source ids, shallow prop-change facts, self-source flag, and linked trasher counts.
 
-Effective live include values:
+Defaults: include `stats,sources,timing,metrics`, maxItems 20 (MCP and HTTP default to 50). `depth` is accepted for compatibility and has no effect. `maxItems` bounds the `sources`, `actions`, `rendered`, and `unmounts` arrays; each of those slices also reports its untrimmed `...Total`.
+
+Valid include values (live and offline):
 ```text
 stats,sources,timing,metrics,unmounts,actions,rendered
 ```
@@ -131,9 +135,14 @@ stats,sources,timing,metrics,unmounts,actions,rendered
 
 `unmounts` returns bounded branch-start samples for this one commit. It is a zoom-in surface, not a full export: use `commit-list ... unmountedComponents` / `unmountedSubtrees` for counts first, then `commit-peek N ... unmounts` to ask where teardown started and how large each sampled branch was.
 
-The wrapper accepts CSV strings, but the current live in-page bridge only emits the upstream-shaped slices above. `collaterals`, `context`, and `amplifiers` are useful for offline saved-capture analysis when those arrays exist in the saved payload; they are not reliable live slices.
+`sources` rows: `sourceId`, `depth`, `collateralAtCommit`, `rankAtCommit` (position in the top-sources list, or null), `trashers` (`[{ index, prevValue, currentValue }]` for changed hooks when the detection mode records amplifiers), `causedUpdatesTotal`, and `collateralUpdatesTotal`. `missing: true` marks an id that has no aggregate source row.
 
-`all` is **not** a supported include value. The live bridge rejects unsupported includes and returns `ok:false` with `validInclude`. Omit `include` for the default live slice set, or pass an explicit CSV like `stats,sources,metrics` or `stats,unmounts`.
+`all` is **not** a supported include value, and neither are `collaterals`, `context`, or `amplifiers`. Live and offline `commit-peek` reject unsupported includes and return `ok:false` with `validInclude`; as with `commit-list`, the live rejection arrives in `result` while the shell exits 0. Omit `include` for the default slice set, or pass an explicit CSV like `stats,sources,metrics` or `stats,unmounts`.
+
+Response envelopes (live responses also add `targetClientId`, `resolvedFrom`, and `requestId`):
+- commit-list: `{by,total,rows:[{commitId,stat,sourceCount,latestAction}]}`. Rows are top-level, not under `payload`.
+- hot-sources: `{total,payload:{count,items:[...]}}`.
+- commit-peek: `{payload:{commitId,found:true,stats,sources,sourcesTotal,timing,metrics,actions,actionsTotal,rendered,renderedTotal,unmounts,unmountsTotal}}`, containing only the requested slices. An unknown commit returns flat `{commitId,found:false}` without `payload`.
 
 ### `avalanche-describe-action <clientId> <actionId>`
 ```bash
@@ -141,11 +150,11 @@ chippy.sh avalanche-describe-action my-client 7
 ```
 Looks up one recorded event/action breadcrumb by id and returns the full payload. Use this after `commit-list` surfaces a useful `latestAction` id. Full payload includes DOM target, nearest test id, target fiber, and complete locality stack. In dev builds the stack is `ownerStackKind: "owners"`; in production bundles owners may be unavailable, so it falls back to `ownerStackKind: "parents"` using the React return chain. This is probe-like grounding for a click/key/input: DOM target + nearest meaningful fiber + locality stack.
 
-### `avalanche-export <clientId> [lastN]`
+### `avalanche-export <clientId> [lastN] [outFile]`
 ```bash
 chippy.sh avalanche-export my-client
 ```
-Full JSON export from live page. Large output is easy to truncate in the shell; prefer `avalanche-save` when the export will be inspected more than once.
+Full JSON export from live page. `lastN` does not trim the payload; to keep the last N commits, use `avalanche-save <clientId> <path> N`. With `outFile`, the raw helper envelope is written to that file instead of stdout; unlike `avalanche-save`, it is not normalized for `avalanche-offline`. Large output is easy to truncate in the shell; prefer `avalanche-save` when the export will be inspected more than once.
 
 ### `avalanche-save <clientId> <path> [count]`
 ```bash
@@ -173,32 +182,34 @@ chippy.sh avalanche-offline .chippy-captures/raf-1846.json commit-list 10 collat
 chippy.sh avalanche-offline .chippy-captures/raf-1846.json commit-peek 42 stats,sources,rendered 20
 chippy.sh avalanche-offline .chippy-captures/raf-1846.json source-search --name 'Issue(Row|List)'
 ```
-Use saved captures without a live page. `commit-list`, `commit-peek`, `hot-sources`, and `describe-action` run the same code as the live commands and return the same shapes, so sort keys and include values match the live tables above (`unmounts` is live-only).
+Use saved captures without a live page. `commit-list`, `commit-peek`, `hot-sources`, and `describe-action` run the same code as the live commands and return the same shapes, so sort keys and include values match the live tables above (`unmounts` is live-only; a saved capture always returns it empty).
+
+Offline arguments: `commit-list [top] [by]`, `commit-peek <commitId> [include] [maxItems]` (no `depth`; the third value is maxItems, default 50), `hot-sources [limit]`, `describe-action <actionId>`, and `source-search --name <regex> [--top N]` (default top 50). Flags such as `--top`, `--by`, `--include`, and `--maxItems` are accepted in place of positional values.
 
 `summary` returns commit count, first/last commit id, source count, and totals of the commit stats. `source-search --name <regex>` matches aggregate sources by `sourceId` and rendered components by name with per-instance render and self-source counts.
 
-### `avalanche-arm <clientId> <origin> [maxCommits]`
+### `avalanche-arm <clientId> <origin> [maxCommits] [captureFibers] [detectionMode]`
 ```bash
-chippy.sh avalanche-arm my-client http://localhost:9000 200
+chippy.sh avalanche-arm my-client http://localhost:9000 0 true sources
 ```
-Arm runtime capture on this origin without reloading.
+Clears the current capture, installs the detector on the live page, and stores an arm for this client and origin. Later `page-reload` calls deliver the arm to the new document. `maxCommits` does not cap commits: it sets how many commits each source keeps in its history (`historySize`) on those armed reloads, and `0` or omitted means 1000. The immediate live install ignores it and keeps one commit per source, so a source that fires in several commits appears only in its latest `sourcesByCommit` entry. When per-commit source history matters for a live interaction, use `avalanche-recapture <clientId> [detectionMode]` (1000 commits per source) instead.
 
 ### `avalanche-disarm <clientId> <origin>`
 ```bash
 chippy.sh avalanche-disarm my-client http://localhost:9000
 ```
-Cancel armed reload capture.
+Removes the stored arm so later reloads start without capture. The detector already installed on the current page keeps recording.
 
 ### `page-reload <clientId>` / `page-wait-reload <clientId> [timeoutMs]`
 ```bash
 chippy.sh page-reload my-client
 chippy.sh page-wait-reload my-client 15000
 ```
-Low-level reload helpers. Use when debugging injection timing.
+Low-level reload helpers. Use when debugging injection timing. `page-wait-reload` returns `{reloaded,before,after,waitedMs}`. On timeout it returns `ok:true, reloaded:false` and exits 0, so check `reloaded`. `timeoutMs` defaults to 5000 and is clamped to 500-60000. On a Storybook integration it returns `{reloaded:true,remounted:true}` immediately.
 
 ## Event/action breadcrumbs
 
-Avalanche records bounded browser event breadcrumbs while armed. Defaults are explicit user actions only: click, keydown, keyup, input, change, submit. Noisy streams such as wheel/scroll/move are opt-in via detector options (`interactionCapture: 'noisy' | 'all'`) or explicit `interactionEvents`.
+Avalanche records bounded browser event breadcrumbs while armed. Defaults are explicit user actions only: click, keydown, keyup, input, change, submit. Noisy streams such as wheel/scroll/move are opt-in via detector options. Options are `interactionCapture: 'off' | 'explicit' | 'noisy' | 'all'` (default `explicit`), `interactionEvents` (extra event names), and `interactionWindowMs` (default 1000 ms; links an event to the next commit within the window). `avalanche-install`, `avalanche-arm`, and MCP `install` do not forward them; pass them to `window.__AVALANCHE__.install({ ... })` in the page or to `createAvalancheDetector` in the npm package.
 
 Breadcrumb linking is intentionally minimal: action id, action name, last commit id, delta time, capture `timestamp`, DOM target, nearest test id, target fiber, and locality stack. The agent reconstructs deeper source context on demand.
 
@@ -227,7 +238,7 @@ Start with these fields:
 - `sourcesByCommit[N]` — sources for commit `N`
 - `commitStats[N]` — fixed tuple for commit `N`
 - `metricsByCommit[N]` — low-level adapter metrics for commit `N` (deprecated alias `atlByCommit`)
-- `restartWasteByCommit[N]` — restart-heavy source attribution for commit `N`
+- `sources[].restartWaste` / `maxRestartWaste` — restart attribution per source across the capture (adapter modes only)
 - `commitTimings[N]` — `startTime`, `endTime`, `timeSinceLastCommit`, `detectorOverhead` for commit `N` (`commit-peek ... timing`)
 - `meta.timeOrigin` — the page's `performance.timeOrigin` (Unix epoch ms)
 
@@ -270,71 +281,50 @@ Suspense reading:
 - `left=true` = boundary revealed primary content
 - boundaries that render without delay are intentionally silent — no `suspenseByCommit` entry means no fallback transition recorded, not "nothing happened"
 - treat the boundary as branch metadata first; trace below it before blaming placeholder wrappers
+- `commit-peek` has no Suspense slice. Read `suspenseByCommit[N]` from an `avalanche-save` file (`{ depth, entered, left }` per transition).
 
 ## `renderedByCommit` — per-component render evidence
 
 Populated in every detection mode. The mode decides which fields carry evidence: `stats` has no source tracking, so `isSelfSource` stays `false`; `trasherCounts` stay zero unless the mode is `full` or `amplifiers`. Pulled into `commit-peek` output via `include=rendered`.
 
-Top-level shape (`?` = optional, may be absent or `null`; everything else is required):
+Top-level shape (`?` = optional, may be absent; everything else is always present):
 
 ```text
 renderedByCommit: Record<commitId: number, RenderedComponentEvidence[]>
 
 RenderedComponentEvidence = {
-  sourceId:        number,                     // joins to sourcesByCommit / hot-sources
-  name:            string,                     // component display name; "Unknown" if unresolved
-  parentId:        number | null,              // sourceId of nearest rendered parent (root = null)
-  isSelfSource:    boolean,                    // true if the component re-rendered itself
-  propChanges:     PropChangeEvidence[],       // [] when no diff (not absent)
-  trasherCounts:   { effects: number; callbacks: number; memos: number },
-                                               // all three always present; 0 when no amplifier hits
-  trashers?:       TrasherEvidence[],          // bounded samples for non-zero trasherCounts
-  selfTime?:       number,                     // ms; only when Profiler timing available
-  actualDuration?: number                      // ms; only when Profiler timing available
+  sourceId:       string,          // internal id 'T<typeId>#<n>@<depth>'; hot-sources and sources use '<Name>#<n>@<depth>', so join on name plus the '#<n>@<depth>' suffix
+  name:           string,          // display name; 'Unknown' when unresolved
+  depth:          number,
+  parentSourceId: string | null,   // nearest rendered component parent
+  ownerSourceId:  string | null,   // source whose wave carried this render
+  isSelfSource:   boolean,
+  propChanges:    PropChangeEvidence[],  // [] when no prop changed
+  hasPropChanges: boolean,
+  trasherCounts:  { effects: number; callbacks: number; memos: number }
 }
-```
 
-`PropChangeEvidence`:
-
-```text
 PropChangeEvidence = {
-  name:    string,                             // prop key
-  kind:    'added' | 'removed' | 'scalar-changed' | 'ref-changed' | 'unchanged',
-  prev?:   PropValueSummary,                   // present when kind ∈ {removed, scalar-changed, ref-changed, unchanged}
-  current?: PropValueSummary                   // present when kind ∈ {added, scalar-changed, ref-changed, unchanged}
+  name:    string,                 // prop key
+  kind:    'added' | 'removed' | 'scalar-changed' | 'ref-changed',  // unchanged props are not listed
+  prev:    PropValueSummary,       // summary of undefined for 'added'
+  current: PropValueSummary        // summary of undefined for 'removed'
+}
+
+PropValueSummary = {               // bounded, no deep clone
+  type:       string,              // typeof value
+  isArray:    boolean,
+  isFunction: boolean,
+  isNull:     boolean,
+  preview:    string,              // human-readable summary
+  display?:   string,
+  length?:    number,
+  keysTop?:   string[],
+  sample?:    unknown[]
 }
 ```
 
-`PropValueSummary` (bounded — no deep clone):
-
-```text
-PropValueSummary = {
-  type:     'string'|'number'|'boolean'|'null'|'undefined'|'function'|'array'|'object'|'symbol'|'bigint',
-  preview:  string,                            // human-readable summary; always present
-  length?:  number,                            // arrays + strings
-  keysTop?: string[],                          // objects: up to N top-level keys
-  sample?:  unknown                            // arrays: bounded element sample
-}
-```
-
-`TrasherEvidence` (bounded — samples the changed hook deps, not every occurrence):
-
-```text
-TrasherEvidence = {
-  hookIndex:          number,
-  hookType:           'effect' | 'callback' | 'memo',
-  effectTag?:         number,
-  changedDepIndices:  number[],
-  changedDeps:        Array<{
-    index:   number,
-    prev:    PropValueSummary,
-    current: PropValueSummary,
-    origin:  { type: unknown; hookIndex: number; depth: number; hookType: string } | null
-  }>
-}
-```
-
-For effects, `changedDeps` is the first stop: it names the dependency index and bounded prev/current summaries that caused the effect to re-run.
+Changed hook dependencies are not on rendered entries. Read them from `commit-peek N sources`: each source row carries `trashers: [{ index, prevValue, currentValue }]` when the detection mode records amplifiers.
 
 Cross-reference: the producer is `src/avalanche/detector.tsx` (`diffProps`, `summarizePropValue`, `detectHookThrashing`); the DTO mapper is `src/avalanche/report-serializer.tsx` (`RenderedComponentEvidenceDTO`).
 
@@ -357,7 +347,7 @@ Reading rules:
 - `kind: 'ref-changed'` on a callback or object prop → likely upstream amplifier; trace the parent's `useCallback`/`useMemo` deps.
 - `kind: 'scalar-changed'` → data actually changed; the render is justified if the component should react to that value.
 - `kind: 'added'` / `'removed'` on optional props → parent toggled a feature; verify the toggle is intentional.
-- All props `unchanged` but component re-rendered → ancestor cascade. Look up the parent chain, not at this component.
+- `propChanges` empty but component re-rendered → ancestor cascade. Look up the parent chain, not at this component.
 
 ### `renderedByCommit` prop-change taxonomy — read the simple case first
 
@@ -368,7 +358,7 @@ Reading rules:
 | 0 | `isSelfSource: true` | This component scheduled work for itself in this commit. | **self-source** | Inspect this component's changed hooks / callbacks / effects (P-07). |
 | 1 | only `scalar-changed` props | Data actually changed (`number`, `string`, `boolean`, `null`). | **legitimate re-render** unless invariant says the scalar should not affect this child. | Verify invariant. If legitimate, stop; if not, move the scalar boundary up. |
 | 2 | `added` / `removed` optional props | Parent toggled a feature or branch. | **conditional prop / branch change** | Verify the toggle is intentional; inspect the parent conditional if unexpected. |
-| 3 | no prop changes and `isSelfSource: false` | Parent/ancestor rendered and this component came along. | **cascade collateral** | Walk to `parentId`; do not blame this component. |
+| 3 | no prop changes and `isSelfSource: false` | Parent/ancestor rendered and this component came along. | **cascade collateral** | Walk to `parentSourceId`; do not blame this component. |
 | 4 | `ref-changed` function prop | Callback identity changed. | **identity churn** or legitimate callback update. | Walk to parent; inspect `useCallback` deps or inline function creation. |
 | 5 | `ref-changed` object/array prop | Object identity changed. Contents may still be equal. | **identity leak** or legitimate data object change. | Walk to parent; inspect literal creation, selectors, `useMemo`, data normalization. |
 | 6 | `ref-changed` `children` | JSX children identity changed. | **caller-created ReactElement churn** | Caller-only fix: hoist/memoize children at the caller. |
@@ -377,7 +367,7 @@ Reading rules:
 General rules:
 - Start with the simple explanation. A `scalar-changed` prop is often correct behavior, not a performance bug.
 - `ref-changed` means identity changed, not automatically "bad". It becomes a bug only when the component should not observe that identity change or when it defeats a memo boundary.
-- If `trasherCounts` are all zero and the only suspicious signal is `ref-changed`, treat it as a **caller-side identity question** first. Walk to `parentId`; do not hunt for amplifier hooks in the child.
+- If `trasherCounts` are all zero and the only suspicious signal is `ref-changed`, treat it as a **caller-side identity question** first. Walk to `parentSourceId`; do not hunt for amplifier hooks in the child.
 - If `propChanges` is empty and `isSelfSource` is false, this entry is collateral. Keep walking upward until the first self-source, context wave, or identity-changing parent.
 
 #### Common identity fingerprints
@@ -395,10 +385,10 @@ These are common examples, not an exhaustive taxonomy:
 | `isSelfSource` | `propChanges` has changes | `trasherCounts > 0` | Classification | Next step |
 |---|---|---|---|---|
 | `true` | n/a | n/a | **self-source** (component triggered its own re-render) | P-07 hook interrogation on this component |
-| `false` | yes (ref-changed) | n/a | **collateral from upstream amplifier** | Walk to `parentId`, run P-06 on that |
+| `false` | yes (ref-changed) | n/a | **collateral from upstream amplifier** | Walk to `parentSourceId`, run P-06 on that |
 | `false` | yes (scalar-changed only) | n/a | **legitimate re-render** (data changed) | Verify invariant — may be correct behavior |
 | `false` | empty | yes | **trasher** (this component is the amplifier) | P-07 on the changed hook |
-| `false` | empty | no | **pure cascade collateral** | Walk to `parentId`, look for the real trigger |
+| `false` | empty | no | **pure cascade collateral** | Walk to `parentSourceId`, look for the real trigger |
 
 ## Reading signals correctly
 
@@ -421,15 +411,15 @@ before/after diff   → whether the same waste disappeared
 |---|---|---|---|
 | **Population metrics** | `componentRenderWithHooksCount`, `domWorkCount`, `contextUpdateCount`, `mountWorkCount` | How much React work happened overall | Why one component rendered |
 | **Commit stats** | `commitStats[N]` | Shape of one commit: source count, collateral breadth, restarts, context/effect/memo/callback churn | Exact prop/hook cause |
-| **Commit details** | `sourcesByCommit[N]`, `contextUpdatesByCommit[N]`, `restartWasteByCommit[N]` | Which sources/providers/restart signals were involved in that commit | Whether a downstream component could have bailed out |
+| **Commit details** | `sourcesByCommit[N]`, `metricsByCommit[N]`, `renderedByCommit[N]` | Which sources, rendered components, and restart counters were involved in that commit | Whether a downstream component could have bailed out |
 | **Fiber/probe data** | owners, parents, props, hooks, source locations | How values crossed boundaries for a target component | Population scale |
 | **Code** | hook deps, provider values, selectors, keys, memo boundaries | The implementation cause and fix layer | Runtime frequency without a capture |
 
 ### Read from broad to narrow
 
 1. **Population shape.** Use raw React metrics to see whether the window is mostly render work, DOM work, mount work, context propagation, or discarded/restarted work.
-2. **Commit selection.** Use live `commit-list` to pick the commit that best represents the suspicious upstream stat shape (`collateral`, `sources`, `restarts`, `performedWork`, `effects`, `memos`, `callbacks`, `contextUpdates`). Use offline `commit-list` for saved-capture derived keys like `amplifiers`, `repeats`, or `restartProxy`.
-3. **Per-commit join.** Use `commit-peek` and read `commitStats[N]`, `sourcesByCommit[N]`, `metricsByCommit[N]`, and restart/context side channels together.
+2. **Commit selection.** Use `commit-list` to pick the commit that best represents the suspicious stat shape (`collateral`, `sources`, `restarts`, `performedWork`, `effects`, `memos`, `callbacks`, `contextUpdates`, `unmountedComponents`, `unmountedSubtrees`).
+3. **Per-commit join.** Use `commit-peek` and read `commitStats[N]`, `sourcesByCommit[N]`, `metricsByCommit[N]`, and `renderedByCommit[N]` together.
 4. **Role classification.** Classify a component as source, hotspot, collateral, mount/remount, context/store participant, or restart/discarded work.
 5. **Fiber trace.** Use probes to inspect owner/parent/prop/hook flow before naming a specific cause.
 6. **Source trace.** Open the exact source location and verify hook deps, setter call sites, provider values, selector identity, keys, or memo boundaries.
@@ -524,8 +514,8 @@ These slices share the same commit index `N`:
 - `commitStats[N]`
 - `sourcesByCommit[N]`
 - `metricsByCommit[N]`
-- `restartWasteByCommit[N]`
-- `contextUpdatesByCommit[N]`
+- `renderedByCommit[N]`
+- `commitTimings[N]`
 
 Use `commit-list` to pick a commit. Use `commit-peek` to inspect the same `N` across slices. Never compare `commitStats[42]` to `sourcesByCommit[43]` or a different capture window.
 
@@ -543,19 +533,19 @@ restarts = max(0, atlTotal - committedComponents)
 
 Example: `atlTotal = 2116`, `committedComponents = 3` → `restarts = 2113` means 2113 render executions discarded in that commit window.
 
-Treat it as a strong proxy, not a courtroom fact. Confirm cause with side fields:
-- `externalStoreRestarts` — `useSyncExternalStore` races
-- `priorityInterruptions` — higher-priority work preempted this render
-- `fiberInterruptions` — interrupted fiber work without a cleaner subtype
+Treat it as a strong proxy, not a courtroom fact. Confirm cause with `metricsByCommit[N]` counters (`commit-peek N metrics`, adapter modes only):
+- `externalStoreRestartCount` — `useSyncExternalStore` races
+- `priorityInterruptedWorkCount` — higher-priority work preempted this render
+- `interruptedWorkCount` — other interrupted work
 
-Large `restarts` with zero side fields: still real, but needs more skepticism.
-Large `restarts` with large `priorityInterruptions`: concurrent-mode priority thrash. Look for what triggers the high-priority interruption.
+Large `restarts` with zero counters: still real, but needs more skepticism.
+Large `restarts` with large `priorityInterruptedWorkCount`: concurrent-mode priority thrash. Look for what triggers the high-priority interruption.
 
 ## Scoping a capture
 
 Three tools:
 - temporal: short reload window, short settle, low commit cap
-- ranking: live `commit-list` by `collateral`, `restarts`, or `contextUpdates`; offline `commit-list` by derived keys like `restartProxy`, `amplifiers`, or `repeats`
+- ranking: `commit-list` by `collateral`, `restarts`, `contextUpdates`, or `sources`
 - filtering: save export, then use `source-search` or offline `commit-peek`
 
 Do not scope avalanche by selector. Scope by time window, commit, or component name (`source-search --name`). Exports carry no source file paths, so file-based scoping is not available.
@@ -580,7 +570,7 @@ For interactive Avalanche, rebuild the order of events:
 |---|---|---|
 | **Before** | What earlier source/provider/store/key/identity change set up this wave? | `commit-list` around the target, `commit-peek` on N-1/N-2/N-3, sort by `sources` or `contextUpdates` |
 | **During** | Which work in this commit was necessary vs collateral/noisy? | `commit-peek N stats,sources,metrics`, add `unmounts` when teardown counts are high, then probe/source for the top source, provider, or branch root |
-| **After** | Did this wave stop, or did it leave repeating noise? | `commit-list` after N, sort by `collateral`, `restarts`, `effects`, `memos`, `callbacks`, or offline `repeats` |
+| **After** | Did this wave stop, or did it leave repeating noise? | `commit-list` after N, sort by `collateral`, `restarts`, `effects`, `memos`, or `callbacks`, and check whether the same `sourceId` repeats in `commit-peek ... sources` |
 
 ### Two-direction 5 whys
 
@@ -643,7 +633,7 @@ After a change:
 - Manifest or extension script change: reload the extension.
 - Bundle change: reload the page.
 - Helper-server change: `chippy.sh stop` then `chippy.sh start`.
-- `commitCount: 0` with installed detector: verify patched `react-dom` and reload path.
+- `commitCount: 0` with an installed detector: check `integrationMode` in `avalanche-status`. `none` or no commits after an interaction means the DevTools hook was installed after React DOM loaded; reload through a route that loads Chippy before page scripts, or reproduce a render after `avalanche-install`.
 - Duplicate `__AVALANCHE__ already defined`: same bundle injected twice. Fix startup order before trusting results.
 - On Jira-like pages, metrics may be reset during bootstrap/hydration. Chippy must preserve or restore the live metrics object before judging capture health.
 
@@ -687,11 +677,11 @@ commits 0-50: analyze this
    ```bash
    chippy.sh avalanche-offline .chippy-captures/run.json summary
    chippy.sh avalanche-offline .chippy-captures/run.json commit-list 30 collateral
-   chippy.sh avalanche-offline .chippy-captures/run.json commit-list 30 repeats
+   chippy.sh avalanche-offline .chippy-captures/run.json commit-list 30 sources
    chippy.sh avalanche-offline .chippy-captures/run.json commit-list 30 contextUpdates
    ```
 3. **Choose ranges by wave/question.** Setup, main wave, continuation/noise, or first-principles invariant. `commit-list` ranks globally; use the ranked rows plus timestamps/commit ids to define ranges.
-4. **Reduce each range before delegation.** Use `commit-peek` on selected commit ids and `source-search --name` for known components. Give the subagent only the top suspicious commits and relevant stats/sources/context/metrics slices. No raw exports.
+4. **Reduce each range before delegation.** Use `commit-peek` on selected commit ids and `source-search --name` for known components. Give the subagent only the top suspicious commits and relevant stats/sources/metrics/rendered slices. No raw exports.
 5. **Ask one concrete question per subagent.**
 6. **Collect compact findings.** Each subagent returns commit range, role, evidence, likely fix layer, confidence, and next gap.
 7. **Join findings in the main context.** Rebuild the crime scene across slices: setup → main wave → continued noise. Ask whether slices share one earlier root cause before accepting fragmented fixes.

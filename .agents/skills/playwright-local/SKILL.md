@@ -88,7 +88,7 @@ If two tabs are open on the same URL, the helper warns in `/api/pages` and pushe
 - `"unknown"` — page not yet activated or no React detected.
 
 ### Cross-source hints
-When probes span a dev and a production page, `__resolveProbesCompact` returns a `__crossSourceHints` array that tries to match component names across both sources.
+When probes span a dev and a production page, `window.__CHIPPY.resolveProbesCompact` returns a `__crossSourceHints` array that tries to match component names across both sources.
 
 ---
 
@@ -222,7 +222,7 @@ yarn exec playwright-cli -s=lab run-code "async page => {
 ### Read probe state from within the page
 ```bash
 yarn exec playwright-cli -s=lab run-code "async page => {
-  return await page.evaluate(() => window.__resolveProbesCompact('1', '2', '3'));
+  return await page.evaluate(() => window.__CHIPPY.resolveProbesCompact('1', '2', '3'));
 }" | node -e "
 const chunks = [];
 process.stdin.on('data', d => chunks.push(d));

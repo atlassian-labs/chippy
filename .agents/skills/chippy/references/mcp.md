@@ -61,7 +61,8 @@ to MCP calls exactly as they do to CLI calls.
   environment to use another port (integer 1–65535); configure the browser's helper
   URL to match. Set `CHIPPY_HELPER_HOST` (for example `0.0.0.0`) only when the
   browser must reach the helper over the network. The adapter always connects to
-  loopback on that port.
+  loopback on that port. The Storybook addon always uses port 7823; keep the
+  default port for Storybook pages.
 - A matching helper version is reused. An incompatible response or occupied port
   produces a tool error; Chippy does not replace that process. Stop or upgrade it
   explicitly, or choose another port.
@@ -95,10 +96,10 @@ and are also included as JSON text.
 | --- | --- |
 | `chippy_status` | No arguments; starts/reuses helper and reports browser readiness. |
 | `chippy_pages` | No arguments; lists connected pages. |
-| `chippy_snapshot` | `clientId`, `refresh` (default false). Reads stored evidence; true requests an asynchronous refresh, so read again after the page responds. |
+| `chippy_snapshot` | `clientId`, `refresh` (default false). Reads stored evidence; true requests an asynchronous refresh, so read again after the page responds. Always returns the `standard` slice (owners and parents truncated); use `chippy_probe` `owners` or `parents` for complete chains. |
 | `chippy_probe` | `clientId`, `probeId`, `view`, optional `ownerIndex`, `prop`, `parentLevel`, `max`, `timeoutMs`. Views: `dom`, `parents`, `boundaries`, `owners`, `props`, `prop-value`, `hooks`, `hooks-summary`. `prop-value` requires `prop`. `owners` uses the existing live-owner route and cached-snapshot fallback. |
 | `chippy_find_fibers` | `clientId`, `filters`, optional `timeoutMs`. Filters: `name`, `file`, `prop`, `testid`, `text`, `max`. Returns current fibers; refresh ids after commits or HMR. |
-| `chippy_inspect_fiber` | `clientId`, `fiberId`, `view`, optional `hookIndex`, `windowSize`, `max`, `timeoutMs`. Views: `props`, `owners`, `parents`, `boundaries`, `hooks`, `hooks-summary`, `structure`, `describe`, `explain`. `structure` requires `hookIndex`. Replay-capable views can execute component/hook bodies. |
+| `chippy_inspect_fiber` | `clientId`, `fiberId`, `view`, optional `hookIndex`, `windowSize`, `max`, `timeoutMs`. Views: `props`, `owners`, `parents`, `boundaries`, `hooks`, `hooks-summary`, `structure`, `describe`, `explain`. `structure` requires `hookIndex`. Replay-capable views can execute component/hook bodies. `describe` and `explain` take only a `fiberId`; resolve a name with `chippy_find_fibers` or a probe with a `chippy_probe` view first. |
 | `chippy_avalanche` | `clientId`, `action`, optional fields described below. Uses the existing Avalanche command builder. |
 | `chippy_interact` | `clientId`, `action`, `target`, optional `targetKind` (default `selector`; alternatives `probeId`, `fiberId`), `propName`, `args`, `ownerIndex`, `timeoutMs`. Actions: `click`, `prop-contract`, `invoke`, `schedule-update`. `targetKind` selects click resolution; other actions take a fiber id as `target`. `prop-contract` and `invoke` require `propName`; `invoke` forwards a JSON argument array. Name the stimulus before execution and prove callback contracts before invoking them. |
 | `chippy_wait_annotation` | `clientId`, optional `timeoutMs` (default 30000, maximum 60000). Consumes one UI intent/comment, waits once, or returns normal `status: "timeout"`. Repeat only while the user-requested loop remains active; cancellation closes the HTTP long poll. |
@@ -108,8 +109,15 @@ Avalanche actions: `status`, `install`, `uninstall`, `clear`, `export`,
 `describe-action`. `install` starts capture; `clear` resets evidence;
 `uninstall` stops capture. Optional `options` contains `detectionMode`
 (`stats`, `sources`, `amplifiers`, `full`), `historySize`, and `captureFibers`.
+Without `options`, `install` uses the runtime defaults (`amplifiers`,
+`historySize: 1`, no fiber capture), not the CLI's settings; one retained commit
+is rarely enough for analysis. To match `avalanche-install`, pass
+`options: { detectionMode: "sources", captureFibers: true, historySize: 1000 }`.
+For `avalanche-recapture <mode>`, call `install` with those options and the
+chosen `detectionMode`, then `clear`.
 Analysis fields are `limit`, `count`, `top`, `by`, `commitId`, `include` (array),
 `depth`, `maxItems`, `sourceId`, `hookIndex`, `window`, `actionId`, and `timeoutMs`.
+`depth` is accepted for CLI parity but is currently ignored by the live bridge.
 Use captured ids for commit, hook, and action analysis. See the
 [Avalanche reference](avalanche-detector.md) for result semantics.
 

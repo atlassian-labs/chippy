@@ -3,17 +3,23 @@
 The injected bundle exposes `window.__CHIPPY` in the page. The APIs below are
 nested capabilities on that public root.
 
+## Connection state
+
+- `window.__CHIPPY.connState` — `connected`, `reconnecting`, `failed`, or `yielded`. `yielded` means the extension bridge stood down because another integration (Storybook or a console import) owns the page.
+- `window.__CHIPPY.standDown` — `{ at, owner }` after the extension bridge yields; read `chippy.sh pages` for the live owner.
+
 ## `window.__CHIPPY.inspectReact`
 
 Fiber inspection helpers for React pages.
 
 - `inspectNode(domNode)`
-- `findByText(text)`
-- `findBySelector(selector)`
-- `inspectAtPoint(x, y)`
-- `getNearestComponent(domNode)`
-- `getOwnerChain(fiber)`
-- `getReturnChain(fiber)`
+- `findByText(text, root?)` / `findBySelector(selector, root?)` — `root` defaults to `document`
+- `inspectAtPoint(x, y)` — `[{ node, inspection }]` for every element at the point
+- `getFiberFromNode(domNode)` / `getClosestFiber(domNode)` — the node's own fiber / nearest ancestor fiber
+- `getNearestCompositeFiber(fiber)` — nearest component (non-host) fiber on the `return` path
+- `describeFiber(fiber)`
+- `getOwnerChain(fiber)` / `getReturnChain(fiber)`
+- `getReactInternalKeys(domNode)`
 
 ## `window.__CHIPPY.layoutLab`
 
@@ -37,6 +43,9 @@ Important behavior:
 - extension-owned panels expose the helper URL and plugin settings behind the gear; the isolated content script mounts the form in a closed shadow root, with no iframe and no page access to extension storage
 - Storybook host-panel mode keeps a standalone dock in the preview frame because probe details live in the manager frame
 - docked probes are inactive
+- drop a placed probe back on its row to dock it again; the header buttons collapse the panel to the launcher or move it to the other side of the viewport
+- clicking a boundary card also highlights that boundary's DOM on the page and scrolls it into view
+- saving the gear form reconnects the page to the new helper URL immediately
 - while dragging:
   - ← / → walks DOM element levels (up/down the DOM tree)
   - ↑ / ↓ walks fiber parent chain (up/down React component tree)
@@ -60,7 +69,7 @@ The helper must be a real local process reachable by the user's browser. The age
 - `setProbeAnnotation(probeId, { intent, comment })`
 - `ensureProbes()`
 - `clearProbes()`
-- `showStatus(text)` / `hideStatus()`
+- `showStatus(text)` / `hideStatus()` — compatibility no-ops; nothing renders in the page
 - `getState()` — includes `integration: { kind, who, source, reinjectsOnReload, reloadAction }`
 - `applyConfig({ helperBaseUrl, activated, integration?, contextUiEnabled? })`
 
@@ -68,9 +77,11 @@ The helper must be a real local process reachable by the user's browser. The age
 
 Source reads are cross-version. React <=18 locations come from `_debugSource`; when the module the page loaded for that file carries a source map, its recorded literal is mapped back to correct lines shifted by an earlier transform. React 19 locations start at `_debugStack`, skip dependency frames, and resolve the served module through its inline or external Source Map v3 payload. Snapshot publication is immediate and may be followed by a `<reason>-source-resolved` snapshot when the authored position differs; `find-fibers`, `describe-component`, and `explain-component` await the mapped position.
 
-`integration.kind` is `extension`, `import`, or `storybook`. `who` names the host that established Chippy and `source` points to its real setup source file. Import integrations report `reinjectsOnReload: false`; a full reload/navigation requires the user or automation to run the import again.
+`integration.kind` is `extension`, `import`, or `storybook`. It is `null` for proxy and Playwright-loaded pages. `who` names the host that established Chippy and `source` points to its real setup source file. Import integrations report `reinjectsOnReload: false`; a full reload/navigation requires the user or automation to run the import again.
 
 ## Storybook addon panels
+
+Probes start hidden in Storybook. **Show probes** in the Chippy panel header (or `ensure-probes <clientId>`) places the P1/P2 dock in the preview, and **Hide probes** (or `clear-probes`) removes it. Selecting the **Avalanche** tab clears placed probes and installs capture. Avalanche history is cleared when the story changes, remounts (including `page-reload`), or hot-updates.
 
 The Chippy panel presents probe targets rather than transport counters. While a probe is held in the preview, left/right walk DOM targets and up/down walk the React component chain.
 
@@ -92,15 +103,16 @@ That command installs the Chippy skill with the skills CLI when it is absent. It
 
 Resolve one or more probes into DOM + React + source summaries.
 
-- `__resolveProbes('1', '2')`
-- `__resolveProbesCompact('1', '2')`
+- `window.__CHIPPY.resolveProbes('1', '2')` — full summary per probe id (`null` for an unplaced probe)
+- `window.__CHIPPY.resolveProbesCompact('1', '2')` — compact summary per probe id
 
 Compact results include:
-- `confidence`
-- `dom`
-- `component`
-- `note`
-- `__crossSourceHints`
+- `confidence` and `note`
+- `nearestTestId`
+- `dom` — `tag`, `text`, `fiberType`, `source`, DOM `parents`, `matchedStyles`
+- `component` — see below; non-dev builds also carry `componentStack`
+- `__crossSourceHints` — present when the probes come from different build modes
+- `__commonParent` — nearest component shared by both probes, when one exists
 
 `component` includes:
 - `propNames` — all prop keys (excluding `children`) on the probe component
@@ -109,6 +121,18 @@ Compact results include:
 - `owners[N].hookCount` / `hookCountTruncated` / `hookCountMax` — same complexity signal for each owner
 
 Always surface `key` when present.
+
+## `window.__AVALANCHE__`
+
+Prefer the `avalanche-*` shell commands. Read the page global directly only when the helper cannot reach the page, for example right after a reload in [mode-a-injection](mode-a-injection.md).
+
+- `status()` — `{ installed, hasMetricsGlobal, commitCount, integrationMode, metricsAdapter }`
+- `exportLast(n?)` — same as `report()` with default arguments; `n` currently has no effect. Use `chippy.sh avalanche-save <clientId> <file> N` to keep only the last N commits
+- `report(topN?, sortBy?)` — live report; `topN` defaults to 10 and `sortBy` is `effect` (default), `callback`, `memo`, or `total`
+- `install(options?)`, `uninstall()`, `reset()` — with no options, non-development builds install `amplifiers` mode with `historySize: 1` and no fiber capture; `avalanche-install` sets its own options
+- `enablePlugins(ids)`, `listPlugins()` — see [React compatibility](../SKILL.md#react-compatibility) in `SKILL.md`
+
+Before `install`, `report`, `exportLast`, and `debugHook` return `{ ok: false, error: 'not installed' }`.
 
 ## Page-bridge request examples (sent from helper → page bridge)
 

@@ -23,7 +23,7 @@ The shell wrapper forwards every `--key value` pair into `ctx.args`, coercing nu
 
 | Snippet | Kind | Use it when |
 |---|---|---|
-| `find-context-providers` | Read-only | List modern `React.createContext` providers; filter with `--name <regex>`. |
+| `find-context-providers` | Read-only | List fibers whose type references a Context (`type._context`), grouped by Context name; filter with `--name <regex>`. On React 18 this includes `<Context.Consumer>` fibers; on React 19 `<Context>` providers are not matched. Confirm a provider with `find-fibers` before nudging it. |
 | `find-legacy-context` | Read-only | Find legacy `childContextTypes` / `contextTypes` producers and consumers. |
 | `count-context-consumers` | Read-only | Count consumers for a Context display-name regex with `--name`. |
 | `find-prop` | Read-only | Find fibers by prop name or value when a probe revealed a clue but the owner chain is broad. |
@@ -43,9 +43,22 @@ Read [hook metrics](../references/hook-metrics.md) before using the metrics snip
 
 `--types` defaults to `layout-shift`, `long-animation-frame`, `event`, `largest-contentful-paint`, `paint`, and `navigation`, limited to what the browser supports (`unsupported` lists the rest). `--since` drops entries that started before a `performance.now()` value, for example a commit's `startTime`. `--max` caps entries per type; layout shifts, long frames, and events are ranked largest first. `--scripts` caps the scripts kept per long frame, and `--commits` caps the ids in `commits.during`.
 
-The result has `summary` (`cls` as the largest session window, `layoutShifts`, `longFrames`, `totalBlockingMs`, `interactions`, `worstInteractionMs`, `lcpMs`, `fcpMs`, `ttfbMs`) and `entries[type].items`. Shift sources, interaction targets, and the LCP element carry `component`, `source`, `testId`, and `element`; `component` is `null` when the node is not rendered by React, for example `body`. With Avalanche installed, `avalanche` reports the commit count and report version, and each entry carries `commits.during` and `commits.before`. Report version 7 or later is required for the commit join.
+The result has `summary` (`cls` as the largest session window, `layoutShifts`, `longFrames`, `totalBlockingMs`, `interactions`, `worstInteractionMs`, `lcpMs`, `fcpMs`, `ttfbMs`) and `entries[type].items`. Shift sources, interaction targets, and the LCP element carry `component`, `source`, `testId`, and `element`; `component` is `null` when the node is not rendered by React, for example `body`. With Avalanche installed, `avalanche` reports `commits`, `reportVersion`, and `timeOriginMatches`; when `timeOriginMatches` is false, the capture belongs to another document and the commit join is invalid. Each entry carries `commits.during` (capped by `--commits`), `commits.duringCount`, and `commits.before` (`{ commitId, gapMs }`). Report version 7 or later is required for the commit join.
 
 Limits come from the browser: each entry type keeps a bounded buffer (about 150 entries; 200 for long animation frames), and only events of 104 ms or more are buffered. `worstInteractionMs` is the worst buffered interaction, not a percentile INP. Run the snippet soon after the interaction you are measuring.
+
+### Fiber and context search snippets
+
+```bash
+./scripts/chippy.sh eval-page <clientId> find-prop --prop <name> [--value <regex>] [--name <regex>] [--file <regex>] [--groupBy name|file|none] [--max 200] [--depth 2]
+./scripts/chippy.sh eval-page <clientId> find-context-providers [--name <regex>] [--max 500]
+./scripts/chippy.sh eval-page <clientId> count-context-consumers --name <regex> [--max 100]
+./scripts/chippy.sh eval-page <clientId> find-legacy-context [--name <regex>] [--kind producer|consumer|both] [--max 500]
+```
+
+All regexes are case-insensitive. `find-prop` matches an exact prop key on `memoizedProps`; `--value` matches the string value or a type tag such as `[Object]` or `[Function name]`. It returns `{ propKey, totalFibers, matched, groups, top }`; each row has `name`, `file`, `line`, `count`, and up to three `samples` with `self`, `owner`, `propValueTag`, and a depth-trimmed `propValue`. Use `find-fibers --prop` when the prop name alone is enough.
+
+`find-context-providers` returns `{ totalProviders, top: [{ name, count, samples }] }` grouped by Context display name. `count-context-consumers` counts fibers whose context dependencies include a matching Context and returns `{ matchedContexts, totalConsumers, sampleCount, consumers }`. `find-legacy-context` returns `{ scannedFibers, producers, consumers }`; each row lists `contextKeys`. A missing required argument returns `{ error }`.
 
 ## Authoring contract
 
@@ -81,6 +94,8 @@ Prefer the smallest result that answers the question. Return summaries or bounde
 ```
 
 The helper removes circular references, trims depth, represents functions as strings, and caps arrays at 200 items per level.
+
+When a snippet throws or exceeds the five-second page-script limit, the helper answers HTTP 504. `chippy.sh` exits 22, prints its generic 504 "timed out while waiting for an upstream result" explanation to stderr, and then prints the page's `error`: the thrown stack, or `script timeout after 5000ms`. `log` is not printed. Read `error` before treating the failure as an unresponsive page. A snippet that returns its own `{ ok: false, reason }` still arrives inside a successful envelope's `result`. An unknown snippet name exits 1 with `snippet not found: <name>` before contacting the page.
 
 ## Safety and ownership
 

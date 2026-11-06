@@ -47,20 +47,16 @@ if (testId) {
   fiber = fiberFromNode(node);
   if (!fiber) return { ok: false, reason: 'no-composite-fiber-for-testid', label };
 } else {
-  const resolveAll = globalThis.__resolveProbes || globalThis.__resolveProbesCompact;
-  if (typeof resolveAll !== 'function') return { ok: false, reason: 'no-resolver', label };
-  const resolved = resolveAll(probeId);
-  const entry = Array.isArray(resolved) ? resolved[0] : resolved && resolved[probeId];
-  if (entry && entry.__fiber) {
-    fiber = entry.__fiber;
-  } else {
-    const lab = globalThis.__layoutLab;
-    const probe = lab && lab.getMarkerProbe ? lab.getMarkerProbe(probeId) : null;
-    const node = probe && probe.element;
-    if (!node) return { ok: false, reason: 'no-fiber', label };
-    fiber = fiberFromNode(node);
-    if (!fiber) return { ok: false, reason: 'no-composite-fiber', label };
-  }
+  // Same probe → fiber resolution the bridge uses for probe-props/probe-hooks.
+  const lab = globalThis.__CHIPPY && globalThis.__CHIPPY.layoutLab;
+  if (!lab || typeof lab.getMarkerProbe !== 'function') return { ok: false, reason: 'no-resolver', label };
+  const marker = lab.getMarkerProbe(probeId);
+  const probe = marker && marker.probe;
+  if (!probe) return { ok: false, reason: 'probe-not-placed: ' + probeId, label };
+  let best = probe._bestFiber || null;
+  while (best && (typeof best.type === 'string' || best.type == null)) best = best.return;
+  fiber = best || fiberFromNode(probe._targetEl || null);
+  if (!fiber) return { ok: false, reason: 'no-composite-fiber', label };
 }
 
 if (dryRun) {

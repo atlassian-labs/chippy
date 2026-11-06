@@ -53,7 +53,7 @@ All operations live in:
 ```
 
 ### Session
-- `launch({ browser, url, headless })`
+- `launch({ browserName?, url?, headless?, descriptor? })` — `browserName` is `chromium` (default) or `webkit`; `headless` defaults to `true`; a `descriptor` is resolved after navigation into `session.resolution`. Returns `{ browser, context, page, resolution }`.
 - `close(session)`
 - `goto(session, url, options?)`
 - `reload(session, options?)`
@@ -114,7 +114,7 @@ Operations:
 - `avalancheExport(session, lastN?)`
 - `reloadWithAvalanche(session, { settleMs?, hotLimit? })`
 
-Supported generic actions are `install`, `uninstall`, `reset`/`clear`, `status`, `export`, `export-last`, `debug-hook`, `hot-sources`, `commit-list`, `commit-peek`, and `describe-action`. The module still exports legacy `avalancheStart`, `avalancheStop`, and `avalancheMetrics` wrappers for compatibility; do not use them in new workflows. `avalancheStart` is only an alias for `install`, while `stop` and `metrics` are not actions on the current bridge contract.
+Supported generic actions are `install`, `uninstall`, `reset`/`clear`, `status`, `export`, `export-last`, `debug-hook`, `hot-sources`, `commit-list`, `commit-peek`, and `describe-action`. The module still exports legacy `avalancheStart`, `avalancheStop`, and `avalancheMetrics` wrappers for compatibility; do not use them in new workflows. `avalancheStart(session, max?)` runs `install` with `detectionMode: "full"`, `captureFibers: true`, and a history size of at least 100 when `max` is given; `stop` and `metrics` are not actions on the current bridge contract.
 
 Helper base URL is `http://127.0.0.1:7823/__chippy` by default and can be
 overridden with `CHIPPY_HELPER_BASE`.
@@ -127,7 +127,7 @@ Commits that occur before that post-reload install are not captured. Use this he
 
 Flow:
 1. `page.reload()` via Playwright
-2. wait for the reinjected runtime and a fresh `clientId`
+2. wait for the reinjected runtime and for the helper to register the reloaded page's client
 3. install the detector through the helper
 4. settle for `settleMs` (default 3000)
 5. read `status` and `hot-sources` through the helper
@@ -136,7 +136,7 @@ Returns:
 ```js
 {
   previousClientId,
-  clientId,        // new clientId after reload
+  clientId,        // client after reload; usually the same id, because the page keeps it in sessionStorage
   install,         // explicit detector-install response
   status,          // helper avalanche-status response
   hot,             // helper hot-sources response
@@ -172,14 +172,27 @@ Helper command:
 ./scripts/chippy.sh handoff-to-playwright <clientId> [url] [probeIdsCsv] [browserName] [headless]
 ```
 
-What it does:
-1. Captures live probe descriptors from the source extension client.
-2. Launches Playwright Chromium and navigates to URL.
-3. Injects shared __CHIPPY runtime via `playwright-session.js`.
-4. Registers the new page as another helper client.
-5. Returns descriptors so Playwright probe code can resolve them.
+Use it when the user has already placed P1/P2 on a connected page and the work
+should continue in a controlled browser.
 
-The Playwright session is then operated like any other helper client.
+What it does:
+1. Captures live descriptors for `probeIdsCsv` (default `1,2`) from the source
+   client. Fails with HTTP 400 `No live probes could be captured as descriptors`
+   when none of the requested probes is placed.
+2. Launches `browserName` (`chromium` default, or `webkit`) inside the helper
+   process, headless unless `headless` is `false`, and opens `url` (default: the
+   source page URL).
+3. Loads the shared `__CHIPPY` runtime as init scripts and waits up to 10 seconds
+   for the new page to register as a helper client.
+4. Returns `{ ok, sourceClientId, targetClientId, url, descriptors, target }`,
+   where `descriptors` maps probe id to descriptor and `target` is the new page
+   summary. The handoff does not re-place probes on the new page; resolve the
+   returned descriptors there.
+
+Drive the new page with helper commands against `targetClientId`, like any other
+client; your own Playwright code cannot attach to that browser. The browser stays
+open until the helper stops. When the helper cannot load the `playwright`
+package, the command fails with HTTP 503 and `code: "CHIPPY_PLAYWRIGHT_UNAVAILABLE"`.
 
 ## When to use Playwright vs extension
 

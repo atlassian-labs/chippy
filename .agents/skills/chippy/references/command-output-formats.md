@@ -2,7 +2,11 @@
 
 Exact response shapes for the commands expanded below. Start with the complete [command surface](command-surface.md) when selecting a command.
 
-Commands return either plain text lifecycle messages on stderr or JSON on stdout. Successful JSON normally includes `"ok": true`; failures include `"ok": false` and an `error`. Command-specific references own the larger contracts:
+Commands return either plain text lifecycle messages on stderr or JSON on stdout. Successful JSON normally includes `"ok": true`; failures include `"ok": false` and an `error`. A helper HTTP status of 400 or higher makes the shell exit non-zero.
+
+Every `<clientId>` argument accepts the full id or a unique prefix of a connected page's id. A prefix match reports the typed value in `resolvedFrom`; `resolvedFrom` is `null` for an exact id. Most commands report the full id in `targetClientId`; `request-snapshot` reports it in `requested`, `page-reload` in `reloading`, and `page-wait-reload` in `clientId`. An ambiguous prefix fails with HTTP 409 and lists the matching ids; an unknown id fails with HTTP 404. `page <clientId>` prints only curl's HTTP error on failure, so it does not show the matching ids.
+
+Command-specific references own the larger contracts:
 
 - [Avalanche detector](avalanche-detector.md) owns capture, commit, render, unmount, action, hook-debug, and offline-analysis shapes.
 - [Stability render](stability-render.md) owns the `fiber-schedule-update` / `stability-nudge` procedure and verdict shapes.
@@ -24,7 +28,7 @@ Failed to start Chippy helper.           ← timeout (exit 1)
 
 stdout after stderr line — same shape as `health`:
 ```json
-{ "ok": true, "now": "2026-04-16T08:39:49.493Z" }
+{ "ok": true, "version": "1.2.3", "now": "2026-04-16T08:39:49.493Z" }
 ```
 
 ---
@@ -44,10 +48,10 @@ Timed out waiting for Chippy helper to stop    ← exit 1
 ## `health`
 
 ```json
-{ "ok": true, "now": "2026-04-16T08:39:49.493Z" }
+{ "ok": true, "version": "1.2.3", "now": "2026-04-16T08:39:49.493Z" }
 ```
 
-Fields: `ok` (bool), `now` (ISO 8601 timestamp).
+Fields: `ok` (bool), `version` (the running helper's Chippy version; compare it with the extension and skill version when behavior looks stale), `now` (ISO 8601 timestamp).
 
 ---
 
@@ -127,8 +131,11 @@ Records are separated by one blank line. `score` is useful only for ordering res
 | `activated` | ✓ | ✓ | ✓ |
 | `probesActive` | ✓ | ✓ | ✓ |
 | `buildMode` | ✓ | ✓ | ✓ |
+| `lastInspectedBoundary` | ✓ | ✓ | ✓ |
 | `page` | ✓ | ✓ | ✓ |
 | `latestSnapshot` | ✓ | ✓ | ✓ |
+
+`lastInspectedBoundary` is `null` until the user clicks a boundary card, then `{ markerId, boundaryKind, boundary, distance, at }` for the most recent click.
 
 **`latestSnapshot.markers` fields by slice:**
 
@@ -168,6 +175,8 @@ Records are separated by one blank line. `score` is useful only for ordering res
 ```
 
 For `kind: "import"`, `reinjectsOnReload` is always `false`: full reload/navigation removes Chippy and the user or automation must run the import again.
+
+Pages loaded by the local proxy, the packaged Playwright loader, or the pre-page start-up scripts report `integration: null`, and their `summary` shows `unidentified Chippy integration`. Identify them by URL (proxy pages are served on the helper port) and by the route you started.
 
 **`summary`** — human-readable one-liner for quick page identification:
 ```
@@ -322,11 +331,12 @@ All return the **command envelope**:
   "ok": true,
   "delivered": 1,
   "targetClientId": "<clientId>",
+  "resolvedFrom": null,
   "command": { "type": "activate" }
 }
 ```
 
-`delivered` — integer count of clients the command was actually sent to. `0` means the clientId was not found (no error raised, just not delivered).
+`delivered` is the number of pages that received the command. An unknown clientId fails with HTTP 404 and an ambiguous prefix fails with HTTP 409; both return `ok: false`, `delivered: 0`, `error`, and the echoed `command`, and the shell exits non-zero.
 
 ---
 
@@ -347,7 +357,7 @@ Shows or hides context-provider cards (for example Jira ownership) in the active
 
 ## `show-status <clientId> <text>`
 
-Same envelope with the `text` field echoed inside `command`:
+The command is delivered, but the page renders nothing; `show-status` and `hide-status` are kept for compatibility. Report progress in chat. The response is the same envelope with the `text` field echoed inside `command`:
 
 ```json
 {
@@ -362,7 +372,7 @@ Same envelope with the `text` field echoed inside `command`:
 
 ## `command <type> [clientId]`
 
-Generic passthrough. Returns the same command envelope as above with whatever `type` was passed.
+Generic passthrough. Returns the same command envelope as above with whatever `type` was passed; only `type` is forwarded. Without `clientId`, the helper sends the command to every connected page, reports `delivered: N`, and sets `targetClientId: null`. Always pass a clientId unless every page should act.
 
 ---
 
@@ -589,6 +599,30 @@ Timeout / client not found: same shape as `get-computed-style`.
 
 ---
 
+## `probe-owners <clientId> <probeId>` / `probe-owner <clientId> <probeId> <ownerIndex>`
+
+`probe-owners` reads the live `_debugOwner` chain (up to 50 owners). When the live read fails, it falls back to the latest snapshot. Top-level `source` reports which path answered: `live` or `snapshot`.
+
+```json
+{
+  "ok": true,
+  "source": "live",
+  "probeId": "1",
+  "component": { "name": "IssueCard", "propNames": ["issue"], "hookCount": 37, "hookCountTruncated": false, "hookCountMax": 500 },
+  "owners": [
+    { "ownerIndex": 0, "name": "IssueRow", "key": null, "propNames": ["issue"], "hookCount": 4, "hookCountTruncated": false, "hookCountMax": 500, "source": { "fileName": "…/IssueRow.tsx", "lineNumber": 12, "columnNumber": 3 } }
+  ],
+  "targetClientId": "<clientId>",
+  "resolvedFrom": null
+}
+```
+
+Each owner's `source` is its source location, not the live/snapshot flag. When the live read fails and there is no snapshot, no such probe, or no resolved probe data, the response is `ok: false` with an `error`, `probesActive`, and `latestSnapshotAt`, returned with HTTP 200.
+
+`probe-owner` returns one owner entry from the latest snapshot only, flattened to the top level with `probeId` and `ownerIndex`; it can be stale, so run `request-snapshot` first. A missing snapshot, probe, or owner index fails with HTTP 404.
+
+---
+
 ## `probe-hooks-summary <clientId> <probeId>`
 
 Prepared hook summary for the exact probe fiber. Use this before raw `probe-hooks` when the question is "how many hooks / what kinds / what repeated shape?".
@@ -682,6 +716,8 @@ Timeout / client not found: same shape as `get-computed-style`.
 
 Searches the live fiber tree without probe placement. Returns remembered `fiberId` tokens for the current page realm.
 
+Only named fibers are returned. `--name`, `--file`, `--testid` and `--text` are case-insensitive regexes. `--text` and `--testid` match the fiber's nearest DOM text and `data-testid`. `--prop` is an exact prop name and matches when the prop is present, whatever its value. All given filters must match. `--max` defaults to 50.
+
 ```json
 {
   "ok": true,
@@ -701,7 +737,7 @@ Searches the live fiber tree without probe placement. Returns remembered `fiberI
 }
 ```
 
-`fiberId` uses the canonical string form `fiber:<N>`. A bare numeric input is accepted as shorthand and normalized to that string. The registry survives commits within the current page realm, but React may replace the current fiber alternate after any commit; re-run `find-fibers` after state changes, interactions, HMR, navigation, or reload. Navigation/reload replaces the page realm and invalidates the registry entirely.
+`fiberId` uses the canonical string form `fiber:<N>`. Pass `fiber:N` when targeting a fiber from the shell. Bare numbers are interpreted per command: `page-click` reads 1-3 (or P1-P3) as probes and any other number as a fiber; `explain-component` reads any number as a probe id; `describe-component` reads it as a component name. The registry survives commits within the current page realm, but React may replace the current fiber alternate after any commit; re-run `find-fibers` after state changes, interactions, HMR, navigation, or reload. Navigation/reload replaces the page realm and invalidates the registry entirely.
 
 ## `fiber-state-capture <clientId> [label] [maxFibers]`
 
@@ -1046,6 +1082,8 @@ Proxy active:
 `injectTarget` — the path+search the proxy will inject the Chippy bundle into. Derived from `originalUrl`. `null` if no `originalUrl` was given.
 
 `targetHost` — where requests are forwarded. The proxy forwards only to this machine: it uses the loopback host of `originalUrl` (`localhost`, `127.0.0.1`, `[::1]`), or `localhost` when none is given, and reaches servers listening on either IPv4 or IPv6. Into the injected document it adds the DevTools hook shim and the Avalanche runtime before page scripts, and the page bridge at the end of the body.
+
+`proxy-start` returns no address to open. Open the same path and query on the helper: for `http://localhost:3000/issues/ABC-123`, open `http://127.0.0.1:7823/issues/ABC-123`. Chippy is added only to successful HTML `GET` responses for `injectTarget` (exact path, and exact query when `search` is set); every other request and WebSocket, including HMR, is forwarded unchanged. Without `originalUrl` the proxy forwards but never adds Chippy. The page runs on the helper's origin, so cookies, storage, and absolute redirects to the dev server's origin do not carry over.
 
 ---
 

@@ -1,7 +1,8 @@
 # Hook metrics — `setStateCount` + the hook-update tracker
 
-Reference for the two snippets that consume the react-dom patch's hook metrics:
-`hook-metrics` (read-only) and `hook-tracker` (drives the `onHookUpdate` callback).
+Reference for the three snippets that consume the react-dom patch's hook metrics:
+`hook-metrics` (read-only), `hook-metrics-sample` (bounded before/after delta), and
+`hook-tracker` (drives the `onHookUpdate` callback).
 They belong to the ATL plugin: they read the ATL adapter's `__ATL_REACT_METRICS`
 slot and need Atlassian's patched `react-dom` to report anything.
 
@@ -47,8 +48,10 @@ core distinction from Avalanche:
 ```bash
 ./scripts/chippy.sh eval-page <clientId> hook-metrics
 ./scripts/chippy.sh eval-page <clientId> hook-metrics --keys setStateCount,contextUpdateCount,totalCommitCount
-./scripts/chippy.sh eval-page <clientId> hook-metrics --raw     # every own key, functions tagged
+./scripts/chippy.sh eval-page <clientId> hook-metrics --raw true   # every own key, functions tagged
 ```
+
+Every flag needs a value: pass `--raw true`, not a bare `--raw`.
 
 Returns `{ present, wiped, setStateCount, setStateCountValid, onHookUpdateInstalled, counters:{…} }`.
 Use it to read the current dispatch volume without installing anything. If `present:false`,
@@ -68,7 +71,7 @@ CID=<clientId>
 ./scripts/chippy.sh eval-page $CID hook-tracker --action counts            # source of truth, compact
 ./scripts/chippy.sh eval-page $CID hook-tracker --action histogram --buckets 3,6,11
 ./scripts/chippy.sh eval-page $CID hook-tracker --action offenders --threshold 10
-./scripts/chippy.sh eval-page $CID hook-tracker --action uninstall         # restore slot (only if still owned)
+./scripts/chippy.sh eval-page $CID hook-tracker --action uninstall         # clear the slot (only if still owned)
 ```
 
 ### Actions
@@ -82,7 +85,7 @@ CID=<clientId>
 | `histogram --buckets a,b,c` | DB-safe: for each kind, count of `type:slot` identities whose total reached each bucket |
 | `offenders --threshold N [--top M]` | dev-only: slots with `count > N`, carrying component name + source (needs `debug` mode) |
 | `reset` | clear counts, stay installed |
-| `uninstall` | restore `onHookUpdate` **only if we still own it**; retains last counts for a final read |
+| `uninstall` | clear `onHookUpdate` to `undefined` **only if Chippy still owns it**; keeps the last counts for a final read |
 
 ### Reading the numbers
 
@@ -130,6 +133,11 @@ The "lighthouse number" as a first-class read. Sample the counter, optionally cl
 Returns `{ available, label, before, after, delta, clicked, settleMs }`. **Metric-optional:**
 if the patch is absent / wiped / `NaN` it returns `{ available:false, reason }` and never
 throws.
+
+The whole sample runs inside the five-second page-script limit: keep
+`settleMs + clicks × min(80, settleMs)` under about 4500 ms. `--click` dispatches
+`element.click()` on the first matching `data-testid`, which is a page stimulus; state the
+anchor contract before using it.
 
 ## Avalanche integration — `setStateCount` per commit
 
@@ -180,7 +188,7 @@ procedure that requires it** — it is an enrichment when present, nothing when 
 3. **Experiment**: after a fix, `hook-tracker reset` → reproduce → `counts` again, or use
    [stability-render](stability-render.md) to verify without a user gesture. Same signal,
    before/after.
-4. **`uninstall`** to hand the slot back.
+4. **`uninstall`** to release the slot.
 
 ## Anchor contract
 
@@ -189,9 +197,12 @@ procedure that requires it** — it is an enrichment when present, nothing when 
 - reads `setStateCount` (a counter the patch already writes), and
 - **owns `onHookUpdate`** — a slot the host leaves for exactly this purpose.
 
-What becomes opaque while installed: any *other* consumer of `onHookUpdate` is displaced
-until `uninstall`. `uninstall` restores the slot **only if Chippy still owns it** (it checks
-`onHookUpdate === record`), so a host that re-seeded the object after install is not clobbered.
+What becomes opaque while installed: `install` replaces any existing `onHookUpdate` consumer
+and does not save it. `uninstall` clears the slot to `undefined` **only if Chippy still owns
+it** (it checks `onHookUpdate === record`), so a host that re-seeded the object after install
+is not clobbered; it does not restore an earlier host consumer. If the host already had an
+`onHookUpdate` consumer (check with `hook-metrics`: `onHookUpdateInstalled: true`), state
+that it will be dropped until the page reloads.
 If the host wiped the object and `install` had to seed one, that seeded object persists after
 uninstall with `onHookUpdate = undefined` — harmless, and re-wiped on the next host reset.
 

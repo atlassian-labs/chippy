@@ -72,10 +72,10 @@ Read the GIVEN column first. Pick the row that best matches the situation. Follo
 | R-11A | Page reports layout shift, long frames, or slow INP | "What moved the layout?" / "Why is this frame long?" | P-14 → P-04 → P-15 | `avalanche-arm` → interact → `eval-page perf-entries` → `commit-peek <commits.before or during> stats,sources,rendered` | Entry named with its component and nearest commit; that commit's source proven separately, not inferred from timing |
 | R-12 | Capture has >100 commits | Analyse without losing context | P-09 → P-15 | `avalanche-save` → `avalanche-offline` → subagent per wave | Crime scene rebuilt: setup → wave → noise |
 | R-13 | Suspected unstable memo or context | "Does this re-render when it shouldn't?" | P-14 → P-06 → P-15 | `avalanche-recapture full` → schedule one target render → settle → status → commit-list → commit-peek `stats,sources,rendered` → classify | `commitCount`, `collateral`, `trasherCounts`, verdict, render invariant |
-| R-14 | Stability-render shows leak, hook role unclear | "Which hook causes this?" | P-07 → P-15 | `avalanche-recapture` → reproduce trigger → `avalanche-debug-hook` | `target.primitive` confirmed; remediation branch chosen |
+| R-14 | Stability-render shows leak, hook role unclear | "Which hook causes this?" | P-07 → P-15 | `avalanche-recapture` → reproduce trigger → `avalanche-debug-hook` | `primitive` confirmed; remediation branch chosen |
 | R-15 | Context updates high in commit list | "Why is context re-rendering everything?" | P-14 → P-08 → P-15 | `commit-list contextUpdates` → `commit-peek` → provider sample → unique `find-fibers` match → direct schedule-update | Provider value identity confirmed stable/unstable |
 | R-15A | Unmounts appear during interaction | "What branch is being torn down?" | P-14 → P-18 → P-15 | `commit-list unmountedSubtrees` → `commit-peek stats,sources,atl` → owner/key/type trace | Branch start named; legitimate teardown vs accidental remount separated; Chippy states where unmount starts |
-| R-15B | Suspense boundary likely entered or left fallback | "Did Suspense cause this wave?" | P-14 → P-04 → P-15 | `commit-peek stats,sources,atl` → read `suspenseByCommit` + source trace below boundary | Boundary transition named as enter/leave; Chippy says whether to look at boundary or below it; placeholder separated from business source |
+| R-15B | Suspense boundary likely entered or left fallback | "Did Suspense cause this wave?" | P-14 → P-04 → P-15 | `commit-peek stats,sources,metrics` → `avalanche-save` and read `suspenseByCommit[N]` (`commit-peek` has no Suspense slice) + source trace below boundary | Boundary transition named as enter/leave; Chippy says whether to look at boundary or below it; placeholder separated from business source |
 | R-15C | One sibling/cousin/descendant branch is noisy enough to hide target signal in the same tree | "Can we isolate this branch in place?" | P-14 → P-15 → P-16 → P-20 → P-12 | prove mixed branches → authorize temporary prune/shallow edit → same capture → revert plan | Same target signal becomes smaller/clearer without unrelated branch work; ancestors untouched; maneuver declared temporary |
 | R-15D | Only available noise is in an ancestor (cannot be pruned in place) | "Can we move the target to a cleaner harness?" | P-14 → R-03A → P-13 → P-12 | move target into Storybook/local fixture; re-measure same signal there | Target rendered without ancestor noise; same measurement repeated in new harness |
 | R-16 | After fix applied | "Did the fix work?" | P-12 | Same capture as before fix; compare `collateral`, `commitCount`, hot-source rank | Same signals reduced; no new signals added |
@@ -111,9 +111,9 @@ Read the GIVEN column first. Pick the row that best matches the situation. Follo
 | R-30 | Too many re-renders, context suspected | "Find what context is thrashing" | P-14 → P-08 → P-15 | `find-context-providers` → `count-context-consumers` → resolve provider with `find-fibers` → `fiber-schedule-update` | Provider identity and consumer blast radius measured |
 | R-31 | Legacy context suspected | "Are there legacy context users?" | P-14 → eval-page snippet → P-15 | `eval-page find-legacy-context` | Producer/consumer pairs listed |
 | R-32 | `debug-hook` returns `Context` primitive | Investigate provider side | P-08 + stability-render → P-15 | provider sample → unique `find-fibers` match → `fiber-schedule-update` → classify | Provider value stable/unstable confirmed |
-| R-33 | SyncExternalStore hook, over-broad selector | Prove subscription width first | P-19 → P-15 → maybe P-16 | `avalanche-debug-hook` → existing debugValues/source selector read → consumed/subscribed comparison | Consumed fields and subscribed fields both named |
-| R-34 | Selector returns object/array each render | Prove identity churn | P-19 | `debug-hook` value/debugValues + source selector read | Equal-data/new-identity condition proven |
-| R-35 | Store updates frequently but consumer reads one field | Prove broad store mutation | P-19 → P-15 | compare `target.value` changes to rendered fields | Store mutation rate vs consumer need separated |
+| R-33 | SyncExternalStore hook, over-broad selector | Prove subscription width first | P-19 → P-15 → maybe P-16 | `avalanche-debug-hook` (`primitive`, `parents`, `neighborhood`) → source selector read → consumed/subscribed comparison | Consumed fields and subscribed fields both named |
+| R-34 | Selector returns object/array each render | Prove identity churn | P-19 | `debug-hook` `primitive`/`parents` + source selector read; identity evidence from `commit-peek` or stability-render | Equal-data/new-identity condition proven |
+| R-35 | Store updates frequently but consumer reads one field | Prove broad store mutation | P-19 → P-15 | compare value changes from commit evidence (`commit-peek` `stats,sources,rendered`) to rendered fields | Store mutation rate vs consumer need separated |
 | R-36 | Context provider value is inline object/function | Prove value identity, not just source shape | P-08 → P-06 → source read | unique provider fiber → direct schedule-update → open provider file | Runtime wave + source inline value both present |
 | R-37 | User asks to split context/store immediately | Apply gate | P-15 → P-16 | proof packet must name provider/store, consumers, consumed fields | Split/narrow only after blast radius proven |
 
@@ -148,8 +148,8 @@ Read the GIVEN column first. Pick the row that best matches the situation. Follo
 |---|---|---|---|
 | R-60 | Requested operation not in command surface | Any | Report capability gap. Do not invent. Do not grep Chippy source. |
 | R-61 | Global present (`window.__avalanche`) but not in contract | Validate integration | Read `avalanche-status`; confirm `integrationMode`. Presence ≠ integration. |
-| R-62 | `debug-hook` returns `ok: false`, `source fiber unavailable` | Re-arm with fibers | `avalanche-recapture <clientId>` → reproduce trigger → re-run `debug-hook` |
-| R-63 | `debug-hook` returns `partial` on Context/DebugValue/MemoCache | Re-pick hookIndex | Switch to provider-side analysis; context has no indexable memoizedState slot |
+| R-62 | `debug-hook` returns `hook event not found` with `eventCount: 0` | Record a render | `avalanche-recapture <clientId>` → reproduce trigger → re-read `sourceId` and `hookIndex` → re-run `debug-hook` |
+| R-63 | `debug-hook` `primitive` is Context/DebugValue/MemoCache | Re-pick hookIndex | Switch to provider-side analysis; context has no indexable memoizedState slot |
 | R-64 | Capture `commitCount: 0` with detector installed | Verify integration mode | Check `hasMetricsGlobal`, `integrationMode`, `metricsAdapter`; reload page if needed |
 | R-65 | Duplicate `__AVALANCHE__ already defined` | Fix startup order | Injected twice. Fix order before trusting output. |
 | R-66 | Subagent needed for large data | Delegate | State **one concrete pre-stated question**. No raw exports. No "analyze this" prompts. |
@@ -226,7 +226,7 @@ Rules:
 8. Go to 1 — same target and scheduling command, compare
 ```
 
-Use this loop as a regression check after any performance edit. Keep the same `--testId` and `--ownerIndex`; compare `commitCount`, `componentRenders`, and `collateral`.
+Use this loop as a regression check after any performance edit. Keep the same `--testId` and `--ownerIndex`; compare `commitCount`, `commit-peek` `renderedTotal`, and `stats.collateral`.
 
 ---
 
@@ -295,10 +295,10 @@ Before marking any Chippy task complete:
 - [ ] Re-run after fix compared
 
 ### Debug-hook task
-- [ ] `target.primitive` read first
+- [ ] `primitive` read first
 - [ ] Remediation branch chosen from table (not guessed)
-- [ ] `confidence` stated: confirmed | partial
-- [ ] If partial: re-pick hookIndex or switch to provider analysis
+- [ ] `resolvedComponentName` matches `componentName`; otherwise treat the result as ambiguous
+- [ ] If ambiguous or the primitive is Context/DebugValue/MemoCache: re-pick hookIndex or switch to provider analysis
 
 ### Automated task
 - [ ] Bundle injection order verified (devtools-hook shim before nav)

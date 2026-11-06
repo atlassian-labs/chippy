@@ -69,9 +69,9 @@ Every component avalanche sees is one of three roles. Never confuse them.
 
 | Role | Avalanche field | Meaning |
 |---|---|---|
-| **Trigger** | `sources[]` with `isSelfUpdater: true` | Hook state changed here. This started the cascade. |
-| **Hotspot** | Appears in `sources[]` frequently across commits | Renders often — may or may not be a trigger. |
-| **Collateral** | `collaterals[]` | Re-rendered with no local change. Downstream blast victim. |
+| **Trigger** | `commit-peek N sources` entry, or `commit-peek N rendered` entry with `isSelfSource: true` | Hook state changed here. This started the cascade. |
+| **Hotspot** | Appears in `sources` frequently across commits | Renders often — may or may not be a trigger. |
+| **Collateral** | `commit-peek N rendered` entry with `isSelfSource: false` | Re-rendered with no local change. Downstream blast victim. |
 
 A hotspot is not necessarily a trigger. A collateral is not a problem by itself — its parent is. Fix the trigger, not the collateral.
 
@@ -81,20 +81,14 @@ A hotspot is not necessarily a trigger. A collateral is not a problem by itself 
 
 Triage uses two facts that live in [avalanche-detector → Per-commit join](./avalanche-detector.md#per-commit-join):
 
-- **Per-commit join.** `commitStats[N]`, `sourcesByCommit[N]`, and `atlByCommit[N]` share the same commit index `N`. To go from "this commit was hot" to "who fired it", join by `N`. Without this, source ranking is guesswork.
-- **`restartWaste` per source.** Top sources are sorted by `collateral + restartWaste`, not just `collateral`. A low-collateral source can still be the worst offender if its commits get heavily restarted (Suspense throw, priority preemption, useSES mid-render). Always check `restartWaste` and `restartWasteByCommit[N]` before declaring a winner.
+- **Per-commit join.** `commitStats[N]`, `sourcesByCommit[N]`, `metricsByCommit[N]`, `renderedByCommit[N]`, and `commitTimings[N]` share the same commit index `N`. To go from "this commit was hot" to "who fired it", join by `N`. Without this, source ranking is guesswork.
+- **`restartWaste` per source.** `avalanche-hot-sources` ranks by `collateralUpdates` only. A low-collateral source can still be the worst offender if its commits get heavily restarted (Suspense throw, priority preemption, useSES mid-render). Check `restartWaste` on each row before declaring a winner.
 
 Practical use:
 - "Above the source" check → look at `commitStats[N]` for the suspect commit. If `restarts > 0` and `sources` is empty, the wave is a **ghost restart** — the trigger is upstream/external, not in the source list.
-- "Boundary" check → join `commitStats[N]` (high `collateral`, high `contextUpdates`) with `commits[N].sources[]` to see which source's identity churn caused the blast.
+- "Boundary" check → join `commitStats[N]` (high `collateral`, high `contextUpdates`) with `sourcesByCommit[N]` to see which source's identity churn caused the blast.
 - "Below" check → if `commitStats[N].collateral` is high but `restarts` and `contextUpdates` are low, children failed to prune; fix is downstream.
-
-> **Caveat — `restartProxy` ≠ upstream `restarts`.** The in-page chippy detector does not track `committedComponents`, so the per-commit `stats.restartProxy` field surfaced by `avalanche-commit-list` / `avalanche-commit-peek` is a **noisy upper bound**, not the precise upstream `commitStats[N][2]`. For exact attribution use the side fields:
-> - `externalStoreRestarts` — `useSyncExternalStore` mutation mid-render
-> - `priorityInterruptions` — concurrent priority preemption
-> - `fiberInterruptions` — Suspense throw
->
-> A high `restartProxy` with all three side fields at zero usually means under-counted `committedComponents`, not real restarts. See [avalanche-detector → Per-commit join](./avalanche-detector.md#per-commit-join).
+- Restart cause → confirm with the `metricsByCommit[N]` counters (`commit-peek N metrics`): `externalStoreRestartCount` (`useSyncExternalStore` races), `priorityInterruptedWorkCount` (higher-priority preemption), `interruptedWorkCount` (other interrupted work).
 
 
 ## Propagation model — source, boundary, prune
@@ -130,7 +124,7 @@ Rule: a source may be legitimate. The bug can still be that it drags children wi
 ### Decision tree — where the fix lives
 
 1. **Confirm the trigger**
-   - `sources[]` with `isSelfUpdater: true` = local update happened here.
+   - A `commit-peek N sources` entry, or a `rendered` entry with `isSelfSource: true` = local update happened here.
    - If no local updater exists, you may be looking at propagation from above.
 
 2. **Check above the source**
@@ -212,7 +206,7 @@ For a target component, collect:
 1. **Identity** — component name, file, line, key if repeated.
 2. **Commit** — the specific `N` where it participated.
 3. **Role** — source, collateral, hotspot, mount/remount, context/store participant, or restart/discarded work.
-4. **Commit join** — `commitStats[N]`, `sourcesByCommit[N]`, `atlByCommit[N]`, `contextUpdatesByCommit[N]`, and restart side fields for the same `N`.
+4. **Commit join** — `commitStats[N]`, `sourcesByCommit[N]`, `renderedByCommit[N]`, and `metricsByCommit[N]` (including restart counters) for the same `N`.
 5. **Fiber flow** — owner chain, parent chain, props, hook count, and specific hook/prop values when needed.
 6. **Source proof** — hook deps, setter call site, provider value construction, selector identity, keys, or memo boundary in code.
 
@@ -228,7 +222,7 @@ No role, no cause. No commit, no cause. No source/fiber proof, only partial conf
 | **Context participant** | A provider changed in the same commit and may have forced consumers | Verify the target consumes that context and inspect value diff for real data vs identity churn |
 | **External store participant** | Store snapshot/subscription may have changed or restarted render | Inspect `useSyncExternalStore`, selector identity, snapshot equality, and restart fields |
 | **Mount/remount** | This is not just a re-render; React created new fiber/component work | Inspect keys, conditional branches, route/layout swaps, component types created inside render |
-| **Restart/discarded work** | React executed render work that may not have committed | Inspect `externalStoreRestartCount`, `priorityInterruptedWorkCount`, fiber interruptions, Suspense/store timing |
+| **Restart/discarded work** | React executed render work that may not have committed | Inspect `externalStoreRestartCount`, `priorityInterruptedWorkCount`, `interruptedWorkCount`, Suspense/store timing |
 
 #### Cause categories
 
@@ -318,7 +312,7 @@ const ctxValue = useMemo(() => ({ user, settings }), [user, settings]);
 
 ## Pattern 2 — setState cascade (source → collateral blast)
 
-**Signal:** One component appears in `sources[]` across many commits. Its `hookChanges[]` shows state flipping (often back and forth). Many `collaterals[]` with `causedBySourceId` pointing at it.
+**Signal:** One component appears in `sources` across many commits. Its `trashers` in `commit-peek N sources` show state flipping (often back and forth). Many `commit-peek N rendered` entries with `isSelfSource: false` sit below it (`parentSourceId` / `ownerSourceId`).
 
 **Why it happens:** A `setState` fires on every render or in an effect with unstable deps, causing the component to re-render, which propagates to all its children.
 
@@ -343,7 +337,7 @@ Fix: stabilize the dep (memoize `config`) or derive inside render without an eff
 
 **How to find the source:**
 - Open `sources[N].source.fileName` + `lineNumber`.
-- Read `hookChanges[N]` — which hook index, what changed.
+- Read `trashers` in `commit-peek N sources` — which hook index, what changed.
 - Match `hookIndex` to the component's hook chain (use `probe-hooks` if needed).
 - Trace why that hook fires: look at its deps or the dispatch call site.
 
@@ -351,7 +345,7 @@ Fix: stabilize the dep (memoize `config`) or derive inside render without an eff
 
 ## Pattern 3 — Collateral blast with no data dependency (missing memo boundary)
 
-**Signal:** A subtree appears in `collaterals[]` on every commit. The components have no local hook changes and are not data-dependent on what changed. The nearest common ancestor (`P3`) is the blast source.
+**Signal:** A subtree appears as `commit-peek N rendered` entries with `isSelfSource: false` on every commit. The components have no local hook changes and are not data-dependent on what changed. The nearest common ancestor (`P3`) is the blast source.
 
 **Why it happens:** A parent re-renders (for a legitimate reason) and pulls its entire subtree with it — even parts that don't care about the change. No `memo` boundary exists to stop the propagation.
 
@@ -371,7 +365,7 @@ const StablePanel = React.memo(function StablePanel({ config }) {
 **How to find where to place the boundary:**
 - Place P1 on a collateral component. Run `probe-owners` — walk the owner chain upward.
 - The memo boundary goes on the highest owner that does **not** need to re-render when the trigger fires.
-- Verify: after adding `memo`, re-capture. The component should disappear from `collaterals[]`.
+- Verify: after adding `memo`, re-capture. The component should disappear from the collateral `rendered` entries.
 
 ---
 
@@ -407,7 +401,7 @@ Process:
 ```text
 1. Accept that the big commit may be necessary.
 2. Inspect commits after the main wave.
-3. Rank by repeated sources, `effects`, `memos`, `callbacks`, `contextUpdates`, or offline `repeats`.
+3. Rank by repeated sources, `effects`, `memos`, `callbacks`, or `contextUpdates`.
 4. Pick one small repeated source/provider.
 5. Ask whether it represents real data movement or identity/noise.
 6. Fix one noisy bird, then re-capture to see what signal remains.

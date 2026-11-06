@@ -676,7 +676,7 @@ export interface SuspenseBoundaryEvent {
 }
 
 export interface ReportOptions {
-  /** Minimum collateral damage to include a source in sourcesByCommit (default: 0 - show all) */
+  /** Minimum collateral damage to include a source in sourcesByCommit (default: 1; pass 0 to show all) */
   minCollateral?: number;
 }
 

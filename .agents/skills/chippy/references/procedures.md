@@ -78,7 +78,7 @@ avalanche-arm → [user/harness interacts] → avalanche-status → avalanche-ho
 4. `avalanche-hot-sources <clientId> 20` — quick triage.
 5. `avalanche-commit-list <clientId> 15 collateral` — rank commits.
 6. `avalanche-commit-peek <clientId> <commitId> stats,sources,atl 6 40` — inspect the peak commit.
-7. If the selected route needs `renderedByCommit`, `isSelfSource`, `propChanges`, or `trasherCounts`, run `avalanche-recapture <clientId> full`, reproduce the identical interaction once, then repeat status → commit-list → `avalanche-commit-peek ... stats,sources,rendered`. Never request those fields from the initial default `sources` capture.
+7. `renderedByCommit`, `isSelfSource`, and `propChanges` are already present in the default `sources` capture; read them with `avalanche-commit-peek ... stats,sources,rendered`. If the route needs `trasherCounts`, run `avalanche-recapture <clientId> full`, reproduce the identical interaction once, then repeat status → commit-list → `avalanche-commit-peek ... stats,sources,rendered`.
 8. Classify: source / hotspot / collateral / mount / context wave.
 9. Trace source via probe-owners or find-fibers.
 10. Propose fix. Verify with fresh capture after edit.
@@ -116,14 +116,14 @@ verify runtime → recapture full mode → schedule one fiber render → settle 
 ```
 
 1. `health` → `pages` → `request-snapshot` (P-01).
-2. `avalanche-recapture <clientId> full` — install a clean full-mode capture so `renderedByCommit` and `trasherCounts` are available.
+2. `avalanche-recapture <clientId> full` — install a clean full-mode capture so `trasherCounts` are recorded alongside `renderedByCommit`.
 3. Schedule exactly one target render:
-   - DOM/probe anchor: `eval-page <clientId> stability-nudge --testId <data-testid>` (or `--probeId`).
+   - DOM/probe anchor: `eval-page <clientId> stability-nudge --testId <data-testid>`. For a probed component, resolve a current `fiberId` with `explain-component <clientId> <probeId>` or `find-fibers` and use the fiber route below.
    - current fiber token from `find-fibers`: `fiber-schedule-update <clientId> <fiberId>`.
 4. `sleep 1` — settle.
 5. `avalanche-status <clientId>` — read `commitCount` and confirm the capture is installed and active.
 6. `avalanche-commit-list <clientId> 20 collateral` — enumerate every commit in this fresh nudge window and record its `commitId`.
-7. For every listed commit: `avalanche-commit-peek <clientId> <commitId> stats,sources,rendered 3 50` — this is the mandatory source for `componentRenders`, collateral, `sourcesByCommit`, `renderedByCommit`, `propChanges`, and `trasherCounts`.
+7. For every listed commit: `avalanche-commit-peek <clientId> <commitId> stats,sources,rendered 3 50` — this is the mandatory source for `renderedTotal`, `stats.collateral`, `sourcesByCommit`, `renderedByCommit`, `propChanges`, and `trasherCounts`.
 8. `avalanche-hot-sources <clientId> 12` — rank the source families after the bounded detail is present.
 9. Classify using the verdict-to-signal table below. If no row matches, return to the real interaction capture and report a bounded result instead of forcing a verdict.
 10. For leak: walk the top commit's collateral entries top → bottom → first collateral without memo or with defeated memo.
@@ -143,7 +143,7 @@ Maps the four verdicts to the exact Avalanche fields that produce them. Read `co
 | **leak+cascade** | >1 | same sourceId repeats across commits | `isSelfSource: true` on the same sourceId; `propChanges` empty | P-07 on the self-source's hook |
 | **trasher** | ≥2 | the same component source persists across commits | non-zero `trasherCounts` on that component in at least two commits | step 11 — `debug-hook` the recorded amplifier hook |
 
-If `renderedByCommit` is empty: detector was armed with `detectionMode: 'sources'` or `'stats'`. Re-arm with `detectionMode: 'full'` before reading verdict signatures that require it.
+`renderedByCommit` is recorded in every detection mode, but `stats` leaves `isSelfSource` false and only `full` (or `amplifiers`) records `trasherCounts`. Re-arm with `detectionMode: 'full'` before reading the trasher verdict.
 
 Verdicts are mutually exclusive: persistent non-zero `trasherCounts` takes precedence. Without that signal, repeated self-source commits are `leak+cascade`; a different source alone is not a trasher.
 
@@ -160,10 +160,10 @@ avalanche-recapture → reproduce trigger → avalanche-hot-sources → avalanch
 ```
 
 1. Confirm `sourceId` and `hookIndex` from prior capture.
-2. If fibers not retained: `avalanche-recapture <clientId>` → reproduce the original trigger → re-read hot-sources.
+2. If a previous run returned `hook event not found` with `eventCount: 0`: `avalanche-recapture <clientId>` → reproduce the original trigger → re-read hot-sources for `sourceId` and `hookIndex`.
 3. `avalanche-debug-hook <clientId> <sourceId> <hookIndex> 3`.
-4. Read `target.primitive` first — routes to remediation branch entirely.
-5. Read `target.value`, `parents`, `debugValues`, `neighborhood`.
+4. Read `primitive` first — routes to remediation branch entirely.
+5. Read `parents`, `neighborhood`, and `resolvedComponentName`. debug-hook does not return hook values; take value and identity evidence from `commit-peek` or stability-render.
 6. Match to root-cause table (SyncExternalStore / State / Reducer / Memo / Callback / Effect / Context).
 7. If existing labels are insufficient, open the known component source and match the primitive against hook call order and neighboring hooks. If it remains ambiguous, report the exact localization gap; do not edit source during Prove.
 8. Name the evidence-backed remediation branch. Return to fixing-performance for fix-layer choice.
@@ -204,7 +204,7 @@ avalanche-save → avalanche-offline summary → commit-list (multiple sort keys
 
 1. `avalanche-save <clientId> .chippy-captures/run.json`.
 2. `avalanche-offline .../run.json summary` — meta, total commits.
-3. `avalanche-offline .../run.json commit-list 30 collateral` + `repeats` + `contextUpdates` — build timeline.
+3. `avalanche-offline .../run.json commit-list 30 collateral` + `restarts` + `contextUpdates` — build timeline. Offline accepts the same sort keys as live.
 4. Identify waves by question: setup / main wave / continuation / noise.
 5. Per wave: `avalanche-offline commit-peek` on selected commit ids — reduce to stats+sources+atl.
 6. Delegate each range to a subagent with **one concrete pre-stated question**.
@@ -472,7 +472,7 @@ observe consumed data → define subscription invariant → prove subscribed dat
 2. Define invariant from observation: consumer should subscribe only to data it renders or semantically needs.
 3. Prove subscribed data:
    - `avalanche-debug-hook` target primitive `SyncExternalStore`
-   - `target.value` and debugValues if present
+   - `parents` and `neighborhood` for the selector hook; value evidence from `commit-peek` `sources`
    - container/source from `jira-taxonomy` if Jira page
 4. Compare width:
    - subscribed object wider than consumed fields → over-broad selector

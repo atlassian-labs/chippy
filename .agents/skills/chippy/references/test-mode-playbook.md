@@ -8,6 +8,8 @@ Use this mode when:
 - you need repeatable before/after verification
 - you want to save avalanche captures and analyze offline
 
+If the user already placed P1/P2 on an extension-connected page, run `handoff-to-playwright <clientId>` ([handoff](playwright-probes.md#handoff-from-extension-to-playwright)): it captures their descriptors, opens a helper-controlled browser, and returns `targetClientId` plus the descriptors to resolve there.
+
 ## Job in test mode
 
 The job is the same as interactive mode:
@@ -165,8 +167,10 @@ For another navigation or reload, repeat client selection, install, clear, and t
 ```bash
 ./scripts/chippy.sh avalanche-save "$CLIENT_ID" .chippy-captures/run.json
 ./scripts/chippy.sh avalanche-offline .chippy-captures/run.json summary
-./scripts/chippy.sh avalanche-offline .chippy-captures/run.json commit-peek 8 stats,sources,atl 3 20
+./scripts/chippy.sh avalanche-offline .chippy-captures/run.json commit-peek 8 stats,sources,metrics 20
 ```
+
+Offline `commit-peek` takes `<commitId> [include] [maxItems]`; it has no `depth` slot.
 
 ## Failure handling
 

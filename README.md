@@ -25,7 +25,8 @@ what was available. See [React compatibility](https://github.com/atlassian-labs/
 - **Explore:** "Which components render this list, and what state do they hold?"
 - **Debug:** "Where does this label's text come from?" or "Which boundary shows this spinner?"
 - **Compare:** "What changed in the tree between these two states, or these two pages?"
-- **Investigate:** "Why is this click slow?" or "What re-renders on initial load?"
+- **Investigate:** "Why is this click slow?", "What re-renders on initial load?",
+  or "Which component shifted the layout or delayed LCP?"
 
 ## Install
 
@@ -108,8 +109,9 @@ Use the extension for day-to-day work in your own Chrome or Chromium browser.
    choose **Select**. On Linux, press **Ctrl+L** and paste the path. On
    Windows, paste it into the address bar. After `npx skills update`, click
    **Reload** on the Chippy card in `chrome://extensions`.
-2. Open your app, click the Chippy extension icon, and enable Chippy for the
-   page's origin.
+2. Open your app, click the Chippy extension icon, choose **Enable** for the
+   page's origin, and then reload the page. Later loads of that origin load
+   Chippy automatically.
 
 ### Agent-driven browser
 
@@ -173,8 +175,11 @@ same runtime as the console import. See
   probe marker (P1, or P2 to compare two elements) onto an element. Choose
   whether you want it explained, investigated, or changed, and add a note. Then
   ask the agent to read it, or to keep watching for new notes while you click
-  around. The extension, the local proxy, and the Storybook addon show the
-  Chippy button. The console import does not.
+  around. The extension and the local proxy show the Chippy button. In
+  Storybook, open the **Chippy** addon panel and choose **Show probes**; the
+  P1/P2 dock appears in the story preview. The plain console import shows no
+  probe UI; import `http://127.0.0.1:7823/__chippy/inject.mjs?ui=panel` to add
+  the Chippy button and P1/P2 panel.
 
 <p align="center">
   <a href="assets/chippy-call.mp4"><img src="assets/chippy-call.svg" width="900" alt="Animated clip: the asks roll in and Jira keeps them in line, so you call a chippy. Chippy gives your coding agent a hand in the running app: it finds the component and source line for a button to move, reads live props and state to show why a button stays disabled, compares before and after, finds what set off a slow click, connects the page, React, and your code, and turns the page into an experimentation lab."></a>

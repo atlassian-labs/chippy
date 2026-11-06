@@ -4,6 +4,8 @@
 - `/__chippy/health` fails
 - no pages in `/__chippy/api/pages`
 - the Storybook Chippy and Avalanche panels conditionally offer `npx skills add atlassian-labs/chippy --skill chippy -g` while their connection state is `failed` or `reconnecting`
+- the in-page Chippy panel header shows `● helper unavailable` (red) or `● reconnecting` (yellow) instead of `● connected`; hover it to see the helper URL the page is trying to reach
+- `health`, `pages`, `recent-pages`, `page`, and `proxy-state` print only curl's raw error (for example `curl: (7) Failed to connect`) instead of the structured helper explanation; exit code 7 means the helper is not running, and 22 means it rejected the request (for example a 401 token mismatch)
 - Chippy must run outside the agent sandbox; the agent owns this, not the user
 - sandbox failure mode: the helper can look alive inside the agent environment, but the browser cannot reach its isolated Node server/port
 - fix: agent runs `./scripts/chippy.sh start` using outside-sandbox / escalated execution, then verifies with `./scripts/chippy.sh health` and `./scripts/chippy.sh pages` (also outside-sandbox)
@@ -24,14 +26,15 @@
 - extension may not be installed
 - origin may not be enabled
 - page may not have been reloaded after enabling
-- page may have failed to load `/__chippy/inject.js`
+- the extension could not inject into the tab (restricted pages such as `chrome://` and the Chrome Web Store cannot be scripted)
+- proxy route: open the page on `http://127.0.0.1:7823<path>`, not on the dev server's port; `proxy-state` must show a non-null `injectTarget` whose `pathname` (and `search`, when set) matches the opened address; otherwise restart with `proxy-start <targetPort> <originalUrl>`
 - do not search Chippy's own source code to answer live questions like "where is p1?"
 - instead, explain that there is no live probe state yet and help the user connect or reload the target page
 
 ## Bundle failed to load
-- page exists but helper status or page status shows `load-error`
-- check the helper URL configured in the extension
-- check the page network tab for `inject.js`
+- extension: the extension injects its packaged scripts, not `inject.js`; check the page console for `[chippy-ext]` injection errors, check the helper URL configured in the extension, then reload the page
+- script tag, console import, or Playwright bootstrap: check the page network tab for `/__chippy/inject.js`, `/__chippy/inject.mjs`, or `avalanche.iife.js`, and check the page's CSP
+- `import()` rejects with `Chippy runtime already owned by ...`: another integration (for example the Storybook addon) already owns the page; use its client from `pages`
 
 ## Page reloaded and probes disappeared
 - expected after full reload/navigation
@@ -57,3 +60,4 @@
 - usually prefer the most recently updated page when one candidate is clearly newer than the rest
 - if the time gap is narrow, treat the target as ambiguous and ask rather than guessing
 - after choosing a likely page, request a fresh snapshot to confirm it is the intended one
+- on Storybook, a `pages` entry with `integration.kind: extension` is Storybook's own manager UI, and the addon panels show a warning while it is connected; select the `storybook` page and update the extension

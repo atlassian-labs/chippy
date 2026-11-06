@@ -69,6 +69,11 @@ Register a provider from the bundle, or from the page at runtime:
 __AVALANCHE__.layoutLab.registerContextProvider(featureGateProvider);
 ```
 
+To register a whole plugin at runtime, call
+`__AVALANCHE__.registerPlugin({ id, label, contextProvider, commitMetricsAdapter })`.
+It runs once its id is enabled, replaces an earlier plugin with the same id, and
+returns an unregister function.
+
 The `ContextProvider` type in `@atlassian/chippy/plugin` documents each field.
 
 ## Commit metrics adapters
@@ -93,6 +98,9 @@ each method. In short:
   `__AVALANCHE__.runPrePageHooks(config)`. A failing `prePage` falls back to
   DevTools capture.
 - `frameFilters` hides the host's own stack frames from hook ancestry.
+  `getComponentName(fiber)` and `isComponentFiber(fiber.tag)` from
+  `@atlassian/chippy/plugin` name and classify fibers the same way the detector
+  does when an adapter builds hook ancestry.
 
 With the npm library:
 
@@ -140,8 +148,14 @@ export default {
 };
 ```
 
-Run `npx @atlassian/chippy pack` with `esbuild` installed in the same project.
-The command writes:
+Run `npx @atlassian/chippy pack` (or `pack --config <file>` for another config
+path) with `esbuild` installed in the same project and `zip` on the `PATH`.
+Paths resolve against the config file's directory; `outDir` defaults to
+`chippy-build`. Plugin ids must match `/^[a-z][a-z0-9-]*$/`, be unique, and not
+reuse `jira` or `atl`; the config's `id` and `label` (default: the id) replace
+the module's own. `extension` also accepts `description`. Unknown keys fail the
+build, and the packer refuses to replace an `outDir/chippy` that is not a Chippy
+skill. The command writes:
 
 - `chippy-build/chippy/`, the skill with its extension in `extension/`;
 - `chippy-build/chippy-skill.zip` and `chippy-build/chippy-extension.zip`.

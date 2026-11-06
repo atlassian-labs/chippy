@@ -52,7 +52,7 @@ await page.goto(url);
 
 - Skip the explicit `avalanche-install`; the detector is already installed and recording. `avalanche.options` accepts `detectionMode` and `captureFibers`, and `avalanche.max` sets the history size.
 - To capture a load, call `page.reload()` and let the page settle. Do not call `avalanche-reset` between the reload and the read; it clears the boot commits.
-- Read the capture with `chippy.sh avalanche-status <clientId>` and `avalanche-export` once the reloaded page appears in `chippy.sh pages`. If the client has not reconnected yet, read `window.__AVALANCHE__.exportLast()` in the page.
+- Read the capture with `chippy.sh avalanche-status <clientId>` and `avalanche-export` once the reloaded page appears in `chippy.sh pages`. If the client has not reconnected yet, read `window.__AVALANCHE__.exportLast()` in the page (see [`window.__AVALANCHE__`](browser-runtime-api.md#window__avalanche__)).
 
 ## On reload (`page.reload(...)`)
 
