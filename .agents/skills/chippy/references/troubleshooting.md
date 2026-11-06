@@ -3,7 +3,7 @@
 ## Helper is down
 - `/__chippy/health` fails
 - no pages in `/__chippy/api/pages`
-- the Storybook Chippy and Avalanche panels conditionally offer `npx @atlassian/chippy install` while their connection state is `failed` or `reconnecting`
+- the Storybook Chippy and Avalanche panels conditionally offer `npx skills add atlassian-labs/chippy --skill chippy -g` while their connection state is `failed` or `reconnecting`
 - Chippy must run outside the agent sandbox; the agent owns this, not the user
 - sandbox failure mode: the helper can look alive inside the agent environment, but the browser cannot reach its isolated Node server/port
 - fix: agent runs `./scripts/chippy.sh start` using outside-sandbox / escalated execution, then verifies with `./scripts/chippy.sh health` and `./scripts/chippy.sh pages` (also outside-sandbox)

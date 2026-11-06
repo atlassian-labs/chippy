@@ -29,7 +29,7 @@ describe('Chippy embedded extension settings', () => {
     win.chrome = {
       storage: {
         local: {
-          get: async () => ({ helperBaseUrl: 'http://127.0.0.1:7823', forwardPort: null }),
+          get: async () => ({ helperBaseUrl: 'http://127.0.0.1:7823' }),
           set: async () => undefined,
         },
       },
@@ -47,7 +47,6 @@ describe('Chippy embedded extension settings', () => {
     expect(host.shadowRoot).toBeNull();
     expect(settingsRoot).toBeTruthy();
     expect(settingsRoot?.querySelector('form')).toBeTruthy();
-    expect(SETTINGS_SOURCE).toContain('Auto-detect from page URL');
     expect(win.document.querySelector('iframe')).toBeNull();
     expect(SETTINGS_SOURCE).not.toContain('createElement(\'iframe\')');
     expect(CONTENT_SCRIPT_SOURCE).not.toContain('createElement(\'iframe\')');
@@ -73,7 +72,7 @@ describe('Chippy embedded extension settings', () => {
     win.chrome = {
       storage: {
         local: {
-          get: async () => ({ helperBaseUrl: 'http://localhost:7823/', forwardPort: 6007, plugins: ['jira'] }),
+          get: async () => ({ helperBaseUrl: 'http://localhost:7823/', plugins: ['jira'] }),
           set: async (value: Record<string, unknown>) => { writes.push(value); },
         },
       },
@@ -85,15 +84,12 @@ describe('Chippy embedded extension settings', () => {
     win.eval(SETTINGS_SOURCE);
     await flushTasks();
     const helperInput = settingsRoot?.querySelector('[data-helper-url]') as HTMLInputElement;
-    const forwardPortInput = settingsRoot?.querySelector('[data-forward-port]') as HTMLInputElement;
     expect(helperInput.value).toBe('http://localhost:7823');
-    expect(forwardPortInput.value).toBe('6007');
     const plugin = (id: string) => settingsRoot?.querySelector(`[data-plugin][value="${id}"]`) as HTMLInputElement;
     expect(plugin('jira').checked).toBe(true);
     expect(plugin('atl').checked).toBe(false);
 
     helperInput.value = 'http://127.0.0.1:9000/';
-    forwardPortInput.value = '6010';
     plugin('jira').checked = false;
     plugin('atl').checked = true;
     (settingsRoot?.querySelector('form') as HTMLFormElement).dispatchEvent(
@@ -101,7 +97,7 @@ describe('Chippy embedded extension settings', () => {
     );
     await flushTasks();
 
-    expect(writes).toEqual([{ helperBaseUrl: 'http://127.0.0.1:9000', forwardPort: 6010, plugins: ['atl'] }]);
+    expect(writes).toEqual([{ helperBaseUrl: 'http://127.0.0.1:9000', plugins: ['atl'] }]);
     expect(commands).toEqual([{
       type: 'apply-config',
       helperBaseUrl: 'http://127.0.0.1:9000',
@@ -154,7 +150,7 @@ describe('Chippy embedded extension settings', () => {
     win.chrome = {
       storage: {
         local: {
-          get: async () => ({ helperBaseUrl: 'http://127.0.0.1:7823', forwardPort: null }),
+          get: async () => ({ helperBaseUrl: 'http://127.0.0.1:7823' }),
           set: async () => undefined,
         },
       },

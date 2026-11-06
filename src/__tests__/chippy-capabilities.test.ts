@@ -408,14 +408,14 @@ describe('Chippy browser capabilities from scenario matrix', () => {
     const chippyHint = page.getByRole('tabpanel', { name: 'Chippy' }).getByTestId('chippy-install-hint');
     await chippyHint.waitFor({ timeout: 10_000 });
     expect((await chippyHint.locator('code').textContent())?.trim()).toBe(
-      'npx @atlassian/chippy install',
+      'npx skills add atlassian-labs/chippy --skill chippy -g',
     );
 
     await page.getByRole('tab', { name: /^Avalanche$/ }).click();
     const avalancheHint = page.getByRole('tabpanel', { name: 'Avalanche' }).getByTestId('chippy-install-hint');
     await avalancheHint.waitFor({ timeout: 10_000 });
     expect((await avalancheHint.locator('code').textContent())?.trim()).toBe(
-      'npx @atlassian/chippy install',
+      'npx skills add atlassian-labs/chippy --skill chippy -g',
     );
     await page.close();
   }, 30000);

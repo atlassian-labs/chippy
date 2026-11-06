@@ -330,6 +330,7 @@ case "$cmd" in
     ;;
   inject-url)
     echo "Import integration is document-scoped: a full reload/navigation removes Chippy and requires the user or automation to inject it again." >&2
+    echo "The classic inject.js installs Chippy only; load $BASE_URL/avalanche.iife.js after it for bridge and Avalanche commands, or import $BASE_URL/inject.mjs instead." >&2
     printf '%s/inject.js\n' "$BASE_URL"
     ;;
   recipes)

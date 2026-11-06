@@ -39,9 +39,9 @@ These pages are siblings, not substitutes. Start with Avalanche for a real slow 
 |---|---|---|
 | Load Chippy into a Playwright-controlled page | [Playwright CLI setup](playwright-cli-setup.md) | The shortest current-document bootstrap and reload recovery recipe |
 | Build a repeatable browser loop | [Test mode playbook](test-mode-playbook.md) | Sidecar and Playwright-controlled automation contracts |
-| Control low-level injection | [Mode A injection](mode-a-injection.md) | Fresh-page script order, boot-time limitations, and failure signatures |
+| Load Chippy before page scripts, or record the initial load without the extension | [Mode A injection](mode-a-injection.md) | Init-script loader variants, pre-page start-up, boot-time limits, and failure signatures |
 
-Use Playwright CLI setup for ad-hoc inspection. Use the test-mode playbook and Mode A details only for scripted or CI workflows.
+Use Playwright CLI setup for ad-hoc inspection. Use the test-mode playbook for scripted or CI workflows. Use Mode A injection when Chippy must stay across reloads or record the initial load in a Playwright browser.
 
 ## Look up a contract
 

@@ -1,6 +1,6 @@
 ---
 name: chippy
-description: Debug a running React page with live runtime evidence. Use to explore components (find by name, text, test id, file, or prop; explain structure and hooks), debug where an element, value, prop, or loading/error boundary comes from, compare two rendered states or pages, and investigate slow interactions, re-renders, and initial load with Avalanche commit capture. Connects through the Chippy browser extension or an injected bundle and a local helper; not for static code review without a running page.
+description: Debug a running React page with live runtime evidence. Use to explore components (find by name, text, test id, file, or prop; explain structure and hooks), debug where an element, value, prop, or loading/error boundary comes from, compare two rendered states or pages, and investigate slow interactions, re-renders, and initial load with Avalanche commit capture. Connects a local helper to the page through the browser extension, an agent-driven Playwright browser, the helper's local proxy, the Storybook addon, or a console/module import; not for static code review without a running page.
 allowed-tools: Bash(chippy.sh:*)
 ---
 
@@ -21,15 +21,15 @@ Use the running page as evidence. Connect visible React behavior to exact source
 
 ## Start every task
 
-1. If neither Chippy MCP tools nor this skill's scripts are installed, have the user run `npx @atlassian/chippy install` and follow its printed steps. Resolve this skill's absolute path; do not assume the current repository contains a relative copy. Prefer available Chippy MCP tools when permitted by the host; otherwise run this skill's `scripts/chippy.sh`.
+1. If neither Chippy MCP tools nor this skill's scripts are installed, have the user run `npx skills add atlassian-labs/chippy --skill chippy -g`; the skill then lives in `~/.agents/skills/chippy`, and its `extension` folder is the unpacked browser extension. Resolve this skill's absolute path; do not assume the current repository contains a relative copy. Prefer available Chippy MCP tools when permitted by the host; otherwise run this skill's `scripts/chippy.sh`.
 2. With MCP available, use `chippy_status` → `chippy_pages` → `chippy_snapshot` (refresh, then read). MCP starts/reuses the helper automatically; follow [MCP setup and tools](references/mcp.md). MCP covers inspection, Avalanche capture and analysis, interaction, and annotation waits; compare (`fiber-state-*`), `page-boundaries`, `avalanche-arm`, `reload-with-avalanche`, and `recipes` are CLI-only, so use `scripts/chippy.sh` for them. Otherwise run `health` → `pages` → `request-snapshot <clientId>`; helper-contacting shell commands must run outside the agent sandbox. The agent owns helper startup and command execution.
-3. Select the page by URL, title, integration identity, and recency. Resolve a fresh `clientId` every turn; a reload or navigation can replace it. When two pages match closely, ask which page is in scope.
+3. Select the page by URL, title, integration identity, and recency. When no page is connected, choose a route in [Connection and bootstrap](#connection-and-bootstrap); the extension is one route, not a prerequisite. Resolve a fresh `clientId` every turn; a reload or navigation can replace it. When two pages match closely, ask which page is in scope.
 4. Use the first read-only signal to leave ❓ Disorder and name the Cynefin domain. Then iterate with OODA inside that domain: observe one fact, orient it to the invariant and proof gap, decide one permitted move, act, and observe again.
 5. Choose the narrowest route below. Do not edit until the proof packet names the fix layer and a repeatable verification command.
 
 `health`, `pages`, `request-snapshot`, and reads of existing probe state are orientation. Active stimuli, diagnosis, and source edits are not.
 
-When an extension-connected page already has the target state, work there first. Use Playwright only when automation or replay is required, the user asks for it, or the connected page cannot provide the evidence.
+When a page connected in the user's own browser already has the target state, work there first. Use Playwright only when automation or replay is required, the user asks for it, or the connected page cannot provide the evidence.
 
 ## Route by question
 
@@ -45,7 +45,8 @@ Before `explain-component`, `describe-component`, or `inspect-fiber-structure`, 
 | What is inside this component? | `explain-component`; use `describe-component` for the detailed hook tree | The component's structure is described, with replay status and warnings disclosed. |
 | What changed between two rendered states or pages? | `fiber-state-capture` before and after → `fiber-state-compare` | The bounded diff names matched fibers and added, removed, or changed props without returning either full capture. |
 | Why is an interaction slow or re-rendering? | `avalanche-arm` → reproduce the interaction → `avalanche-status` → hot sources / commit list / commit peek | Trigger, hotspot, collateral, and fix layer are distinguished. |
-| Why is initial load slow? | `reload-with-avalanche` → status / hot sources / commit analysis | The measured load window is bounded and repeatable. |
+| Why is initial load slow? | Confirm the page's route records the initial load ([Connection and bootstrap](#connection-and-bootstrap)) → `reload-with-avalanche` → status / hot sources / commit analysis | The measured load window is bounded and repeatable. |
+| Does the user want render evidence in tests or scripts, with no agent at run time? | Point to the standalone Avalanche detector in the [npm package documentation](https://github.com/atlassian-labs/chippy/blob/main/docs/npm-package.md#standalone-avalanche) | The test installs the detector before React DOM loads and reads `detector.report()`. |
 | Is this subtree stable? | Load [stability-render](references/stability-render.md) and run one controlled nudge | The capture yields clean, leak, leak+cascade, or trasher evidence. |
 | Which hook is suspicious? | Use `avalanche-debug-hook` only after a capture identifies `sourceId + hookIndex` | Primitive/custom-hook ownership and next remediation branch are named. |
 | Are state dispatches or memo/effect recomputations driving the cost? | Load [hook-metrics](references/hook-metrics.md) | A before/after counter or tracker result is joined to the same interaction. |
@@ -118,13 +119,17 @@ Chippy has a local helper and one page-side integration. `chippy_pages` or
 helper startup without a shell command; it needs host access to the browser's
 network environment. Closing an MCP session preserves the shared helper.
 
-| Integration | Owner | Reload behavior |
-|---|---|---|
-| Browser extension | Chippy extension | Re-injects automatically for enabled origins. |
-| Console/module import | The current document | Full reload/navigation removes Chippy; run the import again. |
-| Storybook addon | Storybook preview annotations | `page-reload` uses Storybook `FORCE_REMOUNT` to remount the SUT without reloading the preview iframe. |
+Each route below loads the same page runtime. The extension is one delivery route; choose by who owns the browser and whether the task needs initial-load capture.
 
-The extension toolbar popup shows the Chippy mark and name with Enable and Disable for the current origin. The in-page UI starts as one small bottom-corner Chippy button. Expand it to reveal compact `P1 — drag to source` and `P2 — drag to source` rows; each row is the probe's dock and expands into its details once placed. Dragging a probe out keeps the panel expanded, and a placed probe is document-anchored so it moves with its target during page scroll. The gear contains the helper URL, the optional forward port, and the Jira and ATL plugin switches. Active probes commit their annotation when the intent changes or Enter is pressed in the comment; Shift+Enter inserts a newline. Storybook intentionally keeps its probe dock in the preview because its details panel lives in the manager frame.
+| Route | Who sets it up | Reload behavior | Initial-load capture |
+|---|---|---|---|
+| Browser extension | User, once per browser and origin | Re-injects automatically for enabled origins. | Yes, with `reload-with-avalanche`: the armed reload runs the early scripts at `document_start`. |
+| Agent-driven Playwright browser | Agent; no extension | Init scripts load again on every navigation; the ad-hoc import must be repeated. | Only with the [pre-page start-up](references/mode-a-injection.md#pre-page-start-up) variant, which installs the detector before React on every document. The packaged loader and the ad-hoc import start the detector after connection. |
+| Local proxy (`proxy-start <targetPort> [originalUrl]`) | Agent; the user or Playwright opens the page on the helper port | The proxy adds Chippy to every load of the `originalUrl` path, so pass `originalUrl`. | Yes, with `reload-with-avalanche`: the shim and Avalanche run before page scripts. Targets on this machine only. |
+| Storybook addon (`addons: ['@atlassian/chippy/storybook']`, Storybook 10.3+) | User, in the Storybook configuration | `page-reload` uses Storybook `FORCE_REMOUNT` to remount the SUT without reloading the preview iframe. | The story's mount, through the remount. |
+| Console/module import, including `connectChippy()` from `@atlassian/chippy/browser` | User or page code, in the current document | Full reload/navigation removes Chippy; run the import again. | No: use mid-page capture. |
+
+The extension toolbar popup shows the Chippy mark and name with Enable and Disable for the current origin. The in-page UI starts as one small bottom-corner Chippy button. Expand it to reveal compact `P1 — drag to source` and `P2 — drag to source` rows; each row is the probe's dock and expands into its details once placed. Dragging a probe out keeps the panel expanded, and a placed probe is document-anchored so it moves with its target during page scroll. The gear contains the helper URL and the Jira and ATL plugin switches. Active probes commit their annotation when the intent changes or Enter is pressed in the comment; Shift+Enter inserts a newline. Storybook intentionally keeps its probe dock in the preview because its details panel lives in the manager frame.
 
 Each connected page reports `integration.kind`, `who`, `source`, `reinjectsOnReload`, and `reloadAction`. Use those fields instead of inferring how Chippy arrived.
 
@@ -136,14 +141,14 @@ For a user-controlled page without the extension, run this in the browser consol
 import('http://127.0.0.1:7823/__chippy/inject.mjs')
 ```
 
-The single `import(...)` is all that is needed: the ESM bootstrap installs Chippy, loads the Avalanche bridge runtime (so fiber-backed reads and captures work immediately — no second asset), and activates probes for the current document. It renders no in-page control panel/overlay. After reload or navigation, import again.
+The single `import(...)` is all that is needed: the ESM bootstrap installs Chippy, loads the Avalanche bridge runtime (so fiber-backed reads and captures work immediately — no second asset), and activates probes for the current document. It renders no in-page control panel/overlay. After reload or navigation, import again. A strict Content Security Policy blocks the import; on a local dev server, use the proxy instead, which removes the page's CSP headers.
 
-For extension-free pages where reload destroys Chippy (e.g. a production page using console import), **do not use `reload-with-avalanche`**. The correct workflow is mid-page capture: import Chippy once, install/arm Avalanche on the live page (`avalanche-install` or `avalanche-arm`), then trigger a controlled render stimulus such as `fiber-schedule-update` / the stability nudge. `reload-with-avalanche` is only for reload-surviving integrations such as the extension or Storybook addon. On Storybook, its reload step is a `FORCE_REMOUNT` of the current SUT, not an iframe navigation.
+For pages where reload destroys Chippy (console import or `connectChippy()`), **do not use `reload-with-avalanche`**. The correct workflow is mid-page capture: import Chippy once, install/arm Avalanche on the live page (`avalanche-install` or `avalanche-arm`), then trigger a controlled render stimulus such as `fiber-schedule-update` / the stability nudge. `reload-with-avalanche` is for routes that load Chippy before page scripts on the reloaded document: the extension, the local proxy, and the Storybook addon. On Storybook, its reload step is a `FORCE_REMOUNT` of the current SUT, not an iframe navigation. A Playwright page with the pre-page start-up variant installs the detector on every document itself, so a plain `page.reload()` captures the load.
 
 The helper serves matching source maps alongside its Avalanche bundles; browser
 developer tools can resolve the runtime frames without missing-map requests.
 
-For Playwright-controlled pages, use [playwright-cli-setup](references/playwright-cli-setup.md). The classic fallback requires `inject.js` followed by `avalanche.iife.js`; `bridge module not loaded` means the second asset is missing.
+For an agent-driven Playwright browser, follow [mode-a-injection](references/mode-a-injection.md) for the loader variants and their capture limits, and [playwright-cli-setup](references/playwright-cli-setup.md) for ad-hoc `playwright-cli` sessions. The classic fallback requires `inject.js` followed by `avalanche.iife.js`; `bridge module not loaded` means the second asset is missing.
 
 ### Explicit wait mode
 

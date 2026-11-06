@@ -123,7 +123,7 @@ overridden with `CHIPPY_HELPER_BASE`.
 
 The packaged `launchSession(...)` path installs the Chippy bridge and Avalanche runtime via `addInitScript`, so both runtimes exist before page scripts on every reload. The detector still starts uninstalled in each new page realm. `reloadWithAvalanche` therefore reloads, waits for the new client, calls the Avalanche `install` action explicitly, then settles and reads evidence. It does not use helper origin-arming.
 
-Commits that occur before that post-reload install are not captured. Use this helper for post-install triggers and settled-state checks, not to claim complete initial-load coverage.
+Commits that occur before that post-reload install are not captured. Use this helper for post-install triggers and settled-state checks, not to claim complete initial-load coverage. To record the initial load, use [pre-page start-up](mode-a-injection.md#pre-page-start-up).
 
 Flow:
 1. `page.reload()` via Playwright

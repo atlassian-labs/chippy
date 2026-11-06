@@ -6,7 +6,7 @@ Use this when there is no Chippy browser extension on the page (`playwright-cli`
 
 Chippy assets are served by the local Chippy helper:
 
-- `http://127.0.0.1:7823/__chippy/inject.mjs` — **preferred ESM bootstrap**. Import side-effect installs `window.__CHIPPY`, registers the page with the helper, auto-loads `window.__AVALANCHE__` from the ESM-safe `avalanche.es.js` asset, activates probes immediately, and installs a small in-page control panel. The module default export is `window.__CHIPPY`; named export `ready` resolves to `{ chippy, avalanche, connState, integration, activated, probesActive }` immediately after bootstrap.
+- `http://127.0.0.1:7823/__chippy/inject.mjs` — **preferred ESM bootstrap**. Import side-effect installs `window.__CHIPPY`, registers the page with the helper, auto-loads `window.__AVALANCHE__` from the ESM-safe `avalanche.es.js` asset, and activates probes immediately. It renders no in-page control panel. The module default export is `window.__CHIPPY`; named export `ready` resolves to `{ chippy, avalanche, connState, integration, activated, probesActive }` immediately after bootstrap.
 - `http://127.0.0.1:7823/__chippy/inject.js` — **classic-script bootstrap**. Installs `window.__CHIPPY` only.
 - `http://127.0.0.1:7823/__chippy/avalanche.iife.js` — **Chippy runtime for bridge / Avalanche-backed commands**. Installs `window.__AVALANCHE__` when the classic bootstrap is used.
 
@@ -18,9 +18,9 @@ The same ESM bootstrap is also valid for a real user-controlled browser tab when
 import('http://127.0.0.1:7823/__chippy/inject.mjs')
 ```
 
-In that mode the import is intended to be extension-equivalent for the current page: it activates probes immediately and installs the in-page Chippy controls.
+In that mode the import activates probes for the current page without the extension's in-page controls.
 
-The equivalence lasts only for the current document. A full reload or navigation removes the imported runtime because no extension or Storybook host remains to inject it. The in-page import controls display this warning. The user—or Playwright—must run the import command again after every reload/navigation.
+The import lasts only for the current document. A full reload or navigation removes the imported runtime because no extension, proxy, or Storybook host remains to inject it. The user—or Playwright—must run the import command again after every reload/navigation. To keep Chippy across reloads without the extension, use the packaged init-script loader in [mode-a-injection](mode-a-injection.md) or the helper's local proxy.
 
 ## Steps
 
@@ -36,7 +36,7 @@ The equivalence lasts only for the current document. A full reload or navigation
 3. Prefer the ESM bootstrap when module loading is available:
 
    ```bash
-   yarn exec playwright-cli -s=<session> run-code "async page => {
+   playwright-cli -s=<session> run-code "async page => {
      await page.addScriptTag({
        content: `
          const script = document.createElement('script');
@@ -57,7 +57,7 @@ The equivalence lasts only for the current document. A full reload or navigation
    Fallback: classic script injection when ESM import is not available:
 
    ```bash
-   yarn exec playwright-cli -s=<session> run-code "async page => {
+   playwright-cli -s=<session> run-code "async page => {
      await page.addScriptTag({ url: 'http://127.0.0.1:7823/__chippy/inject.js' });
      await page.waitForTimeout(500);
      await page.addScriptTag({ url: 'http://127.0.0.1:7823/__chippy/avalanche.iife.js' });

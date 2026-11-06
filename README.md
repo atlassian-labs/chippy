@@ -34,38 +34,43 @@ what was available. See [React compatibility](https://github.com/atlassian-labs/
 
 ## Install
 
-You need Node.js 22.12 or later and Chrome or another Chromium browser.
+Chippy has three parts:
 
-1. Install the agent skill:
+- The **agent skill** tells your coding agent how to run Chippy.
+- The **local helper** is a small server on `127.0.0.1:7823`. The agent starts
+  it when it needs it.
+- The **page runtime** runs inside the page and reads React.
+
+The skill and the helper are the same in every setup. You choose how the page
+runtime gets into the page; see [Connect a page](#connect-a-page).
+
+You need Node.js 22.20 or later, which the skills CLI requires.
+
+1. Install the agent skill with the [skills CLI](https://github.com/vercel-labs/skills):
 
    ```sh
-   npx @atlassian/chippy install
+   npx skills add atlassian-labs/chippy --skill chippy -g
    ```
 
-   This copies the skill to `~/.agents/skills/chippy` (run it again to update)
-   and prints the next steps with the exact paths for your machine. To install
-   it in a project instead, pass `--dir`, for example
-   `npx @atlassian/chippy install --dir .agents/skills/chippy`; the paths below
-   then start from that folder.
+   Choose your coding agents when it asks, or name them with `-a`, for example
+   `-a claude-code`. With `-g`, every project can use the skill, and its files
+   live in `~/.agents/skills/chippy`; each agent's skills folder links to that
+   copy. Leave out `-g` to install it in the current project's
+   `.agents/skills/chippy` instead. Run `npx skills update chippy` to update it.
 
-2. Load the browser extension: open `chrome://extensions`, turn on
-   **Developer mode**, choose **Load unpacked**, and select the `extension`
-   folder the installer printed (`~/.agents/skills/chippy/extension` by
-   default). The folder picker hides dot-folders, so paste the path instead of
-   browsing: press **Cmd+Shift+G** on macOS or **Ctrl+L** on Linux, or use the
-   address bar on Windows.
+2. Connect a page with one of the routes in [Connect a page](#connect-a-page).
 
-3. Open your app, click the Chippy extension icon, and enable Chippy for the
-   page's origin.
-
-4. Ask your agent to use Chippy on the page.
+3. Ask your agent to use Chippy on the page.
 
 The agent runs Chippy through the skill's `chippy.sh` script, which needs bash
 (macOS, Linux, or WSL on Windows). You don't start anything yourself: the agent
 starts a local helper on `127.0.0.1:7823` when it needs one. A sandboxed agent
 asks for permission to reach it; approve the prompt or allow `chippy.sh`. If
-your agent runs in a container or a remote machine, see
-[MCP setup](https://github.com/atlassian-labs/chippy/blob/main/.agents/skills/chippy/references/mcp.md) for reaching the helper.
+your agent runs in a container or on a remote machine, the browser must reach
+the helper's port through an SSH tunnel, a published container port, or other
+forwarding your environment provides; Chippy does not set that up.
+[Local and wide binds](https://github.com/atlassian-labs/chippy/blob/main/docs/trust-boundary.md#local-and-wide-binds)
+lists what to set for each setup.
 
 **Optional: connect over MCP.** If your agent supports MCP, it can call Chippy
 as tools instead of running a script. Ask it:
@@ -76,25 +81,105 @@ The agent adds the Chippy server to its own MCP configuration and checks the
 connection. Some agents need a restart before the new tools appear. To set it
 up yourself, see [MCP setup](https://github.com/atlassian-labs/chippy/blob/main/.agents/skills/chippy/references/mcp.md).
 
-## Two ways to start
+## Connect a page
 
-- **From the agent:** ask it about the page. It finds components by name, text,
-  test ID, source file, or prop, reads their state, clicks through the page, and
-  records renders.
-- **From the page:** click the Chippy button in the page corner and drag a probe
-  marker (P1, or P2 to compare two elements) onto an element. Choose whether you
-  want it explained, investigated, or changed, and add a note. Then ask the agent
-  to read it, or to keep watching for new notes while you click around.
+Every route loads the same page runtime and talks to the same helper. The
+routes differ in what you set up, whether Chippy stays after a reload, and
+whether Chippy can record the initial page load.
 
-No extension? Once the agent has started the helper, paste this into the page's
-console:
+| Route | What you set up | After a reload | Records the initial load |
+| --- | --- | --- | --- |
+| [Browser extension](#browser-extension) | Load the extension once, then enable it for each site | Chippy loads again | Yes |
+| [Agent-driven browser](#agent-driven-browser) | Nothing. The agent opens its own Playwright browser | Chippy loads again | Yes, when the agent loads Chippy before the page |
+| [Local proxy](#local-proxy) | Nothing. The agent starts the proxy, and you open the proxy address | Chippy loads again | Yes |
+| [Storybook addon](#storybook-addon) | Add the addon to your Storybook configuration | Chippy remounts the story and stays | The story's mount |
+| [Console import](#console-import) | Paste one line into the page's console | Chippy is removed. Paste the line again | No |
+| [Your app's code](#your-apps-code) | Install the npm package and call `connectChippy()` | Call it again | No |
+
+"Records the initial load" means that the agent can reload the page and record
+the renders from the first commit. Every route records renders that happen
+after Chippy connects.
+
+### Browser extension
+
+Use the extension for day-to-day work in your own Chrome or Chromium browser.
+
+1. Open `chrome://extensions`, turn on **Developer mode**, and choose
+   **Load unpacked**. Select the skill's `extension` folder:
+   `~/.agents/skills/chippy/extension`, or `.agents/skills/chippy/extension`
+   in your project if you installed without `-g`. The folder picker hides
+   folders whose names start with a dot, so type the path instead of browsing.
+   On macOS, press **Cmd+Shift+G**, paste the path, press **Return**, and
+   choose **Select**. On Linux, press **Ctrl+L** and paste the path. On
+   Windows, paste it into the address bar. After `npx skills update`, click
+   **Reload** on the Chippy card in `chrome://extensions`.
+2. Open your app, click the Chippy extension icon, and enable Chippy for the
+   page's origin.
+
+### Agent-driven browser
+
+The agent opens a Playwright browser, loads Chippy into the page, and drives
+the page itself. No extension is needed. Use this route for repeatable flows,
+headless checks, and CI. Ask your agent to open the page with Chippy in
+Playwright; the skill has the setup steps.
+
+### Local proxy
+
+The helper can sit in front of a dev server on your machine and add Chippy to
+the page before the page's own scripts run. No extension is needed, and this
+route works in any browser, including one that your agent drives. Ask your
+agent to start the Chippy proxy for your page, then open the address that it
+gives you on `127.0.0.1:7823`. The proxy forwards only to servers on this
+machine, and it adds Chippy only to the page address that the agent gave it.
+It removes the page's Content Security Policy headers, so it also works for
+pages that block the console import.
+
+### Storybook addon
+
+In Storybook 10.3 or later, add the addon to your Storybook configuration:
+
+```js
+export default {
+  addons: ['@atlassian/chippy/storybook'],
+};
+```
+
+The addon adds Chippy panels to Storybook and connects each story to your agent.
+When the agent reloads the page, Storybook remounts the current story instead of
+reloading the preview. See the
+[package documentation](https://github.com/atlassian-labs/chippy/blob/main/docs/npm-package.md#storybook)
+for build targets.
+
+### Console import
+
+Use this for a quick look at a page where you cannot install the extension.
+Once the agent has started the helper, paste this into the page's console:
 
 ```js
 import('http://127.0.0.1:7823/__chippy/inject.mjs')
 ```
 
-Repeat it after every reload. Sites with a strict Content Security Policy block
-it, and it can't record the initial page load; use the extension for that.
+A reload removes Chippy, so paste the line again after every reload or
+navigation. Sites with a strict Content Security Policy block the import.
+
+### Your app's code
+
+For pages that the extension cannot reach, such as an embedded browser, call
+`connectChippy()` from `@atlassian/chippy/browser` in the page. It loads the
+same runtime as the console import. See
+[Connect a browser page to an agent](https://github.com/atlassian-labs/chippy/blob/main/docs/npm-package.md#connect-a-browser-page-to-an-agent).
+
+## Ask the agent, or point at the page
+
+- **Ask the agent** about the page. It finds components by name, text, test ID,
+  source file, or prop, reads their state, clicks through the page, and records
+  renders.
+- **Point at the page:** click the Chippy button in the page corner and drag a
+  probe marker (P1, or P2 to compare two elements) onto an element. Choose
+  whether you want it explained, investigated, or changed, and add a note. Then
+  ask the agent to read it, or to keep watching for new notes while you click
+  around. The extension, the local proxy, and the Storybook addon show the
+  Chippy button. The console import does not.
 
 ## Evidence, then edits
 
@@ -104,17 +189,15 @@ side effects during render, say so and the agent uses read-only inspection
 instead. Chippy changes your source only when you ask it to, and checks the fix
 against the same page.
 
-## Use Chippy from your own code
+## Use Chippy without an agent
 
-Install `@atlassian/chippy` in your project when the extension is not the right fit:
+The `@atlassian/chippy` npm package also works with no agent, helper, or
+extension:
 
 - **Catch re-render regressions in tests.** Record which components rendered
-  during an interaction, and why, in a test or a script, with no agent, helper, or
-  extension.
-- **Connect pages the extension cannot reach**, such as an embedded browser or a
-  test runner, or connect from your app's startup code so Chippy sees the first
-  render.
-- **Add Chippy to Storybook** as an addon.
+  during an interaction, and why, in a test or a script. Install the recorder in
+  your app's entry module before React DOM loads, and it records from the first
+  commit.
 - **Ship your own build** with extra plugins for your stack.
 
 See the [package documentation](https://github.com/atlassian-labs/chippy/blob/main/docs/npm-package.md) for setup.

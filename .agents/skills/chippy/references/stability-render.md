@@ -380,7 +380,7 @@ The effect attaches a subscription and dispatches state. It depends on `handler`
 - If the subscription is the only side effect, move attach/detach to a `useLayoutEffect` keyed on the stable subscription target rather than on a callback identity.
 
 **Pointer for the agent:**
-- File: `src/stability/StabilityChain.jsx`, `Leaf` component, `useEffect(..., [handler])`.
+- Location: the `Leaf` component's `useEffect(..., [handler])`.
 - Question to answer before editing: *what does this effect semantically depend on — the function identity, or the data the function reads?*
 - After the fix, re-run stability-render. Expected: `commitCount` drops to 1; `attach/detach` no longer grows per nudge.
 
@@ -389,7 +389,7 @@ The effect attaches a subscription and dispatches state. It depends on `handler`
 After Step 1 the effect is fine, but the callback still flips identity every render. That is harmless on its own — but the moment a memoised child uses it as a prop, the cascade comes back. Fix this *before* memoising any children, not *after*.
 
 **Pointer for the agent:**
-- File: `src/stability/StabilityChain.jsx`, `Leaf`, `useCallback(handler, [opts])`.
+- Location: `Leaf`'s `useCallback(handler, [opts])`.
 - Same dep narrowing logic as Step 1: depend on `opts.mode`, not on `opts`. The callback's body only uses `opts.mode`, so the wider dep is overcautious and breaks memoisation.
 - After the fix, re-run stability-render. Expected: callback identity stable across nudges; `Leaf`'s render count for the nudge stays at 1.
 
@@ -398,13 +398,13 @@ After Step 1 the effect is fine, but the callback still flips identity every ren
 `Parent` builds `opts = { mode }` inline. Step 1 + Step 2 made downstream consumers immune to that, but the next consumer added to this subtree will get the same trap. Wrap the object once.
 
 **Pointer for the agent:**
-- File: `src/stability/StabilityChain.jsx`, `StabilityChain`, `const opts = { mode };`.
+- Location: the parent's `const opts = { mode };`.
 - Wrap with `useMemo(() => ({ mode }), [mode])` — or, if `mode` is the only field, pass `mode` directly and drop the object.
 - After the fix, re-run stability-render. Expected: same numbers as after Step 2. This step is *prevention*, not *repair* — measurable improvement is "no regression when a new memoised consumer is added".
 
 ### What "deep explanation" means here
 
-When Chippy reports findings on this fixture, every pointer must answer three questions:
+When Chippy reports findings on this chain, every pointer must answer three questions:
 
 1. **What flips?** Name the identity that changes. (`opts` object reference; `handler` function reference; `useEffect` cleanup/attach pair.)
 2. **Why does that flip propagate?** Name the dep array or prop boundary it crosses. (Dep array of `useCallback`; dep array of `useEffect`; prop `opts` from Parent to Leaf.)

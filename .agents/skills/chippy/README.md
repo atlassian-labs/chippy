@@ -73,7 +73,7 @@ Chippy supports three page-side integrations:
 | Module import | A page without the extension UI | Applies to the current document; import again after reload/navigation |
 | Storybook addon | A Storybook preview | Reconnects through preview annotations |
 
-On extension-owned pages, Chippy starts as a small bottom-corner launcher. Expanding it reveals one unified panel with compact `P1 — drag to source` and `P2 — drag to source` rows that act as both dock and probe detail. Dragging a probe out keeps the panel expanded; once placed, the probe is document-anchored and follows its target during page scroll. Helper and optional forward-port settings live behind its gear. Probe and connection updates patch existing controls in place, so drafts, focus, and the settings form survive ordinary refreshes. Active probes commit their annotation when the intent changes or Enter is pressed in the comment; Shift+Enter inserts a newline. The toolbar popup shows the Chippy mark and name with Enable and Disable for the current origin. Storybook is the intentional exception: its details live in the manager panel, so its preview frame retains a standalone probe dock.
+On extension-owned pages, Chippy starts as a small bottom-corner launcher. Expanding it reveals one unified panel with compact `P1 — drag to source` and `P2 — drag to source` rows that act as both dock and probe detail. Dragging a probe out keeps the panel expanded; once placed, the probe is document-anchored and follows its target during page scroll. The helper URL and plugin switches live behind its gear. Probe and connection updates patch existing controls in place, so drafts, focus, and the settings form survive ordinary refreshes. Active probes commit their annotation when the intent changes or Enter is pressed in the comment; Shift+Enter inserts a newline. The toolbar popup shows the Chippy mark and name with Enable and Disable for the current origin. Storybook is the intentional exception: its details live in the manager panel, so its preview frame retains a standalone probe dock.
 
 When the extension workflow fits, load this skill's `extension` folder through **Load unpacked** in the browser's extension developer mode. The module-import and Playwright recipes live in [playwright-cli-setup](references/playwright-cli-setup.md).
 
@@ -97,7 +97,7 @@ Chippy deliberately keeps different facts separate:
 - **DOM facts:** the exact element, text, attributes, styles, and nearest test-id boundary.
 - **React facts:** the fiber, component, owners, parents, props, hooks, and source metadata for the current snapshot.
 - **Declarative boundary facts:** every Error/Suspense ancestor around a target, or the whole page reduced to a boundary-only containment forest, including current Suspense content/fallback state.
-- **Jira context:** optional probe enrichment for recognized ownership markers and `JSErrorBoundary` metadata; it appears in both the in-page and Storybook probe details, defaults on, and does not replace source evidence.
+- **Jira context:** optional probe enrichment for recognized ownership markers and `JSErrorBoundary` metadata; it appears in both the in-page and Storybook probe details once the Jira plugin is enabled (it is off by default), and does not replace source evidence.
 - **Source facts:** what the reported file and code can do.
 - **Render facts:** which commits, sources, restarts, effects, context updates, and collateral occurred in the measured window.
 - **Action facts:** what the user or automation did immediately before a measured commit.
@@ -142,8 +142,6 @@ Performance work has three distinct entry points:
 - Probes and commit captures are evidence anchors. Preserve them until the question is answered and any edit is verified.
 - Development source resolution supports React <=18 `_debugSource` and React 19 `_debugStack` plus the dev server's source map. React 19 requires no JSX-runtime instrumentation when its development build and maps are available.
 - Production or minified pages can reduce source and component confidence. Chippy reports the boundary instead of inventing missing detail.
-- Browser extension file changes require an extension publish cycle; rebuilding the bundled runtime alone does not publish it.
-- New commands, options, fields, and behavior changes require shell, wire, type/DTO, test, and documentation parity.
 
 ## License
 

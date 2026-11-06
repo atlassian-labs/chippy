@@ -55,13 +55,12 @@ jobs:
           mkdir -p "$RUNNER_TEMP/package"
           npm pack --pack-destination "$RUNNER_TEMP/package"
 
-      - name: Install the skill from the packed tarball
+      - name: Run the bin and check the MCP server ships in the packed tarball
         working-directory: ${{ runner.temp }}
         run: |
-          npx --yes --package "$RUNNER_TEMP/package/atlassian-chippy-${{ steps.version.outputs.version }}.tgz" chippy install --dir "$RUNNER_TEMP/skill"
-          test -f "$RUNNER_TEMP/skill/SKILL.md"
-          test -f "$RUNNER_TEMP/skill/extension/manifest.json"
-          test -f "$RUNNER_TEMP/skill/scripts/chippy-mcp.cjs"
+          tarball="$RUNNER_TEMP/package/atlassian-chippy-${{ steps.version.outputs.version }}.tgz"
+          test "$(npx --yes --package "$tarball" chippy --version)" = "${{ steps.version.outputs.version }}"
+          tar -tzf "$tarball" | grep -qx 'package/lib/mcp-skill/scripts/chippy-mcp.cjs'
 
       - uses: actions/upload-artifact@v4
         with:

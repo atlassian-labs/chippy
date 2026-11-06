@@ -34,7 +34,7 @@ logs, and test captures out of distributed artifacts.
 
 There is no public Chrome Web Store listing yet; users load the skill's
 `extension` folder unpacked. When a listing exists, link it from the README and
-the installer, and upload the extension archive through its owner. Store
+the skill, and upload the extension archive through its owner. Store
 publication is independent of bundle generation.
 
 The npm package is published to npmjs through Atlassian's Artifactory
@@ -44,7 +44,8 @@ workflow:
 1. Bump the version in the root `package.json` and merge it to `main`.
    A version that is already published is rejected.
 2. Run the workflow from the Actions tab on `main`. Without the `publish` input
-   it only builds the tarball and installs the skill from it. With `publish`, it
+   it only builds the tarball and checks that its `chippy` bin runs and that it
+   ships the MCP server. With `publish`, it
    exchanges the job's GitHub OIDC token for a temporary Artifactory token through
    `atlassian-labs/artifact-publish-token` and publishes that tarball.
    A prerelease version goes out under the dist-tag named after its identifier,

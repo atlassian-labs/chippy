@@ -22,7 +22,11 @@ must stay compatible with the extension version in the store.
 - Local MCP server with automatic helper startup.
 - Offline Avalanche analysis runs the live command code over a saved export.
   `source-search --name` finds components by name.
-- `npx @atlassian/chippy install` installs the skill and prints the extension and MCP setup.
+- The skill installs with the [skills CLI](https://github.com/vercel-labs/skills):
+  `npx skills add atlassian-labs/chippy --skill chippy -g`. The npm package does
+  not install the skill; `npx @atlassian/chippy install` prints that command.
+  The repository's maintainer skills are marked internal, so the skills CLI
+  offers only `chippy`.
 - CI for unit and browser tests, type checking, and staleness of committed bundles.
 - Jira and ATL support are plugins, off by default. Enable them in the Chippy
   panel's settings or with `__AVALANCHE__.enablePlugins()`. Extension 0.4.24.
@@ -103,5 +107,5 @@ must stay compatible with the extension version in the store.
 - `avalanche-save` and `avalanche-offline` work with the current export format.
 - The skill archive includes every file the helper needs.
 - `chippy.sh` no longer passes the helper token on the curl command line.
-- `npx @atlassian/chippy install` no longer exits without installing when npx
-  starts it through a symlink.
+- `npx @atlassian/chippy` no longer exits without running when npx starts it
+  through a symlink.

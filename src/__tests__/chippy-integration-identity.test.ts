@@ -313,6 +313,7 @@ describe('Chippy integration identities', () => {
     expect(result.stdout.trim()).toBe('http://127.0.0.1:7823/__chippy/inject.js');
     expect(result.stderr).toContain('a full reload/navigation removes Chippy');
     expect(result.stderr).toContain('inject it again');
+    expect(result.stderr).toContain('http://127.0.0.1:7823/__chippy/avalanche.iife.js after it');
   });
 
   it('injects the isolated settings script before the main content script', async () => {

@@ -105,8 +105,13 @@ it to your agent's MCP configuration, run from your project:
 }
 ```
 
-Install the skill too (`npx @atlassian/chippy install`) so the agent knows how to
-investigate. See [MCP setup](https://github.com/atlassian-labs/chippy/blob/main/.agents/skills/chippy/references/mcp.md)
+Install the skill too, so the agent knows how to investigate:
+
+```sh
+npx skills add atlassian-labs/chippy --skill chippy -g
+```
+
+See [MCP setup](https://github.com/atlassian-labs/chippy/blob/main/.agents/skills/chippy/references/mcp.md)
 for other hosts and ports.
 
 ## License

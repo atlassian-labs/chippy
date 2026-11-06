@@ -132,7 +132,8 @@ Examples:
 ./scripts/chippy.sh pages
 # Select the page whose URL, title, integration identity, and recency match the target.
 CLIENT_ID=<confirmed-clientId>
-./scripts/chippy.sh reload-with-avalanche "$CLIENT_ID" http://localhost:9000 0 15000 5000
+ORIGIN=<that page's origin>
+./scripts/chippy.sh reload-with-avalanche "$CLIENT_ID" "$ORIGIN" 0 15000 5000
 ./scripts/chippy.sh avalanche-status "$CLIENT_ID"
 ./scripts/chippy.sh avalanche-hot-sources "$CLIENT_ID" 10
 ./scripts/chippy.sh avalanche-commit-list "$CLIENT_ID" 10 collateral

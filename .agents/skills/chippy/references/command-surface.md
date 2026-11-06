@@ -21,7 +21,7 @@ Use recipe search when the operation or recovery route is not already obvious. I
 | Command | Purpose |
 |---|---|
 | `start`, `stop`, `health` | Own the local helper lifecycle and readiness check. `start` backgrounds itself and binds `127.0.0.1`; `start --host 0.0.0.0` binds wide only when the user asks for network access. |
-| `inject-url` | Print the classic `inject.js` URL to stdout and the document-scoped reload warning to stderr. Prefer the ESM import recipe for new injection workflows. |
+| `inject-url` | Print the classic `inject.js` URL to stdout, and the document-scoped reload warning plus the second required asset to stderr. `inject.js` alone installs Chippy without the bridge; load `avalanche.iife.js` after it, or prefer the single ESM import for new injection workflows. |
 | `pages [slice]` | List currently connected pages. This is connection truth. |
 | `recent-pages` | List recently disconnected page summaries for reload/navigation diagnosis. |
 | `page <clientId> [slice]` | Read one connected page with `minimal`, `standard`, or `full` detail. |

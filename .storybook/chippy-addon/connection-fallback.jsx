@@ -1,6 +1,6 @@
 import React from 'react';
 
-export const CHIPPY_INSTALL_COMMAND = 'npx @atlassian/chippy install';
+export const CHIPPY_INSTALL_COMMAND = 'npx skills add atlassian-labs/chippy --skill chippy -g';
 
 const unavailableConnectionStates = new Set(['failed', 'reconnecting']);
 

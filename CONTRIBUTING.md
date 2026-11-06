@@ -37,6 +37,12 @@ standard React DOM.
 | `.agents/skills/playwright-local/` | Lab automation skill for contributors' agents |
 | `.agents/skills/playwright-cli/` | Upstream `@playwright/cli` skill, vendored because `playwright-local` drives the lab through it |
 
+Users install Chippy with `npx skills add atlassian-labs/chippy --skill chippy`,
+which discovers every skill under `.agents/skills/`. Keep `metadata.internal: true`
+in the frontmatter of `playwright-local` and `playwright-cli`, including after
+updating the vendored copy, so the skills CLI offers only `chippy`. The CI
+`package` job fails if it lists either one.
+
 The [source map](src/README.md) routes to each domain's documentation. Keep bridge
 shims thin: React internals belong in TypeScript domain modules, exposed by
 `src/iife.ts`. Extract cohesive setup, lifecycle, and serialization code before
@@ -93,7 +99,7 @@ out of consumer procedures.
 Use [brand guidance](docs/brand/README.md) when changing visual assets.
 
 Extension changes require a version bump and a regenerated runtime. Users pick
-them up by running the installer again and reloading the unpacked extension; see
+them up by running `npx skills update chippy` and reloading the unpacked extension; see
 the [release guide](docs/releasing.md).
 
 The ATL adapter's unit tests cover its callback contract with both callback

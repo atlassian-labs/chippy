@@ -30,12 +30,6 @@
     }
   }
 
-  function parseForwardPort(value) {
-    if (value === '') return null;
-    const port = Number(value);
-    return Number.isInteger(port) && port >= 1 && port <= 65535 ? port : undefined;
-  }
-
   function escapeHtml(value) {
     return String(value).replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
   }
@@ -74,10 +68,6 @@
           <span>Chippy URL</span>
           <input data-helper-url type="url" inputmode="url" required placeholder="${DEFAULT_HELPER}" />
         </label>
-        <label>
-          <span>Forward to port · optional</span>
-          <input data-forward-port type="number" inputmode="numeric" min="1" max="65535" step="1" placeholder="Auto-detect from page URL" />
-        </label>
         ${pluginMarkup()}
         <div class="actions">
           <button type="submit">Save settings</button>
@@ -91,7 +81,7 @@
   host.setAttribute('data-chippy-settings-host', 'true');
   host.setAttribute('data-chippy-preserve', 'true');
   const pluginRowsHeight = PLUGIN_OPTIONS.length ? 18 + 19 * PLUGIN_OPTIONS.length : 0;
-  host.style.cssText = `display:block;min-height:${176 + pluginRowsHeight}px;`;
+  host.style.cssText = `display:block;min-height:${124 + pluginRowsHeight}px;`;
   const root = host.attachShadow({ mode: 'closed' });
   const surface = document.createElement('div');
   surface.innerHTML = settingsMarkup();
@@ -99,7 +89,6 @@
 
   const form = root.querySelector('form');
   const helperInput = root.querySelector('[data-helper-url]');
-  const forwardPortInput = root.querySelector('[data-forward-port]');
   const pluginInputs = Array.from(root.querySelectorAll('[data-plugin]'));
   const statusNode = root.querySelector('[data-status]');
 
@@ -110,11 +99,9 @@
 
   chrome.storage.local.get({
     helperBaseUrl: DEFAULT_HELPER,
-    forwardPort: null,
     plugins: DEFAULT_PLUGINS,
   }).then((stored) => {
     helperInput.value = normalizeBaseUrl(stored.helperBaseUrl);
-    forwardPortInput.value = stored.forwardPort || '';
     const plugins = Array.isArray(stored.plugins) ? stored.plugins : [];
     for (const input of pluginInputs) input.checked = plugins.includes(input.value);
   }).catch((error) => setStatus(error.message || 'Could not load settings.', true));
@@ -122,19 +109,14 @@
   form.addEventListener('submit', async (event) => {
     event.preventDefault();
     const helperBaseUrl = normalizeBaseUrl(helperInput.value);
-    const forwardPort = parseForwardPort(forwardPortInput.value);
     if (!validateHelperUrl(helperBaseUrl)) {
       setStatus('Use an http(s) URL.', true);
-      return;
-    }
-    if (forwardPort === undefined) {
-      setStatus('Port must be 1–65535.', true);
       return;
     }
 
     try {
       const plugins = pluginInputs.filter((input) => input.checked).map((input) => input.value);
-      await chrome.storage.local.set({ helperBaseUrl, forwardPort, plugins });
+      await chrome.storage.local.set({ helperBaseUrl, plugins });
       document.dispatchEvent(new CustomEvent('chippy-ext-command', {
         detail: { type: 'apply-config', helperBaseUrl, activated: true },
       }));

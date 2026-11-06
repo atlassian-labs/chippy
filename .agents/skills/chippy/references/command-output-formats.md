@@ -53,10 +53,11 @@ Fields: `ok` (bool), `now` (ISO 8601 timestamp).
 
 ## `inject-url`
 
-Prints a lifecycle warning to stderr:
+Prints a lifecycle warning and the second required asset to stderr:
 
 ```text
 Import integration is document-scoped: a full reload/navigation removes Chippy and requires the user or automation to inject it again.
+The classic inject.js installs Chippy only; load http://127.0.0.1:7823/__chippy/avalanche.iife.js after it for bridge and Avalanche commands, or import http://127.0.0.1:7823/__chippy/inject.mjs instead.
 ```
 
 Then prints the classic-script URL to stdout, one line:

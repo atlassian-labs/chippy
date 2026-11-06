@@ -50,7 +50,8 @@ jobs:
       - run: yarn test --project browser
 
   package:
-    # Pack the npm package and run its installer the way `npx` does.
+    # Pack the npm package, run its bin the way `npx` does, and install the
+    # skill from this checkout the way users do, with the skills CLI.
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -61,10 +62,22 @@ jobs:
       - run: yarn install --immutable
       - run: yarn chippy:library:build
       - run: npm pack --pack-destination "$RUNNER_TEMP"
-      - name: Install the skill from the packed tarball
+      - name: Run the bin and check the MCP server ships in the packed tarball
         working-directory: ${{ runner.temp }}
         run: |
-          npx --yes --package ./atlassian-chippy-*.tgz chippy install --dir "$RUNNER_TEMP/skill"
-          test -f "$RUNNER_TEMP/skill/SKILL.md"
-          test -f "$RUNNER_TEMP/skill/extension/manifest.json"
-          test -f "$RUNNER_TEMP/skill/scripts/chippy-mcp.cjs"
+          npx --yes --package ./atlassian-chippy-*.tgz chippy --version
+          tar -tzf ./atlassian-chippy-*.tgz | grep -qx 'package/lib/mcp-skill/scripts/chippy-mcp.cjs'
+      - name: Install the skill with the skills CLI
+        env:
+          DISABLE_TELEMETRY: '1'
+        run: |
+          mkdir "$RUNNER_TEMP/consumer"
+          cd "$RUNNER_TEMP/consumer"
+          # Maintainer skills in .agents/skills are internal and must not be offered.
+          npx --yes skills@1.7.6 add "$GITHUB_WORKSPACE" --list > list.txt 2>&1
+          if grep -qE 'playwright-(local|cli)' list.txt; then cat list.txt; exit 1; fi
+          npx --yes skills@1.7.6 add "$GITHUB_WORKSPACE" --skill chippy -a codex -y
+          test -f .agents/skills/chippy/SKILL.md
+          test -f .agents/skills/chippy/extension/manifest.json
+          test -f .agents/skills/chippy/scripts/chippy-mcp.cjs
+          test -x .agents/skills/chippy/scripts/chippy.sh

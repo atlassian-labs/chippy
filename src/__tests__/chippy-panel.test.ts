@@ -53,7 +53,7 @@ function openLayoutLab(config: Record<string, unknown>, expose = true) {
   win.chrome = {
     storage: {
       local: {
-        get: async () => ({ helperBaseUrl: 'http://127.0.0.1:7823', forwardPort: null }),
+        get: async () => ({ helperBaseUrl: 'http://127.0.0.1:7823' }),
         set: async () => undefined,
       },
     },

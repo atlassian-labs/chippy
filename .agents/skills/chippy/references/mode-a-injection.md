@@ -12,7 +12,7 @@ If the user is using their own browser with the extension, this contract does NO
 
 ## Required bootstrap and install order
 
-Mode A has two supported runtime-loading variants. Both end with the same explicit detector install.
+Mode A has two runtime-loading variants that end with the same explicit detector install. To record the initial load, use [pre-page start-up](#pre-page-start-up) instead; it installs the detector before React on every document.
 
 1. **Install the DevTools hook shim before navigation.** Use `page.addInitScript({ content: DEVTOOLS_HOOK_SHIM })` before `page.goto(...)`.
    React-DOM checks `__REACT_DEVTOOLS_GLOBAL_HOOK__` at module-evaluation time. Installing the shim after navigation = no `currentDispatcherRef` = `replayComponentHooks` collapses to fiber-only fallback. The shim file is shipped with the Chippy skill at `extension/devtools-hook-shim.js`; the helper serves it at `/__chippy/devtools-hook-shim.js` (load that contents into the init script).
@@ -21,7 +21,38 @@ Mode A has two supported runtime-loading variants. Both end with the same explic
    - **Ad-hoc / playwright-cli:** navigate first, then import `http://127.0.0.1:7823/__chippy/inject.mjs` (preferred), or add `inject.js` followed by `avalanche.iife.js`. The classic `inject.js` is intentionally split; bridge commands return `bridge module not loaded` until the IIFE is present.
 3. **Wait for the page client in `chippy.sh pages`.** A loaded global is not connection proof.
 4. **Run `chippy.sh avalanche-install <clientId>`.** Loading either runtime does not auto-install the detector in Mode A.
-   Auto-install is gated on `__CHIPPY_STARTUP_CONFIG.avalanche.autoStart`, which is written by the extension's MAIN-world script in Mode B. Neither Mode A loader writes that startup configuration, so both must trigger install explicitly.
+   Auto-install is gated on `__CHIPPY_STARTUP_CONFIG.avalanche.autoStart`, which is written by the extension's MAIN-world script in Mode B. Neither loader above writes that startup configuration, so both must trigger install explicitly.
+
+## Pre-page start-up
+
+Use this variant when the agent must record the initial page load without the extension. It writes the startup configuration that the extension writes in Mode B, then adds the early scripts and the page bridge as init scripts. Every document, including each reload, installs Avalanche before React DOM evaluates.
+
+Register the init scripts before `page.goto(...)`, in this order. The files ship in this skill's `extension/` folder:
+
+```js
+const read = (file) => fs.readFileSync(path.join(skillDir, 'extension', file), 'utf8');
+
+await page.addInitScript(() => {
+  globalThis.__CHIPPY_STARTUP_CONFIG = {
+    enabled: true,
+    helperBaseUrl: 'http://127.0.0.1:7823',
+    avalanche: { autoStart: true },
+  };
+});
+await page.addInitScript({ content: read('devtools-hook-shim.js') });
+await page.addInitScript({ content: read('avalanche.iife.js') });
+await page.addInitScript({ content: read('early-bootstrap.js') });
+await page.addInitScript({
+  content: ['inspect-react.js', 'panel-dom.js', 'layout-lab.js', 'resolve-probes.js', 'chippy-page-bridge.js']
+    .map(read)
+    .join('\n'),
+});
+await page.goto(url);
+```
+
+- Skip the explicit `avalanche-install`; the detector is already installed and recording. `avalanche.options` accepts `detectionMode` and `captureFibers`, and `avalanche.max` sets the history size.
+- To capture a load, call `page.reload()` and let the page settle. Do not call `avalanche-reset` between the reload and the read; it clears the boot commits.
+- Read the capture with `chippy.sh avalanche-status <clientId>` and `avalanche-export` once the reloaded page appears in `chippy.sh pages`. If the client has not reconnected yet, read `window.__AVALANCHE__.exportLast()` in the page.
 
 ## On reload (`page.reload(...)`)
 
@@ -29,9 +60,9 @@ Mode A has two supported runtime-loading variants. Both end with the same explic
 - The client id is kept in the tab's `sessionStorage`, so the reloaded page normally reconnects under the same id (`page-wait-reload` reports `reloaded: true`). The connection and the detector are new: repeat the explicit install.
 - If the runtimes are not loaded again, the page never reconnects: `page-wait-reload` reports `reloaded: false`, and `reload-with-avalanche` exits with an error instead of reading status from a client that no longer exists.
 
-## Boot-time commit loss — known limitation
+## Boot-time commit loss in the packaged and ad-hoc variants
 
-The ad-hoc `addScriptTag` variant loads the runtimes after page code. The packaged init-script variant loads them before page code, but its detector still remains uninstalled until the helper observes the new client and sends the explicit install.
+This limit does not apply to [pre-page start-up](#pre-page-start-up). The ad-hoc `addScriptTag` variant loads the runtimes after page code. The packaged init-script variant loads them before page code, but its detector still remains uninstalled until the helper observes the new client and sends the explicit install.
 
 Any React commit that fires between page mount and your `avalanche-install` call is **invisible to Avalanche**. This includes:
 - initial mount
@@ -39,7 +70,7 @@ Any React commit that fires between page mount and your `avalanche-install` call
 - Suspense fallback → content swaps
 - route transitions on first paint
 
-**Workaround:** stories under test must expose a manual trigger (e.g. `window.__triggerSwap()`) that you call AFTER `avalanche-install`. Document this trigger in the test fixture so the test reads end-to-end.
+**Workaround:** use [pre-page start-up](#pre-page-start-up), or trigger the transition from the page after `avalanche-install`.
 
 ## Failure signatures
 
@@ -55,7 +86,7 @@ Any React commit that fires between page mount and your `avalanche-install` call
 
 - `chippy.sh avalanche-status <clientId>` → expect `installed: true`, `commitCount > 0`, and `integrationMode` matching the host (`adapter:atl` for a patched Atlassian host, `devtools` otherwise; earlier releases report `atl`), never `none` after a captured commit.
 - In `avalanche-export`, compare `meta.commits` vs `meta.memoizedUpdatersSupport.commitsWithData` — they should match. If `commitsWithData > meta.commits`, early commits were missed.
-- For end-to-end behavior, build a CONTROL test (trigger after install — must capture) AND a GAP test (trigger before install — documents the limitation) per fixture.
+- To tell the boot-time gap from a wiring fault, repeat the interaction after install. If that capture is also empty, the injection is broken; if only the pre-install interaction is missing, use [pre-page start-up](#pre-page-start-up).
 
 ## Mode B reference (for contrast)
 
@@ -68,4 +99,4 @@ In Mode B, the extension does the following automatically and silently for every
 
 For a helper reload of an armed page (`page-reload` after `avalanche-arm`, as in `reload-with-avalanche`), the page bridge first stores the arm in `sessionStorage` and the extension registers the early scripts plus `startup-handoff.js` as a MAIN-world `document_start` content script for that one navigation. The next document installs Avalanche before any page script runs, so boot commits are captured. The reload ack's `earlyStartup` is `registered` when this path was prepared.
 
-The supported Mode A loaders do not provide the extension's pre-page `autoStart` configuration. They install only after client connection; that post-connection detector start is the structural reason for the boot-time gap.
+The packaged and ad-hoc Mode A loaders do not provide the extension's pre-page `autoStart` configuration. They install only after client connection; that post-connection detector start is the structural reason for their boot-time gap. Pre-page start-up writes the configuration itself and has no such gap.

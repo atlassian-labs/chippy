@@ -2,6 +2,8 @@
 name: playwright-local
 description: Browser automation for the Storybook layout lab. Use for opening, inspecting, and interacting with the running Storybook app.
 allowed-tools: Bash(playwright-cli:*)
+metadata:
+  internal: true
 ---
 
 # Playwright — Storybook Layout Lab

@@ -34,7 +34,7 @@ Important behavior:
 - extension-owned pages initially render one small bottom-corner Chippy launcher; expanding it reveals compact `P1 — drag to source` / `P2 — drag to source` rows that serve as each probe's dock and detail surface
 - dragging a probe does not collapse the panel; an undocked probe uses document coordinates and stays anchored to its target while the page scrolls
 - the extension toolbar popup contains only Enable and Disable for the current origin; helper and proxy configuration stay in the in-page panel
-- extension-owned panels expose the helper URL and optional forward-port settings behind the gear; the isolated content script mounts the form in a closed shadow root, with no iframe and no page access to extension storage
+- extension-owned panels expose the helper URL and plugin settings behind the gear; the isolated content script mounts the form in a closed shadow root, with no iframe and no page access to extension storage
 - Storybook host-panel mode keeps a standalone dock in the preview frame because probe details live in the manager frame
 - docked probes are inactive
 - while dragging:
@@ -83,10 +83,10 @@ The Avalanche panel installs and refreshes capture state while selected. It grou
 When either panel is `failed` or `reconnecting`, it may offer:
 
 ```bash
-npx @atlassian/chippy install
+npx skills add atlassian-labs/chippy --skill chippy -g
 ```
 
-That command installs Chippy when it is absent. It does not start or verify the helper; the agent still follows [troubleshooting](troubleshooting.md) and runs the helper checks.
+That command installs the Chippy skill with the skills CLI when it is absent. It does not start or verify the helper; the agent still follows [troubleshooting](troubleshooting.md) and runs the helper checks.
 
 ## `window.__CHIPPY.resolveProbes` / `window.__CHIPPY.resolveProbesCompact`
 

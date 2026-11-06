@@ -14,7 +14,7 @@ describe('Chippy Storybook connection fallback', () => {
 
     expect(screen.getByRole('status')).toHaveTextContent('Chippy’s local helper isn’t reachable.');
     expect(screen.getByTestId('chippy-install-hint')).toHaveTextContent(
-      'npx @atlassian/chippy install',
+      'npx skills add atlassian-labs/chippy --skill chippy -g',
     );
     expect(screen.getByTestId('chippy-install-hint')).toHaveTextContent(
       'If Chippy isn’t installed for your agent, run:',
