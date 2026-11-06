@@ -6,7 +6,7 @@ import { ProbeAnnotationEditor } from '../../.storybook/chippy-addon/probe-annot
 afterEach(cleanup);
 
 describe('Chippy Storybook probe annotation editor', () => {
-  it('commits intent on change and comment on Enter without an attach button', () => {
+  it('sends Explain and Investigate when chosen, and Change only on Enter', () => {
     const attached: unknown[] = [];
     render(
       <ProbeAnnotationEditor
@@ -18,8 +18,11 @@ describe('Chippy Storybook probe annotation editor', () => {
     );
 
     fireEvent.change(screen.getByLabelText('P1 comment'), { target: { value: 'Why does this rerender?' } });
-    fireEvent.change(screen.getByLabelText('P1 intent'), { target: { value: 'investigate' } });
+    fireEvent.change(screen.getByLabelText('P1 intent'), { target: { value: 'change' } });
+    expect(attached).toEqual([]);
+    expect(screen.getByText('Not sent. Press Enter in the comment to send.')).toBeTruthy();
 
+    fireEvent.change(screen.getByLabelText('P1 intent'), { target: { value: 'investigate' } });
     expect(attached).toEqual([{
       intent: 'investigate',
       comment: 'Why does this rerender?',
@@ -42,5 +45,16 @@ describe('Chippy Storybook probe annotation editor', () => {
 
     expect(screen.getByLabelText('P2 intent')).toHaveValue('change');
     expect(screen.getByLabelText('P2 comment')).toHaveValue('New');
+  });
+
+  it('shows whether the annotation is queued for the agent or done', () => {
+    const { rerender, container } = render(
+      <ProbeAnnotationEditor markerId="1" intent="change" comment="click it?" status="queued" onAttach={() => {}} />,
+    );
+    const status = () => container.querySelector('[data-chippy-probe-annotation-status="1"]')?.textContent;
+    expect(status()).toBe('Queued for the agent.');
+    rerender(<ProbeAnnotationEditor markerId="1" intent={null} comment="" status="done" onAttach={() => {}} />);
+    expect(status()).toBe('Done. The agent handled the last note.');
+    expect(screen.getByLabelText('P1 comment')).toHaveValue('');
   });
 });

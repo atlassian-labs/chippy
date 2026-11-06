@@ -81,7 +81,7 @@ afterAll(async () => {
 
 it('lists all tools with typed input and accurately distinguishes connected browser state', async () => {
   const { tools } = await first.listTools();
-  expect(tools.map(tool => tool.name)).toHaveLength(9);
+  expect(tools.map(tool => tool.name)).toHaveLength(10);
   expect(tools.every(tool => tool.inputSchema.type === 'object')).toBe(true);
   expect((await call(first, 'chippy_status')).data.browserConnected).toBe(true);
   expect((await call(first, 'chippy_snapshot', { clientId: 'mcp-client' })).data.snapshot.markers['1'].resolved.component.name).toBe('Counter');
@@ -132,6 +132,12 @@ it('receives UI intent, times out normally, and reports invalid inputs and missi
   expect(annotation.data.status).toBe('annotation');
   expect(JSON.stringify(annotation.data)).toContain('Find the cause');
   expect((await call(first, 'chippy_wait_annotation', { clientId: 'mcp-client', timeoutMs: 10 })).data.status).toBe('timeout');
+  const replayed = await call(first, 'chippy_wait_annotation', { clientId: 'mcp-client', timeoutMs: 10, after: annotation.data.cursor - 1 });
+  expect(replayed.data).toMatchObject({ status: 'annotation', cursor: annotation.data.cursor });
+  expect((await call(first, 'chippy_wait_annotation', { clientId: 'mcp-client', timeoutMs: 10, after: annotation.data.cursor })).data.status).toBe('timeout');
+  const acked = await call(first, 'chippy_ack_annotation', { clientId: 'mcp-client', sequence: annotation.data.cursor });
+  expect(acked.data).toMatchObject({ status: 'acknowledged', clearRequested: ['1'] });
+  expect(commands.at(-1)).toMatchObject({ type: 'clear-probe-annotation', markerId: '1', expected: { intent: 'investigate', comment: 'Find the cause' } });
   expect((await call(first, 'chippy_probe', { clientId: 'mcp-client', probeId: '1', view: 'prop-value' })).result.isError).toBe(true);
   expect((await call(first, 'chippy_interact', { clientId: 'mcp-client', action: 'invoke', target: 'fiber:1' })).result.isError).toBe(true);
   expect((await call(first, 'chippy_inspect_fiber', { clientId: 'mcp-client', fiberId: 'fiber:1', view: 'structure' })).result.isError).toBe(true);

@@ -267,9 +267,11 @@ Client not found (both):
 
 ---
 
-## `wait <clientId> [timeoutSeconds]`
+## `wait <clientId> [timeoutSeconds] [afterSequence]`
 
-Performs one cancellable long poll for a user-attached P1/P2 annotation. `timeoutSeconds` defaults to `300` and accepts integers from `1` through `1800`. An annotation that arrived before the call remains queued in helper memory and returns immediately. Events are consumed oldest-first per connected page.
+Performs one cancellable long poll for a user-attached P1/P2 annotation. `timeoutSeconds` defaults to `300` and accepts integers from `1` through `1800`. The helper keeps a per-page event log, and reading it does not remove events. `afterSequence` is your cursor: the call returns the oldest event whose `sequence` is greater than it, immediately if one is already logged. Pass the previous result's `cursor` on every re-arm. An event that arrives between two waits, a response that never reached you, or a second reader then cannot make you miss an event, and repeating a call with the same cursor returns the same event.
+
+Without `afterSequence`, the helper uses a per-page implicit cursor that advances only after it has written the response, so events still come oldest-first and an aborted call does not use up the next event.
 
 This command does not install, inspect, or modify any agent-host lifecycle hook. Repeated waiting is controlled by the current agent turn and only continues while the user-requested loop remains active.
 
@@ -282,6 +284,10 @@ Annotation result:
   "targetClientId": "<clientId>",
   "resolvedFrom": null,
   "timeoutMs": 300000,
+  "after": 0,
+  "cursor": 1,
+  "missed": false,
+  "droppedThrough": null,
   "event": {
     "eventId": "probe-annotation:1",
     "sequence": 1,
@@ -303,6 +309,8 @@ Annotation result:
 }
 ```
 
+`after` is the cursor the call used and `cursor` is the value to pass next: the returned event's `sequence`, or on timeout the newest logged sequence. `missed: true` means events after your cursor were evicted before you read them; `droppedThrough` is the newest evicted sequence. `sequence` increases across all pages, so a page's sequences can have gaps without `missed` being true.
+
 `marker` uses the standard snapshot slice. `changedProbeIds` identifies annotations whose intent or comment differs from the preceding snapshot. When a developer re-attaches unchanged text, the event contains the currently annotated direct probes because the page snapshot does not identify the clicked probe separately.
 
 Bounded timeout is a successful empty result:
@@ -314,11 +322,33 @@ Bounded timeout is a successful empty result:
   "targetClientId": "<clientId>",
   "resolvedFrom": null,
   "timeoutMs": 300000,
+  "after": 1,
+  "cursor": 1,
+  "missed": false,
+  "droppedThrough": null,
   "event": null
 }
 ```
 
-The in-memory queue retains at most 50 events per page and does not survive a helper restart. Cancelling the HTTP/tool call removes that waiter without consuming the next event.
+The in-memory log retains the newest 200 events per page and does not survive a helper restart. Cancelling the HTTP/tool call removes that waiter without consuming anything.
+
+## `ack <clientId> <sequence>`
+
+Marks one annotation event handled after you finish it. The page clears the intent and comment of each annotated probe in that event and shows the probe as done. A probe is cleared only if its annotation still matches the event, so a note the user attached meanwhile stays queued. Acknowledging does not move any cursor.
+
+```json
+{
+  "ok": true,
+  "status": "acknowledged",
+  "targetClientId": "<clientId>",
+  "resolvedFrom": null,
+  "sequence": 3,
+  "cursor": 3,
+  "clearRequested": ["1"]
+}
+```
+
+`clearRequested` lists the probes the page was asked to clear. The page reports the outcome as `probe-annotation-cleared` activity (`ok: false` with `reason: "annotation-changed"` when the user's note changed). An unknown or evicted sequence returns `404`.
 
 ---
 

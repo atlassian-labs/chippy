@@ -191,6 +191,7 @@ function MarkerSummary({ markers, onInspectBoundary, onAttachAnnotation }) {
                 markerId={id}
                 intent={marker?.intent}
                 comment={marker?.comment}
+                status={marker?.annotationStatus}
                 onAttach={(annotation) => onAttachAnnotation?.(id, annotation)}
               />
             ) : null}

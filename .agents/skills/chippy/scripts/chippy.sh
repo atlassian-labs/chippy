@@ -44,7 +44,8 @@ Usage:
   ./scripts/chippy.sh page <clientId> [slice]
   ./scripts/chippy.sh snapshot <clientId> [slice]
   ./scripts/chippy.sh request-snapshot <clientId>
-  ./scripts/chippy.sh wait <clientId> [timeoutSeconds]
+  ./scripts/chippy.sh wait <clientId> [timeoutSeconds] [afterSequence]
+  ./scripts/chippy.sh ack <clientId> <sequence>
   ./scripts/chippy.sh activate <clientId>
   ./scripts/chippy.sh deactivate <clientId>
   ./scripts/chippy.sh context-ui <clientId> <on|off>
@@ -373,15 +374,29 @@ case "$cmd" in
   wait)
     client_id="${2:-}"
     timeout_seconds="${3:-300}"
+    after_sequence="${4:-}"
     if [[ -z "$client_id" ]]; then
-      echo "wait requires <clientId> [timeoutSeconds]" >&2
+      echo "wait requires <clientId> [timeoutSeconds] [afterSequence]" >&2
       exit 1
     fi
     if [[ ! "$timeout_seconds" =~ ^[1-9][0-9]*$ ]] || (( timeout_seconds > 1800 )); then
       echo "timeoutSeconds must be an integer from 1 through 1800" >&2
       exit 1
     fi
-    get_json "/api/pages/$client_id/probe-annotations/wait?timeoutMs=$((timeout_seconds * 1000))"
+    if [[ -n "$after_sequence" && ! "$after_sequence" =~ ^(0|[1-9][0-9]*)$ ]]; then
+      echo "afterSequence must be a non-negative integer event sequence" >&2
+      exit 1
+    fi
+    get_json "/api/pages/$client_id/probe-annotations/wait?timeoutMs=$((timeout_seconds * 1000))${after_sequence:+&after=$after_sequence}"
+    ;;
+  ack)
+    client_id="${2:-}"
+    sequence="${3:-}"
+    if [[ -z "$client_id" || ! "$sequence" =~ ^[1-9][0-9]*$ ]]; then
+      echo "ack requires <clientId> <sequence>" >&2
+      exit 1
+    fi
+    post_json "/api/pages/$client_id/probe-annotations/ack" "{\"sequence\":$sequence}"
     ;;
   activate)
     client_id="${2:-}"

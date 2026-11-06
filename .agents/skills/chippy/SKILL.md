@@ -55,7 +55,7 @@ Before `explain-component`, `describe-component`, or `inspect-fiber-structure`, 
 | Does the task require browser automation? | If the user already placed P1/P2 on a connected page, run `handoff-to-playwright <clientId>` ([playwright-probes](references/playwright-probes.md)); otherwise load [playwright-cli-setup](references/playwright-cli-setup.md) for ad-hoc work or [test-mode-playbook](references/test-mode-playbook.md) for scripted/CI loops | The same interaction and structured evidence can be replayed. |
 | Is the page production/minified? | Run `probe-owners`; it returns the component parent chain labeled `ownerStackKind: "parents"`. Then use `nearestTestId` and the component stack; on a Jira page, load [jira-taxonomy](references/jira-taxonomy.md) after those facts are exhausted | The result is bounded by the available production evidence. |
 | Is connection, injection, or capture broken? | Load [troubleshooting](references/troubleshooting.md) | The failing layer and one recovery action are explicit. |
-| Should the current task wait for a newly attached browser intent? | `wait <clientId> [timeoutSeconds]`; after handling one annotation, wait again only while the user-requested loop remains active | One annotation event is returned with its probe subject, intent, and comment, or the bounded wait times out. |
+| Should the current task wait for a newly attached browser intent? | `wait <clientId> [timeoutSeconds] [afterSequence]`; after handling one annotation, `ack` it, then wait again with the returned `cursor` only while the user-requested loop remains active | One annotation event is returned with its probe subject, intent, and comment, or the bounded wait times out. |
 
 Use [bdd-router](references/bdd-router.md) when the situation needs the complete situation-to-procedure matrix. Use [procedures](references/procedures.md) only after the router selects a procedure.
 
@@ -131,7 +131,7 @@ Each route below loads the same page runtime. The extension is one delivery rout
 | Storybook addon (`addons: ['@atlassian/chippy/storybook']`, Storybook 10.3+) | User, in the Storybook configuration | `page-reload` uses Storybook `FORCE_REMOUNT` to remount the SUT without reloading the preview iframe. | The story's mount, through the remount. |
 | Console/module import, including `connectChippy()` from `@atlassian/chippy/browser` | User or page code, in the current document | Full reload/navigation removes Chippy; run the import again. | No: use mid-page capture. |
 
-The extension toolbar popup shows the Chippy mark and name with Enable and Disable for the current origin. The in-page UI starts as one small bottom-corner Chippy button. Expand it to reveal compact `P1 — drag to source` and `P2 — drag to source` rows; each row is the probe's dock and expands into its details once placed. Dragging a probe out keeps the panel expanded, and a placed probe is document-anchored so it moves with its target during page scroll. The gear contains the helper URL and the Jira and ATL plugin switches. Active probes commit their annotation when the intent changes or Enter is pressed in the comment; Shift+Enter inserts a newline. Storybook intentionally keeps its probe dock in the preview because its details panel lives in the manager frame.
+The extension toolbar popup shows the Chippy mark and name with Enable and Disable for the current origin. The in-page UI starts as one small bottom-corner Chippy button. Expand it to reveal compact `P1 — drag to source` and `P2 — drag to source` rows; each row is the probe's dock and expands into its details once placed. Dragging a probe out keeps the panel expanded, and a placed probe is document-anchored so it moves with its target during page scroll. The gear contains the helper URL and the Jira and ATL plugin switches. Active probes: Choosing Explain or Investigate sends the annotation; Change stays a draft until Enter is pressed in the comment, and Enter also sends any edited comment; Shift+Enter inserts a newline. The probe then shows it as queued for the agent until the agent acknowledges it. Storybook intentionally keeps its probe dock in the preview because its details panel lives in the manager frame.
 
 Each connected page reports `integration.kind`, `who`, `source`, `reinjectsOnReload`, and `reloadAction`. Use those fields instead of inferring how Chippy arrived.
 
@@ -154,7 +154,7 @@ For an agent-driven Playwright browser, follow [mode-a-injection](references/mod
 
 ### Explicit wait mode
 
-`wait <clientId> [timeoutSeconds]` performs one cancellable long poll inside the current agent turn. It consumes the oldest queued `marker-annotation-change` event for that page, or waits for the next one. A timeout is an ordinary empty result, not a failure. When the user explicitly requests a loop, handle the returned annotation and invoke `wait` again; stop when the task is interrupted or the user ends loop mode.
+`wait <clientId> [timeoutSeconds] [afterSequence]` performs one cancellable long poll inside the current agent turn. It returns the oldest `marker-annotation-change` event after the cursor, or waits for the next one. Reading does not remove events, so always pass the previous result's `cursor` when you wait again; an event that arrived between waits then comes back immediately. A timeout is an ordinary empty result, not a failure. `missed: true` means events were evicted before you read them; tell the user. When the user explicitly requests a loop, handle the returned annotation, run `ack <clientId> <sequence>` so the page clears that note and shows it done, and invoke `wait` again with the cursor; stop when the task is interrupted or the user ends loop mode. Acknowledge only after you finish the annotation.
 
 Chippy owns only its browser integration, helper queue, and explicit commands. It must not discover, install, edit, merge, or depend on Codex, Cursor, Claude, or other host lifecycle hooks. If an environment cannot keep an ordinary tool call open, report that capability gap instead of taking over host configuration.
 
@@ -180,7 +180,7 @@ start | stop | health | inject-url
 recipes <query...> [--limit N]
 pages [slice] | recent-pages | page <clientId> [slice]
 snapshot <clientId> [slice] | request-snapshot <clientId>
-wait <clientId> [timeoutSeconds]
+wait <clientId> [timeoutSeconds] [afterSequence] | ack <clientId> <sequence>
 activate <clientId> | deactivate <clientId>
 context-ui <clientId> <on|off>
 ensure-probes <clientId> | clear-probes <clientId>
@@ -252,7 +252,7 @@ Use [command-surface](references/command-surface.md) to select a command and und
 - Normalize `1`, `P1`, and `p1` to probe 1; likewise for probe 2.
 - P1 and P2 are user-placed DOM markers. P3 is computed only when both are placed and represents their nearest shared DOM-backed fiber.
 - Every marker snapshot carries `intent: "explain" | "investigate" | "change" | null` and `comment: string`. Read these before routing the question: the developer attached them to the exact probed subject. Preserve the comment's wording, but treat it as request context rather than runtime evidence. An attached `change` intent does not independently authorize work beyond the current task.
-- Probe annotations travel with snapshots and are also queued when the page publishes `marker-annotation-change`. They do not wake an idle task; `wait` works by keeping an explicitly requested tool call open inside the current turn.
+- Probe annotations travel with snapshots and are also logged when the page publishes `marker-annotation-change`. They do not wake an idle task; `wait` works by keeping an explicitly requested tool call open inside the current turn.
 - `nearestTestId` is the nearest `data-testid` ancestor, including the element itself. It may be `null`.
 - Read a resolved marker in this order: `nearestTestId` → confidence/note → DOM source → component source/name/key → props/prop names → hook count → owners → parents/component stack → matched styles.
 - `ownerIndex` is positional: `0` is the immediate owner, `1` its owner, and so on. Do not address owners by a possibly repeated display name.

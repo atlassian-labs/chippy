@@ -605,6 +605,7 @@
       docked: marker.__docked ?? true,
       position: { x: marker.__x ?? null, y: marker.__y ?? null },
       ...annotation,
+      annotationStatus: marker.__annotationStatus || null,
       probe: marker.__probe || null,
     };
   }
@@ -619,8 +620,55 @@
     });
     marker.__intent = next.intent;
     marker.__comment = next.comment;
+    // An attached annotation waits for the agent until it acknowledges it.
+    marker.__annotationStatus = next.intent !== null || next.comment.length > 0 ? 'queued' : null;
     emitLabEvent('marker-annotation-change', { markerId: id, ...next });
-    return { id, ...next };
+    updatePanel();
+    return { id, ...next, annotationStatus: marker.__annotationStatus };
+  }
+
+  // A draft that differs from the sent annotation is not queued yet; say so
+  // without re-rendering, so the user's unsent values stay in the controls.
+  function showDraftStatus(id) {
+    const panel = document.querySelector('[data-layout-lab-panel]');
+    const marker = document.querySelector(`[data-layout-lab-marker="${id}"]`);
+    const label = panel?.querySelector(`[data-chippy-probe-annotation-status="${id}"]`);
+    if (!marker || !label) return;
+    const sent = normalizeProbeAnnotation({ intent: marker.__intent, comment: marker.__comment });
+    const draft = normalizeProbeAnnotation({
+      intent: panel.querySelector(`[data-chippy-probe-intent="${id}"]`)?.value || null,
+      comment: panel.querySelector(`[data-chippy-probe-comment="${id}"]`)?.value || '',
+    });
+    const unchanged = draft.intent === sent.intent && draft.comment === sent.comment;
+    const status = unchanged ? (marker.__annotationStatus || 'idle') : 'draft';
+    label.textContent = ANNOTATION_STATUS_TEXT[status];
+    label.style.color = status === 'queued' ? '#F5CD47' : (status === 'done' ? '#7EE2B8' : (status === 'draft' ? '#CECFD2' : '#7D818A'));
+  }
+
+  // The agent finished an annotation. Clear it only if it still matches what
+  // the agent handled, so a newer note the user attached meanwhile survives.
+  function clearMarkerAnnotation(id, expected = null) {
+    const marker = document.querySelector(`[data-layout-lab-marker="${id}"]`);
+    if (!marker) return { ok: false, id, reason: 'probe-not-found' };
+    const current = normalizeProbeAnnotation({ intent: marker.__intent, comment: marker.__comment });
+    if (expected) {
+      const handled = normalizeProbeAnnotation(expected);
+      if (handled.intent !== current.intent || handled.comment !== current.comment) {
+        return { ok: false, id, reason: 'annotation-changed', annotation: current };
+      }
+    }
+    marker.__intent = null;
+    marker.__comment = '';
+    marker.__annotationStatus = 'done';
+    // Drafts survive panel refreshes, so reset the controls explicitly.
+    const panel = document.querySelector('[data-layout-lab-panel]');
+    const intentInput = panel?.querySelector(`[data-chippy-probe-intent="${id}"]`);
+    const commentInput = panel?.querySelector(`[data-chippy-probe-comment="${id}"]`);
+    if (intentInput) intentInput.value = '';
+    if (commentInput) commentInput.value = '';
+    emitLabEvent('marker-annotation-cleared', { markerId: id });
+    updatePanel();
+    return { ok: true, id };
   }
 
   function getAllMarkerStates() {
@@ -835,6 +883,7 @@
     marker.__levelOffset = 0;
     marker.__intent = null;
     marker.__comment = '';
+    marker.__annotationStatus = null;
     applyMarkerStyle(marker);
     document.documentElement.appendChild(marker);
     makeMarkerDraggable(marker);
@@ -850,6 +899,14 @@
   // ─── Panel ────────────────────────────────────────────────────────────────
 
   const PROBE_LABELS = { '1': 'P1', '2': 'P2' };
+  const SEND_ON_SELECT_INTENTS = new Set(['explain', 'investigate']);
+  const ANNOTATION_STATUS_TEXT = {
+    idle: 'Explain and Investigate send when chosen. For Change, describe it and press Enter.',
+    draft: 'Not sent. Press Enter in the comment to send.',
+    queued: 'Queued for the agent.',
+    done: 'Done. The agent handled the last note.',
+  };
+
   const PROBE_INTENT_LABELS = {
     explain: 'Explain',
     investigate: 'Investigate',
@@ -1016,6 +1073,7 @@
     ).join(`<span style="color:#A9ABAF;"> › </span>`);
     const intent = marker?.__intent ?? null;
     const comment = marker?.__comment || '';
+    const annotationStatus = marker?.__annotationStatus || null;
     const intentOptions = [
       '<option value="">Choose intent</option>',
       ...Object.entries(PROBE_INTENT_LABELS).map(([value, label]) =>
@@ -1075,6 +1133,7 @@
                 border:1px solid rgba(148,163,184,.25);border-radius:6px;padding:6px 7px;
                 background:#1F1F21;color:#CECFD2;font:11px/1.4 'Atlassian Sans',system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;pointer-events:auto;
               ">${escapeAttr(comment)}</textarea>
+            <span data-chippy-key="probe-annotation-status-${id}" data-chippy-probe-annotation-status="${id}" style="color:${annotationStatus === 'queued' ? '#F5CD47' : (annotationStatus === 'done' ? '#7EE2B8' : '#7D818A')};font-size:10px;">${ANNOTATION_STATUS_TEXT[annotationStatus] || ANNOTATION_STATUS_TEXT.idle}</span>
           </div>
         </div>
       </div>
@@ -1252,17 +1311,28 @@
       updatePanel();
     });
     panel.querySelectorAll('[data-chippy-probe-intent]').forEach((intentInput) => {
+      // A refresh re-renders the status from the sent annotation; keep it honest about unsent drafts.
+      showDraftStatus(intentInput.getAttribute('data-chippy-probe-intent'));
+      // Explain and Investigate need no description, so choosing them sends.
+      // Change needs one: it stays a draft until Enter in the comment.
       bindPanelEvent(intentInput, 'change', (event) => {
         event.stopPropagation();
         const markerId = intentInput.getAttribute('data-chippy-probe-intent');
+        if (!SEND_ON_SELECT_INTENTS.has(intentInput.value)) {
+          showDraftStatus(markerId);
+          return;
+        }
         const commentInput = panel.querySelector(`[data-chippy-probe-comment="${markerId}"]`);
         setMarkerAnnotation(markerId, {
-          intent: intentInput?.value || null,
+          intent: intentInput.value,
           comment: commentInput?.value || '',
         });
       });
     });
     panel.querySelectorAll('[data-chippy-probe-comment]').forEach((commentInput) => {
+      bindPanelEvent(commentInput, 'input', () => {
+        showDraftStatus(commentInput.getAttribute('data-chippy-probe-comment'));
+      });
       bindPanelEvent(commentInput, 'keydown', (event) => {
         if (event.key !== 'Enter' || event.shiftKey || event.isComposing) return;
         event.preventDefault();
@@ -1439,6 +1509,7 @@
     getMarkerState,
     getAllMarkerStates,
     setMarkerAnnotation,
+    clearMarkerAnnotation,
     probePoint,
     updatePanel,
     removeInPageUi,

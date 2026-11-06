@@ -30,6 +30,7 @@ Probe overlay and state.
 - `getMarkerState(id)`
 - `getAllMarkerStates()`
 - `setMarkerAnnotation(id, { intent, comment })`
+- `clearMarkerAnnotation(id, expected?)`
 - `probePoint(x, y)`
 - `clearAll()`
 - `snapToDock(id)`
@@ -50,12 +51,12 @@ Important behavior:
   - ← / → walks DOM element levels (up/down the DOM tree)
   - ↑ / ↓ walks fiber parent chain (up/down React component tree)
 - clicking an owner name in the panel jumps the probe to that owner's fiber
-- active P1/P2 cards accept an intent (`explain`, `investigate`, or `change`) and a free-text comment; changing the intent stores both fields immediately, while Enter in the comment stores them and Shift+Enter inserts a newline
+- active P1/P2 cards accept an intent (`explain`, `investigate`, or `change`) and a free-text comment; choosing `explain` or `investigate` sends both fields immediately; `change` stays an unsent draft (the card says so) until Enter in the comment sends it; Enter also sends an edited comment, and Shift+Enter inserts a newline
 - probe/connection refreshes patch keyed panel nodes in place instead of replacing the panel subtree; existing probe rows, controls, focus, unsubmitted drafts, the settings slot, and its content-script-owned shadow host survive ordinary refreshes
 - Context-provider cards (for example Jira ownership and error-boundary fields) are visible by default when recognized markers exist; `context-ui <clientId> on|off` changes that presentation for the current connected page
 - probe highlights and parent borders are overlay-only, never DOM mutations
 
-`getMarkerState(id)` and `getMarkerProbe(id)` always include `intent` (`"explain" | "investigate" | "change" | null`) and `comment` (`string`). `setMarkerAnnotation` patch-merges omitted fields, normalizes unsupported intents to `null`, caps comments at 2,000 characters, and emits `layout-lab:update` with reason `marker-annotation-change`.
+`getMarkerState(id)` and `getMarkerProbe(id)` always include `intent` (`"explain" | "investigate" | "change" | null`) and `comment` (`string`). `setMarkerAnnotation` patch-merges omitted fields, normalizes unsupported intents to `null`, caps comments at 2,000 characters, and emits `layout-lab:update` with reason `marker-annotation-change`. Marker state also carries `annotationStatus`: `"queued"` after a non-empty annotation is attached, `"done"` after the agent acknowledged it, otherwise `null`. `clearMarkerAnnotation(id, expected)` empties the annotation and sets `"done"` only when the current annotation equals `expected`; otherwise it returns `{ ok: false, reason: "annotation-changed" }`. It emits `marker-annotation-cleared`, which the helper does not log as a new annotation.
 
 ## `window.__CHIPPY.pageBridge`
 
@@ -85,7 +86,7 @@ Probes start hidden in Storybook. **Show probes** in the Chippy panel header (or
 
 The Chippy panel presents probe targets rather than transport counters. While a probe is held in the preview, left/right walk DOM targets and up/down walk the React component chain.
 
-For an active P1/P2 marker, the panel renders the same intent selector and comment field as the in-page panel. Changing the intent or pressing Enter in the comment sends one `set-probe-annotation` command into the preview; Shift+Enter inserts a newline. The resulting marker snapshot carries both fields through the helper in every slice mode. The helper also queues the resulting `marker-annotation-change` for an explicit `chippy.sh wait`; it does not wake an idle task or modify host lifecycle hooks.
+For an active P1/P2 marker, the panel renders the same intent selector and comment field as the in-page panel. Choosing Explain or Investigate, or pressing Enter in the comment, sends one `set-probe-annotation` command into the preview; choosing Change only edits the draft until Enter; Shift+Enter inserts a newline. The resulting marker snapshot carries both fields through the helper in every slice mode. The editor shows whether the note is queued for the agent or done. The helper also logs the resulting `marker-annotation-change` for an explicit `chippy.sh wait`; it does not wake an idle task or modify host lifecycle hooks.
 
 When a placed probe resolves context from a registered provider (for example the Jira plugin's ownership and `JSErrorBoundary` fields), its marker card shows the available fields. Markers without such context render no context section and no empty placeholder. The bridge exposes this as `markers[id].context`; the field is `null` when no recognized context exists or `contextUiEnabled` is off.
 

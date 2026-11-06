@@ -543,6 +543,7 @@ function sliceMarker(marker, mode, boundaryRe) {
     docked: marker.docked ?? true,
     intent: marker.intent ?? null,
     comment: typeof marker.comment === 'string' ? marker.comment : '',
+    annotationStatus: marker.annotationStatus ?? null,
   };
   const r = marker.resolved;
   if (!r) return { ...base, resolved: null };
@@ -1224,21 +1225,77 @@ async function handleChippyHttp(req, res, url) {
       return true;
     }
 
-    const pending = probeAnnotations.wait(resolved.clientId, timeoutMs);
+    const afterRaw = url.searchParams.get('after');
+    const after = afterRaw === null ? undefined : Number(afterRaw);
+    if (after !== undefined && (!Number.isInteger(after) || after < 0)) {
+      json(res, 400, { ok: false, error: 'after must be a non-negative integer event sequence' });
+      return true;
+    }
+
+    const pending = probeAnnotations.wait(resolved.clientId, timeoutMs, { after });
     const cancel = () => pending.cancel();
     req.once('aborted', cancel);
     res.once('close', cancel);
-    const event = await pending.promise;
+    const result = await pending.promise;
     req.removeListener('aborted', cancel);
     res.removeListener('close', cancel);
-    if (req.aborted || res.destroyed) return true;
+    if (!result || req.aborted || res.destroyed) return true;
     json(res, 200, {
       ok: true,
-      status: event ? 'annotation' : 'timeout',
+      status: result.event ? 'annotation' : 'timeout',
       targetClientId: resolved.clientId,
       resolvedFrom: resolved.resolvedFrom || null,
       timeoutMs,
-      event,
+      after: pending.after,
+      cursor: result.cursor,
+      missed: result.missed,
+      droppedThrough: result.droppedThrough,
+      event: result.event,
+    });
+    // Without an explicit cursor, the event counts as read only once the
+    // response is written, so an aborted caller does not lose it.
+    if (!res.destroyed) pending.consume(result);
+    return true;
+  }
+
+  // Mark an annotation event handled and clear the probe annotations it carried.
+  // The page clears a probe only if its annotation still matches the event, so
+  // a newer note the user attached meanwhile survives.
+  if (method === 'POST' && /^\/__chippy\/api\/pages\/[^/]+\/probe-annotations\/ack$/.test(p)) {
+    const clientId = p.split('/')[4];
+    const resolved = resolveClientId(clientId);
+    if (!resolved.ok) { json(res, resolved.code, { ok: false, error: resolved.error }); return true; }
+    let body;
+    try { body = await parseJsonBody(req); } catch (error) { json(res, 400, { ok: false, error: error.message }); return true; }
+    const sequence = Number(body?.sequence);
+    if (!Number.isInteger(sequence) || sequence < 1) {
+      json(res, 400, { ok: false, error: 'sequence must be a positive integer event sequence' });
+      return true;
+    }
+    const event = probeAnnotations.acknowledge(resolved.clientId, sequence);
+    if (!event) {
+      json(res, 404, { ok: false, error: `No retained annotation event ${sequence} for ${resolved.clientId}` });
+      return true;
+    }
+    const cleared = event.annotations
+      .filter((annotation) => annotation.intent !== null || annotation.comment.length > 0)
+      .map((annotation) => annotation.probeId);
+    for (const annotation of event.annotations) {
+      if (!cleared.includes(annotation.probeId)) continue;
+      sendToClient(resolved.clientId, {
+        type: 'clear-probe-annotation',
+        markerId: annotation.probeId,
+        expected: { intent: annotation.intent, comment: annotation.comment },
+      });
+    }
+    json(res, 200, {
+      ok: true,
+      status: 'acknowledged',
+      targetClientId: resolved.clientId,
+      resolvedFrom: resolved.resolvedFrom || null,
+      sequence,
+      cursor: sequence,
+      clearRequested: cleared,
     });
     return true;
   }

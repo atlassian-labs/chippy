@@ -174,6 +174,7 @@
         docked: states[id]?.docked ?? true,
         intent: states[id]?.intent ?? null,
         comment: states[id]?.comment || '',
+        annotationStatus: states[id]?.annotationStatus || null,
         resolved: summaries[id] || null,
         context,
       };
@@ -654,6 +655,15 @@
       case 'request-snapshot':
         publishSnapshot('request-snapshot');
         break;
+      case 'clear-probe-annotation': {
+        const cleared = chippy.layoutLab?.clearMarkerAnnotation?.(String(command.markerId), command.expected || null);
+        sendActivity('probe-annotation-cleared', {
+          markerId: command.markerId ?? null,
+          ok: !!cleared?.ok,
+          reason: cleared?.reason || (cleared ? null : 'layout-lab-unavailable'),
+        });
+        break;
+      }
       case 'show-status':
         showStatus(command.text || 'Chippy is connected.');
         break;

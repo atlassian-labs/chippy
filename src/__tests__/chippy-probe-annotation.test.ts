@@ -86,7 +86,7 @@ describe('Chippy in-page probe annotation', () => {
     dom.window.close();
   });
 
-  it('commits intent on change and comment on Enter without an attach button', () => {
+  it('sends Explain and Investigate when chosen, and Change only on Enter', () => {
     const { dom, win } = openPanel();
     const events: Array<Record<string, unknown>> = [];
     win.addEventListener('layout-lab:update', (event: Event) => {
@@ -97,9 +97,18 @@ describe('Chippy in-page probe annotation', () => {
     const comment = win.document.querySelector('[aria-label="P1 comment"]') as HTMLTextAreaElement;
     expect(win.document.querySelector('[data-chippy-probe-attach="1"]')).toBeNull();
 
-    comment.value = 'Move this card below the summary.';
+    const status = () => win.document.querySelector('[data-chippy-probe-annotation-status="1"]')?.textContent;
     intent.value = 'change';
     intent.dispatchEvent(new win.Event('change', { bubbles: true }));
+    expect(events.filter((event) => event.reason === 'marker-annotation-change')).toHaveLength(0);
+    expect(win.__CHIPPY.layoutLab.getMarkerState('1')).toMatchObject({ intent: null, annotationStatus: null });
+    expect(status()).toBe('Not sent. Press Enter in the comment to send.');
+    win.__CHIPPY.layoutLab.updatePanel();
+    expect(status()).toBe('Not sent. Press Enter in the comment to send.');
+
+    comment.value = 'Move this card below the summary.';
+    comment.dispatchEvent(new win.KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+    expect(status()).toBe('Queued for the agent.');
 
     expect(win.__CHIPPY.layoutLab.getMarkerState('1')).toMatchObject({
       id: '1',
@@ -144,6 +153,46 @@ describe('Chippy in-page probe annotation', () => {
       intent: 'change',
       comment: 'Keep this line\nand add another.',
     });
+
+    intent.value = 'investigate';
+    intent.dispatchEvent(new win.Event('change', { bubbles: true }));
+    expect(events.at(-1)).toMatchObject({ reason: 'marker-annotation-change', intent: 'investigate' });
+    expect(win.__CHIPPY.layoutLab.getMarkerState('1')).toMatchObject({ intent: 'investigate', annotationStatus: 'queued' });
+    dom.window.close();
+  });
+
+  it('shows a queued annotation and clears it only when the agent handled that exact note', () => {
+    const { dom, win } = openPanel();
+    const events: Array<Record<string, unknown>> = [];
+    win.addEventListener('layout-lab:update', (event: Event) => {
+      events.push((event as CustomEvent).detail);
+    });
+    const lab = win.__CHIPPY.layoutLab;
+    const status = () => win.document.querySelector('[data-chippy-probe-annotation-status="1"]')?.textContent;
+    const intent = win.document.querySelector('[aria-label="P1 intent"]') as HTMLSelectElement;
+    const comment = win.document.querySelector('[aria-label="P1 comment"]') as HTMLTextAreaElement;
+    expect(status()).toMatch(/For Change, describe it and press Enter/);
+
+    comment.value = 'click it?';
+    intent.value = 'change';
+    comment.dispatchEvent(new win.KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+    expect(lab.getMarkerState('1')).toMatchObject({ intent: 'change', comment: 'click it?', annotationStatus: 'queued' });
+    expect(status()).toBe('Queued for the agent.');
+
+    // The user replaced the note before the agent finished: the stale clear is refused.
+    lab.setMarkerAnnotation('1', { comment: 'rename beta' });
+    expect(lab.clearMarkerAnnotation('1', { intent: 'change', comment: 'click it?' })).toMatchObject({
+      ok: false,
+      reason: 'annotation-changed',
+    });
+    expect(lab.getMarkerState('1')).toMatchObject({ comment: 'rename beta', annotationStatus: 'queued' });
+
+    expect(lab.clearMarkerAnnotation('1', { intent: 'change', comment: 'rename beta' })).toEqual({ ok: true, id: '1' });
+    expect(lab.getMarkerState('1')).toMatchObject({ intent: null, comment: '', annotationStatus: 'done' });
+    expect(intent.value).toBe('');
+    expect(comment.value).toBe('');
+    expect(status()).toBe('Done. The agent handled the last note.');
+    expect(events.at(-1)).toMatchObject({ reason: 'marker-annotation-cleared', markerId: '1' });
     dom.window.close();
   });
 

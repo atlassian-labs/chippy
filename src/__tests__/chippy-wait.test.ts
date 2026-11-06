@@ -211,6 +211,73 @@ describe('Chippy probe annotation wait', () => {
     socket.close();
   });
 
+  it('replays from a cursor so a lost response or a second reader misses nothing', async () => {
+    const { base, socket, clientId } = await connectFixture();
+    const waitAfter = (after: number, timeoutMs = 2000) => fetch(
+      `${base}/api/pages/${clientId}/probe-annotations/wait?timeoutMs=${timeoutMs}&after=${after}`,
+      withHelperToken(),
+    ).then((response) => response.json());
+
+    const first = waitAfter(0);
+    const competing = waitAfter(0);
+    socket.send(snapshot(clientId, 'marker-annotation-change', 'change', 'First note'));
+    const [one, two] = await Promise.all([first, competing]);
+    expect(one).toMatchObject({ status: 'annotation', after: 0, cursor: 1, missed: false, event: { sequence: 1 } });
+    expect(two).toMatchObject({ status: 'annotation', cursor: 1, event: { sequence: 1 } });
+
+    // Two notes land while nobody waits; the cursor returns them in order.
+    socket.send(snapshot(clientId, 'marker-annotation-change', 'change', 'Second note'));
+    await waitFor(
+      async () => fetch(`${base}/api/pages/${clientId}/snapshot`, withHelperToken()).then((response) => response.json()),
+      (body: any) => body?.snapshot?.markers?.['1']?.comment === 'Second note',
+    );
+    socket.send(snapshot(clientId, 'marker-annotation-change', 'explain', 'Third note'));
+    await waitFor(
+      async () => fetch(`${base}/api/pages/${clientId}/snapshot`, withHelperToken()).then((response) => response.json()),
+      (body: any) => body?.snapshot?.markers?.['1']?.comment === 'Third note',
+    );
+    const second = await waitAfter(1);
+    expect(second).toMatchObject({ cursor: 2, event: { annotations: [{ comment: 'Second note' }] } });
+    // Re-reading the same cursor is idempotent.
+    await expect(waitAfter(1)).resolves.toMatchObject({ cursor: 2 });
+    await expect(waitAfter(2)).resolves.toMatchObject({ cursor: 3, event: { annotations: [{ comment: 'Third note' }] } });
+    await expect(waitAfter(3, 25)).resolves.toMatchObject({ status: 'timeout', after: 3, cursor: 3, event: null });
+
+    const invalid = await fetch(`${base}/api/pages/${clientId}/probe-annotations/wait?timeoutMs=25&after=-1`, withHelperToken());
+    expect(invalid.status).toBe(400);
+    socket.close();
+  });
+
+  it('acknowledges an event by asking the page to clear only the annotation it carried', async () => {
+    const { base, socket, clientId } = await connectFixture();
+    const commands: any[] = [];
+    socket.addEventListener('message', (message) => {
+      const parsed = JSON.parse(String(message.data));
+      if (parsed.type === 'command') commands.push(parsed.command);
+    });
+    socket.send(snapshot(clientId, 'marker-annotation-change', 'change', 'click it?'));
+    const delivered = await fetch(`${base}/api/pages/${clientId}/probe-annotations/wait?timeoutMs=2000&after=0`, withHelperToken())
+      .then((response) => response.json());
+
+    const ack = (sequence: unknown) => fetch(`${base}/api/pages/${clientId}/probe-annotations/ack`, withHelperToken({
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sequence }),
+    }));
+    const acked = await ack(delivered.cursor);
+    expect(acked.status).toBe(200);
+    await expect(acked.json()).resolves.toMatchObject({ ok: true, status: 'acknowledged', sequence: 1, cursor: 1, clearRequested: ['1'] });
+    await waitFor(async () => commands, (list) => list.some((command) => command.type === 'clear-probe-annotation'));
+    expect(commands.find((command) => command.type === 'clear-probe-annotation')).toEqual({
+      type: 'clear-probe-annotation',
+      markerId: '1',
+      expected: { intent: 'change', comment: 'click it?' },
+    });
+    expect((await ack(99)).status).toBe(404);
+    expect((await ack('x')).status).toBe(400);
+    socket.close();
+  });
+
   it('routes the public shell command to the helper without touching host hooks', () => {
     const directory = mkdtempSync(join(tmpdir(), 'chippy-wait-'));
     temporaryDirectories.push(directory);
@@ -244,8 +311,21 @@ printf '200'
     expect(readFileSync(capturePath, 'utf8')).toBe(
       'http://127.0.0.1:7823/__chippy/api/pages/client-42/probe-annotations/wait?timeoutMs=17000',
     );
+    const runShell = (...args: string[]) => execFileSync('bash', [SHELL, ...args], {
+      encoding: 'utf8',
+      env: { ...process.env, PATH: `${directory}:${process.env.PATH || ''}`, CHIPPY_CAPTURE_PATH: capturePath },
+    });
+    runShell('wait', 'client-42', '17', '5');
+    expect(readFileSync(capturePath, 'utf8')).toBe(
+      'http://127.0.0.1:7823/__chippy/api/pages/client-42/probe-annotations/wait?timeoutMs=17000&after=5',
+    );
+    runShell('ack', 'client-42', '5');
+    expect(readFileSync(capturePath, 'utf8')).toBe(
+      'http://127.0.0.1:7823/__chippy/api/pages/client-42/probe-annotations/ack',
+    );
     const help = execFileSync('bash', [SHELL, 'help'], { encoding: 'utf8' });
-    expect(help).toContain('wait <clientId> [timeoutSeconds]');
+    expect(help).toContain('wait <clientId> [timeoutSeconds] [afterSequence]');
+    expect(help).toContain('ack <clientId> <sequence>');
     const executableSurface = [
       SHELL,
       HELPER,
