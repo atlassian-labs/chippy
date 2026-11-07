@@ -74,7 +74,7 @@ export function registerChippyTools(server: McpServer, helper: HelperConnection)
     const body = action === 'click' ? { [targetKind]: target, timeoutMs } : { fiberId: target, propName, args, ownerIndex, timeoutMs };
     return helper.request(`${pagePath(clientId)}/${route}`, body, signal, timeoutMs + 2000);
   });
-  tool('chippy_wait_annotation', 'Wait for the next UI annotation after a cursor. Pass the previous result\'s cursor as `after` so no annotation is missed between waits. Repeat only while the user-requested wait loop remains active. A timeout is a normal empty result; cancellation closes the helper long poll.', {
+  tool('chippy_wait_annotation', 'Wait for the next UI annotation after a cursor. Pass the previous result\'s cursor as `after` so no annotation is missed between waits. Repeat only while the user-requested wait loop remains active, and stop after two consecutive empty timeouts. A timeout is a normal empty result; cancellation closes the helper long poll.', {
     clientId: id, timeoutMs: positive.max(60000).default(30000), after: z.number().int().min(0).optional(),
   }, ({ clientId, timeoutMs, after }, signal) => helper.request(
     `${pagePath(clientId)}/probe-annotations/wait?timeoutMs=${timeoutMs}${after === undefined ? '' : `&after=${after}`}`,
