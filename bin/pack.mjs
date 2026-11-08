@@ -164,7 +164,7 @@ function zip(archive, cwd) {
  * Writes `<outDir>/chippy` (the skill, with the extension in `extension/`),
  * `<outDir>/chippy-skill.zip`, and `<outDir>/chippy-extension.zip`.
  */
-export async function packChippy(config, { source = join(PACKAGE_ROOT, 'lib', 'mcp-skill'), zips = true } = {}) {
+export async function packChippy(config, { source = join(PACKAGE_ROOT, 'skills', 'chippy'), zips = true } = {}) {
   if (!existsSync(join(source, 'SKILL.md'))) fail(`skill not found at ${source}`);
   const { plugins, defaultPlugins, extension, overlay, outDir } = config;
   const code = await bundlePlugins(plugins, defaultPlugins);

@@ -64,7 +64,7 @@ jobs:
         working-directory: ${{ runner.temp }}
         run: |
           npx --yes --package ./atlassian-chippy-*.tgz chippy --version
-          tar -tzf ./atlassian-chippy-*.tgz | grep -qx 'package/lib/mcp-skill/scripts/chippy-mcp.cjs'
+          tar -tzf ./atlassian-chippy-*.tgz | grep -qx 'package/skills/chippy/scripts/chippy-mcp.cjs'
       - name: Install the skill with the skills CLI
         env:
           DISABLE_TELEMETRY: '1'

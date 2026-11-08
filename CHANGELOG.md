@@ -43,6 +43,9 @@ must stay compatible with the extension version in the store.
   each entry.
 - Jira and ATL support are plugins, off by default. Enable them in the Chippy
   panel's settings or with `__AVALANCHE__.enablePlugins()`. Extension 0.4.24.
+- The npm package ships the skill at `skills/chippy/`, the Agent Skills layout
+  that skill installers look for, instead of `lib/mcp-skill/`. The `chippy-mcp`
+  bin moves with it.
 - `npx @atlassian/chippy pack` builds a custom skill and extension with extra
   plugins, default plugin selections, its own extension identity, and extra skill
   documentation. `@atlassian/chippy/plugin` exports the plugin types and helpers;

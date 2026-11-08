@@ -22,8 +22,9 @@ links/
 # Build intermediates (avalanche:sync copies the bundles into the extension)
 /dist/
 
-# Built npm library
+# Built npm library and its packaged skill
 /lib/
+/skills/
 /*.tgz
 
 # Agent worktrees

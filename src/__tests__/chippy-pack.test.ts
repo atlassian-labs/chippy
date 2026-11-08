@@ -116,7 +116,7 @@ describe('chippy pack', () => {
       plugins: [{ id: 'gate', entry: './src/gate.ts' }],
       outDir: './out',
     })};\n`);
-    // The bin packs dist/mcp-skill, which needs a library build; --help proves the command is wired.
+    // The bin packs skills/chippy, which needs a library build; --help proves the command is wired.
     const help = execFileSync(process.execPath, [BIN, '--help'], { encoding: 'utf8' });
     expect(help).toContain('pack [--config <file>]');
     expect(() => execFileSync(process.execPath, [BIN, 'pack', '--config', join(directory, 'none.mjs')], { stdio: 'pipe' }))

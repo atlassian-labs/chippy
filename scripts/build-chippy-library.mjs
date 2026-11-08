@@ -55,10 +55,15 @@ for (const asset of [
   'inspect-react.js', 'panel-dom.js', 'layout-lab.js', 'resolve-probes.js',
   'avalanche.es.js', 'avalanche.es.js.map', 'chippy-page-bridge.js',
 ]) copyFileSync(join('.agents/skills/chippy/extension', asset), join(output, 'extension', asset));
-cpSync('.agents/skills/chippy', join(output, 'mcp-skill'), { recursive: true,
+// The skill ships at the package root in skills/<name>/, the Agent Skills
+// layout that skill installers and TanStack Intent look for.
+const skill = resolve('skills/chippy');
+rmSync(resolve('skills'), { recursive: true, force: true });
+cpSync('.agents/skills/chippy', skill, { recursive: true,
   filter: path => !['.DS_Store', '.gaps', '.provenance'].includes(path.split('/').at(-1)),
 });
-writeFileSync(join(output, 'mcp-skill/package.json'), '{"type":"commonjs"}\n');
+// The skill's scripts are CommonJS whatever the root package declares.
+writeFileSync(join(skill, 'package.json'), '{"type":"commonjs"}\n');
 // The repository root is CommonJS; the library output is ESM. Bundlers read
 // sideEffects from the nearest package.json, so declaring it here covers only the
 // published bundles; on the root it would also tree-shake the repository's sources.
@@ -66,4 +71,4 @@ writeFileSync(join(output, 'package.json'), `${JSON.stringify({
   type: 'module',
   sideEffects: ['./bootstrap.js', './storybook/**', './extension/**'],
 })}\n`);
-console.log('Built lib');
+console.log('Built lib and skills/chippy');

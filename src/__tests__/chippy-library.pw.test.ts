@@ -139,7 +139,7 @@ it('runs the packed MCP executable against a real connected React page', async (
   const page = await browser.newPage();
   try {
     await client.connect(new StdioClientTransport({ command: process.execPath,
-      args: [join(directory, 'node_modules/@atlassian/chippy/lib/mcp-skill/scripts/chippy-mcp.cjs')],
+      args: [join(directory, 'node_modules/@atlassian/chippy/skills/chippy/scripts/chippy-mcp.cjs')],
       env: { CHIPPY_HELPER_PORT: String(port) }, stderr: 'pipe' }));
     const status = await client.callTool({ name: 'chippy_status', arguments: {} });
     helperPid = (status.structuredContent as any).startedPid;

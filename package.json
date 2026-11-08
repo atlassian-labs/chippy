@@ -20,11 +20,12 @@
   },
   "files": [
     "bin",
-    "lib"
+    "lib",
+    "skills"
   ],
   "bin": {
     "chippy": "./bin/chippy.mjs",
-    "chippy-mcp": "./lib/mcp-skill/scripts/chippy-mcp.cjs"
+    "chippy-mcp": "./skills/chippy/scripts/chippy-mcp.cjs"
   },
   "exports": {
     "./avalanche": {

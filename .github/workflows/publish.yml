@@ -60,7 +60,7 @@ jobs:
         run: |
           tarball="$RUNNER_TEMP/package/atlassian-chippy-${{ steps.version.outputs.version }}.tgz"
           test "$(npx --yes --package "$tarball" chippy --version)" = "${{ steps.version.outputs.version }}"
-          tar -tzf "$tarball" | grep -qx 'package/lib/mcp-skill/scripts/chippy-mcp.cjs'
+          tar -tzf "$tarball" | grep -qx 'package/skills/chippy/scripts/chippy-mcp.cjs'
 
       - uses: actions/upload-artifact@v4
         with:

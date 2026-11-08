@@ -93,7 +93,8 @@ than the portable consumer skill.
 ## Documentation and assets
 
 The repository root is the npm package: `src/package/` holds its entry points,
-`bin/` its commands, and `yarn chippy:library:build` writes the bundles to `lib/`.
+`bin/` its commands, and `yarn chippy:library:build` writes the bundles to `lib/`
+and the packaged skill to `skills/chippy/`.
 Run `yarn chippy:library:build`,
 then `yarn test --project browser src/__tests__/chippy-library.pw.test.ts` to verify a
 packed artifact installed in a clean consumer. The build reuses runtime sources,
