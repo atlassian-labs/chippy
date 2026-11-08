@@ -68,7 +68,7 @@ Usage:
   ./scripts/chippy.sh fiber-prop-contract <clientId> <fiberId> <propName>
   ./scripts/chippy.sh fiber-invoke <clientId> <fiberId> <propName> [--args JSON]
   ./scripts/chippy.sh fiber-schedule-update <clientId> <fiberId> [--ownerIndex N]
-  ./scripts/chippy.sh find-fibers <clientId> [--name regex] [--file regex] [--prop name] [--testid regex] [--text regex] [--max N]
+  ./scripts/chippy.sh find-fibers <clientId> [--name regex] [--file regex] [--prop name] [--testid regex] [--text regex] [--grep regex [--in props,state,debug|all] [--depth N]] [--max N]
   ./scripts/chippy.sh fiber-state-capture <clientId> [label] [maxFibers]
   ./scripts/chippy.sh fiber-state-list
   ./scripts/chippy.sh fiber-state-compare <beforeCaptureId> <afterCaptureId> [maxChanges]
@@ -711,7 +711,7 @@ case "$cmd" in
     client_id="${2:-}"
     shift 2 || true
     if [[ -z "$client_id" ]]; then
-      echo "find-fibers requires <clientId> [--name regex] [--file regex] [--prop name] [--testid regex] [--text regex] [--max N]" >&2
+      echo "find-fibers requires <clientId> [--name regex] [--file regex] [--prop name] [--testid regex] [--text regex] [--grep regex [--in props,state,debug|all] [--depth N]] [--max N]" >&2
       exit 1
     fi
     filters='{}'

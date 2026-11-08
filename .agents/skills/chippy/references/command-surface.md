@@ -53,7 +53,7 @@ Start value traces with `probe-dom`, then owners, then props. Open the reported 
 
 | Command | Purpose |
 |---|---|
-| `find-fibers` | Find current fibers by component name, source file, prop, test-id, or text. |
+| `find-fibers` | Find current fibers by component name, source file, prop, test-id, or text; `--grep` searches prop keys and values, hook state, and opt-in `useDebugValue` labels across the whole tree. |
 | `fiber-state-capture`, `fiber-state-list`, `fiber-state-compare` | Retain compact fiber/prop fingerprints for two rendered states—even on different pages—and return only their bounded structural diff. |
 | `page-boundaries` | Read the whole page as a nested Error/Suspense-only forest. Ordinary component fibers are removed while declarative-boundary containment is preserved. |
 | `explain-component` | Return compact semantic text by default; use `--complexity` for the bounded complexity section or `--json` for the full transport payload. May use dispatcher replay, with status and warnings in the result. |
@@ -146,7 +146,7 @@ page-click <clientId> <selector|probeId|fiberId>
 fiber-prop-contract <clientId> <fiberId> <propName>
 fiber-invoke <clientId> <fiberId> <propName> [--args JSON]
 fiber-schedule-update <clientId> <fiberId> [--ownerIndex N]
-find-fibers <clientId> [--name regex] [--file regex] [--prop name] [--testid regex] [--text regex] [--max N]
+find-fibers <clientId> [--name regex] [--file regex] [--prop name] [--testid regex] [--text regex] [--grep regex [--in props,state,debug|all] [--depth N]] [--max N]
 fiber-state-capture <clientId> [label] [maxFibers]
 fiber-state-list
 fiber-state-compare <beforeCaptureId> <afterCaptureId> [maxChanges]

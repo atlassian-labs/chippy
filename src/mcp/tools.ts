@@ -44,8 +44,11 @@ export function registerChippyTools(server: McpServer, helper: HelperConnection)
     const command = view === 'prop-value' ? 'eval-prop-value' : `eval-probe-${view}`;
     return helper.request(`${pagePath(clientId)}/eval-probe`, { command, probeId, timeoutMs, ...fields }, signal, timeoutMs + 2000);
   });
-  tool('chippy_find_fibers', 'Find components without manually placed probes. Refresh fiber ids after commits, HMR, or navigation.', {
-    clientId: id, filters: z.object({ name: id.optional(), file: id.optional(), prop: id.optional(), testid: id.optional(), text: id.optional(), max: positive.optional() }).strict(), timeoutMs: timeout,
+  tool('chippy_find_fibers', 'Find components without manually placed probes. grep searches prop keys/values, hook state, and, when `in` includes debug, useDebugValue labels (replays only components that call useDebugValue). Refresh fiber ids after commits, HMR, or navigation.', {
+    clientId: id, filters: z.object({
+      name: id.optional(), file: id.optional(), prop: id.optional(), testid: id.optional(), text: id.optional(),
+      grep: id.optional(), in: id.optional(), depth: positive.max(12).optional(), max: positive.optional(),
+    }).strict(), timeoutMs: timeout,
   }, ({ clientId, ...args }, signal) => helper.request(`${pagePath(clientId)}/eval-probe`, { command: 'find-fibers', ...args }, signal, args.timeoutMs + 2000), true);
   tool('chippy_inspect_fiber', 'Read a current fiber. structure and describe/explain may replay component bodies; disclose target and execution before using them. props/parents/boundaries avoid replay.', {
     clientId: id, fiberId: id,

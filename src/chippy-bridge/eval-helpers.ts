@@ -23,6 +23,15 @@
 // by the bridge shell.
 
 import { collectOwnerFibers, isComponentFiber } from './owner-chain';
+import { replayComponentHooks } from '../debug-render/replay';
+import {
+  DEFAULT_GREP_LIMITS,
+  callsUseDebugValue,
+  grepFiber,
+  parseGrepScopes,
+  type GrepHit,
+  type ReplayForGrep,
+} from './fiber-grep';
 
 // ─── Type aliases (intentionally loose; React internals are duck-typed) ───
 
@@ -67,8 +76,21 @@ export type FindFibersFilters = {
   testid?: string;
   text?: string;
   prop?: string;
+  /** Regex searched in props, hook state, and (opt-in) useDebugValue labels. */
+  grep?: string;
+  /** Comma-separated grep scopes: props, state, debug, or all. Default props,state. */
+  in?: string | string[];
+  /** Object depth searched below each scope root. */
+  depth?: number | string;
   max?: number | string;
 } | null | undefined;
+
+export type FindFibersDeps = {
+  /** Debug-value replay; defaults to the stub-dispatcher replay. */
+  replay?: ReplayForGrep;
+  /** Upper bound on component replays for the `debug` grep scope. */
+  maxReplays?: number;
+};
 
 export type GetComputedStyleFn = (el: Element) => CSSStyleDeclaration;
 
@@ -265,7 +287,8 @@ export function evalFindFibers(
   filters: FindFibersFilters,
   helpers: ScriptHelpers,
   rememberFiber: RememberFiber,
-): { count: number; items: Array<Record<string, unknown>> } {
+  deps: FindFibersDeps = {},
+): { count: number; items: Array<Record<string, unknown>>; [key: string]: unknown } {
   const nameRe = filters?.name ? new RegExp(String(filters.name), 'i') : null;
   const fileRe = filters?.file ? new RegExp(String(filters.file), 'i') : null;
   const testIdRe = filters?.testid ? new RegExp(String(filters.testid), 'i') : null;
@@ -274,8 +297,27 @@ export function evalFindFibers(
   const max = Number.isFinite(Number(filters?.max)) ? Math.max(1, Math.floor(Number(filters?.max))) : 50;
   const matches: Array<Record<string, unknown>> = [];
 
+  let grepRe: RegExp | null = null;
+  try {
+    grepRe = filters?.grep ? new RegExp(String(filters.grep), 'i') : null;
+  } catch (e) {
+    return { ok: false, count: 0, items: [], error: 'Invalid --grep regex: ' + ((e as Error)?.message || String(e)) };
+  }
+  const { scopes, error: scopeError } = parseGrepScopes(filters?.in);
+  if (grepRe && scopeError) return { ok: false, count: 0, items: [], error: scopeError };
+  const depth = Number(filters?.depth);
+  const limits = {
+    ...DEFAULT_GREP_LIMITS,
+    ...(Number.isFinite(depth) && depth > 0 ? { depth: Math.min(12, Math.floor(depth)) } : {}),
+  };
+  const wantsDebug = scopes.includes('debug');
+  const replay: ReplayForGrep = deps.replay || (replayComponentHooks as unknown as ReplayForGrep);
+  const maxReplays = deps.maxReplays ?? 300;
+  const grepStats = { scanned: 0, debugCandidates: 0, replayed: 0, replayFailed: 0, replaySkipped: 0 };
+  let truncated = false;
+
   helpers.walkAll((fiber) => {
-    if (matches.length >= max) return;
+    if (matches.length >= max) { truncated = true; return; }
     const info = helpers.fiberInfo(fiber);
     if (!info?.name) return;
     if (nameRe && !nameRe.test(info.name)) return;
@@ -286,11 +328,47 @@ export function evalFindFibers(
       const props = fiber?.memoizedProps;
       if (!props || typeof props !== 'object' || !(propName in props)) return;
     }
+    let hits: GrepHit[] | null = null;
+    let replayInfo: { status: string; error?: string } | undefined;
+    if (grepRe) {
+      grepStats.scanned += 1;
+      const debugCandidate = callsUseDebugValue(fiber);
+      if (debugCandidate) grepStats.debugCandidates += 1;
+      const canReplay = wantsDebug && debugCandidate && grepStats.replayed < maxReplays;
+      if (wantsDebug && debugCandidate && !canReplay) grepStats.replaySkipped += 1;
+      const result = grepFiber(fiber, grepRe, scopes, limits, canReplay ? replay : null);
+      if (result.replay) {
+        grepStats.replayed += 1;
+        if (result.replay.status !== 'complete') grepStats.replayFailed += 1;
+        replayInfo = result.replay;
+      }
+      if (!result.hits.length) return;
+      hits = result.hits;
+    }
     const fiberId = rememberFiber(fiber);
-    matches.push({ fiberId, ...info });
+    matches.push({
+      fiberId,
+      ...info,
+      ...(hits ? { hits, hitsTruncated: hits.length >= limits.maxHits } : {}),
+      ...(replayInfo && replayInfo.status !== 'complete' ? { replay: replayInfo } : {}),
+    });
   }, { limit: 200000 });
 
-  return { count: matches.length, items: matches };
+  if (!grepRe) return { count: matches.length, items: matches };
+  return {
+    count: matches.length,
+    items: matches,
+    truncated,
+    grep: {
+      pattern: String(filters?.grep),
+      scopes,
+      depth: limits.depth,
+      ...grepStats,
+      ...(!wantsDebug && grepStats.debugCandidates
+        ? { note: grepStats.debugCandidates + ' scanned fibers call useDebugValue; add debug to --in to search their labels (replays those components).' }
+        : {}),
+    },
+  };
 }
 
 // ─── resolveFindFiberSources ─────────────────────────────────────────────

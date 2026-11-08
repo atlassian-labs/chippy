@@ -745,11 +745,36 @@ Timeout / client not found: same shape as `get-computed-style`.
 
 ---
 
-## `find-fibers <clientId> [--name regex] [--file regex] [--prop name] [--testid regex] [--text regex] [--max N]`
+## `find-fibers <clientId> [--name regex] [--file regex] [--prop name] [--testid regex] [--text regex] [--grep regex [--in props,state,debug|all] [--depth N]] [--max N]`
 
 Searches the live fiber tree without probe placement. Returns remembered `fiberId` tokens for the current page realm.
 
 Only named fibers are returned. `--name`, `--file`, `--testid` and `--text` are case-insensitive regexes. `--text` and `--testid` match the fiber's nearest DOM text and `data-testid`. `--prop` is an exact prop name and matches when the prop is present, whatever its value. All given filters must match. `--max` defaults to 50.
+
+`--grep <regex>` searches each fiber's runtime data case-insensitively and returns only fibers with at least one hit. It combines with the other filters, so `--name` or `--file` narrows the scan. `--in` picks scopes (default `props,state`):
+
+- `props`: memoized props, walked to `--depth` (default 4, max 12). Keys, string/number/boolean values, and function names match. React elements, DOM nodes, and fibers are not entered; each element is its own fiber.
+- `state`: committed hook slots read from the fiber without execution (state, reducer, ref `current`, memo/callback value, effect deps, external-store snapshot) and class component `state`.
+- `debug`: `useDebugValue` labels. React does not store them, so Chippy replays the component with the stub dispatcher, which executes component and hook bodies. Only fibers whose dev-build `_debugHookTypes` include `useDebugValue` are replayed; production builds have none. Run the [debug replay preflight](active-stimulus.md#debug-replay-preflight) before adding this scope.
+
+Each item gains `hits` (at most 10; `hitsTruncated` says when the cap was reached), and a `replay` field when a debug replay did not complete. `path` is rooted at `props`, `state`, `hook[<index>:<family>]`, or `debug(<customHook>…)`; `match` says whether the key or the value matched. `truncated: true` means `--max` stopped collection. `grep.scanned` counts fibers searched; `grep.debugCandidates` counts those that call `useDebugValue`, and `grep.note` appears when they were skipped because `debug` was not requested.
+
+```json
+{
+  "count": 1,
+  "items": [{
+    "fiberId": "fiber:7",
+    "name": "IssueRow",
+    "hits": [
+      { "scope": "props", "path": "props.issue.key", "match": "value", "value": "PROJ-12" },
+      { "scope": "debug", "path": "debug(useIssueStore)", "match": "value", "value": "IssueStore: PROJ-12", "hookPath": ["useIssueStore"] }
+    ],
+    "hitsTruncated": false
+  }],
+  "truncated": false,
+  "grep": { "pattern": "proj-12", "scopes": ["props", "state", "debug"], "depth": 4, "scanned": 412, "debugCandidates": 9, "replayed": 9, "replayFailed": 0, "replaySkipped": 0 }
+}
+```
 
 ```json
 {

@@ -12,7 +12,7 @@ then helps the user understand what happened, find the cause, and fix it.
 
 | Verb | Ask it | Start with |
 |---|---|---|
-| Explore | What renders here, and what is inside it? | `find-fibers`, `explain-component` |
+| Explore | What renders here, what is inside it, and where does a value live? | `find-fibers` (`--grep` for values), `explain-component` |
 | Debug | Where does this element, value, or boundary come from? | `probe-owners`, `probe-props`, `probe-boundaries` |
 | Compare | What changed between two states or pages? | `fiber-state-capture` → `fiber-state-compare` |
 | Investigate | Why is this slow or re-rendering? | `avalanche-arm`, `reload-with-avalanche` |
@@ -39,6 +39,7 @@ Before `explain-component`, `describe-component`, or `inspect-fiber-structure`, 
 |---|---|---|
 | What is Chippy's recipe for a task, symptom, command, or recovery path? | `recipes <query...> [--limit N]`; load only the returned canonical references when more detail is needed | The top record gives an executable answer, completion signal, guardrail, and deeper reference without loading the full recipe corpus. |
 | Which components match a name, text, test id, source file, or prop? | `find-fibers <clientId> --name … / --text … / --testid … / --file … / --prop …` → `explain-component` or `inspect-fiber-props` on a returned `fiberId` | Matching fibers are listed with `fiberId`, component name, source, and owner. If `count` equals `--max`, narrow the filter or raise `--max` before treating the list as complete. |
+| Which components hold a value, prop, state, or `useDebugValue` label that looks like X? | `find-fibers <clientId> --grep <regex> [--in props,state,debug]`, narrowed with `--name` / `--file`; add `debug` only after the [debug replay preflight](references/active-stimulus.md#debug-replay-preflight) | Each returned fiber lists `hits` with scope, path, and matched preview. `grep.note` reports `useDebugValue` callers left unsearched; `truncated: false` proves the walk finished. |
 | Where does this visible element or value come from? | `probe-dom` → `probe-owners` → `probe-props` / `probe-prop-value` → open the reported file and line | Component, file, line/render block, and forwarding hops are named. |
 | Walk the React fiber path from a probe or fiber | `probe-parents <clientId> <probeId>` for the `fiber.return` parent chain; use `explain-component <probeId>` → `inspect-fiber-parents <fiberId>` when starting from a remembered fiber | Parent/return-chain entries are named with hook counts, prop names, source/test-id context, or the exact runtime gap. `probe-owners` reads debug-build `_debugOwner`; on production builds it falls back to component parents labeled `ownerStackKind: "parents"`. |
 | Which loading/error boundaries contain this target or partition the whole page? | `probe-boundaries <clientId> <probeId>` for the complete inner→outer chain; `page-boundaries <clientId>` for the page-wide boundary-only forest; `inspect-fiber-boundaries` for a remembered fiber | Every Error/Suspense boundary is reported with nesting distance, source, DOM block, `fiberId`, and current Suspense content/fallback state; `truncated: false` proves the requested view was complete. |
@@ -202,7 +203,7 @@ page-click <clientId> <selector|probeId|fiberId>
 fiber-prop-contract <clientId> <fiberId> <propName>
 fiber-invoke <clientId> <fiberId> <propName> [--args JSON]
 fiber-schedule-update <clientId> <fiberId> [--ownerIndex N]
-find-fibers <clientId> [--name regex] [--file regex] [--prop name] [--testid regex] [--text regex] [--max N]
+find-fibers <clientId> [--name regex] [--file regex] [--prop name] [--testid regex] [--text regex] [--grep regex [--in props,state,debug|all] [--depth N]] [--max N]
 fiber-state-capture <clientId> [label] [maxFibers]
 fiber-state-list
 fiber-state-compare <beforeCaptureId> <afterCaptureId> [maxChanges]
@@ -265,6 +266,10 @@ For a value trace, use this chain once:
 ```text
 probe-dom → probe-owners → probe-props / probe-prop-value → exact source file:line
 ```
+
+When the value is known but not where it renders, or it never reaches the DOM, start with `find-fibers <clientId> --grep <regex>` instead of placing a probe. Each hit names the fiber and the path (`props.…`, `hook[N:Family]…`, `state.…`, `debug(<customHook>)`); continue with `inspect-fiber-props`, `inspect-fiber-owners`, or `explain-component` on the returned `fiberId`.
+
+`useDebugValue` labels are the most reliable way to make custom-hook state findable: a label names the hook's meaning, while raw state is anonymous. When a custom hook's state is hard to identify, or the same question will be asked again, recommend that the user add `useDebugValue(label)` (or `useDebugValue(value, format)`) to that hook. Chippy then finds it with `--grep <label> --in debug` after the [debug replay preflight](references/active-stimulus.md#debug-replay-preflight). Labels exist only in development builds. This is a suggestion for the user's code, not a page mutation; do not add it without the user's consent.
 
 When `hookCount > 50`, `parents > 50`, or `matchedStyles > 20`, map structure before drilling in. Use `explain-component` for the compact view and `describe-component` for the detailed hook listing. Both may attempt dispatcher-based debug replay, which executes component and hook bodies without scheduling an application update; check `replayStatus` and `warnings`. When replay is unavailable, the commands degrade to fiber-only evidence. Collapse repeated hook families unless the user asks for every hook.
 

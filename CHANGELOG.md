@@ -16,6 +16,10 @@ must stay compatible with the extension version in the store.
 
 ### Added
 
+- `find-fibers --grep <regex>` searches the whole fiber tree for matching prop
+  keys and values, hook state, and class state, and with `--in debug`,
+  `useDebugValue` labels. Each hit carries its scope and path. Only components
+  that call `useDebugValue` are replayed.
 - Command routes on the local helper require a per-run token. The helper binds
   to loopback by default; `chippy.sh start --host <address>` or
   `CHIPPY_HELPER_HOST` opts into a wider bind.

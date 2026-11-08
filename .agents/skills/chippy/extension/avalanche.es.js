@@ -3326,7 +3326,7 @@ function replayComponentHooks(fiber) {
 }
 const MAX_BOUNDARY_FIBERS = 400;
 const SUSPENSE_TAG = 13;
-const CLASS_COMPONENT_TAG = 1;
+const CLASS_COMPONENT_TAG$1 = 1;
 function fiberTag(fiber) {
   return fiber.tag;
 }
@@ -3335,7 +3335,7 @@ function describeErrorBoundary(fiber) {
   const componentName = getDisplayName(fiber.type) || getDisplayName(fiber.elementType);
   const type = fiber.type;
   const hasLifecycle = !!type && (typeof type.getDerivedStateFromError === "function" || typeof ((_a2 = type.prototype) == null ? void 0 : _a2.componentDidCatch) === "function");
-  if (hasLifecycle && (fiberTag(fiber) === CLASS_COMPONENT_TAG || fiberTag(fiber) === void 0)) {
+  if (hasLifecycle && (fiberTag(fiber) === CLASS_COMPONENT_TAG$1 || fiberTag(fiber) === void 0)) {
     return { componentName: componentName || "ErrorBoundary", detectedBy: "lifecycle" };
   }
   if (componentName && /ErrorBoundary$/.test(componentName)) {
@@ -4339,6 +4339,185 @@ function evalAvalanche(command, api2, mod) {
     return { ok: false, available: true, action, error: (error == null ? void 0 : error.message) || String(error) };
   }
 }
+const GREP_SCOPES = ["props", "state", "debug"];
+const DEFAULT_GREP_SCOPES = ["props", "state"];
+const DEFAULT_GREP_LIMITS = { depth: 4, maxHits: 10, maxNodes: 2e3, maxEntries: 50 };
+function parseGrepScopes(raw) {
+  if (raw == null || raw === "") return { scopes: [...DEFAULT_GREP_SCOPES] };
+  const parts = (Array.isArray(raw) ? raw : String(raw).split(",")).map((part) => String(part).trim().toLowerCase()).filter(Boolean);
+  const scopes = [];
+  for (const part of parts) {
+    const scope = part === "all" ? null : part === "hooks" ? "state" : part;
+    if (scope === null) return { scopes: [...GREP_SCOPES] };
+    if (!GREP_SCOPES.includes(scope)) {
+      return { scopes: [], error: 'Unknown grep scope "' + part + '". Use props, state, debug, or all.' };
+    }
+    if (!scopes.includes(scope)) scopes.push(scope);
+  }
+  return { scopes: scopes.length ? scopes : [...DEFAULT_GREP_SCOPES] };
+}
+function preview(value) {
+  if (typeof value === "string") return value.length > 120 ? value.slice(0, 120) + "…" : value;
+  if (typeof value === "function") return "[function" + (value.name ? ":" + value.name : "") + "]";
+  if (typeof value === "symbol") return value.toString();
+  if (typeof value === "bigint") return value.toString() + "n";
+  if (Array.isArray(value)) return "[array:" + value.length + "]";
+  if (value && typeof value === "object") return "[object]";
+  return String(value);
+}
+function matchText(value) {
+  if (typeof value === "string") return value;
+  if (typeof value === "number" || typeof value === "boolean" || typeof value === "bigint") return String(value);
+  if (typeof value === "symbol") return value.toString();
+  if (typeof value === "function") return value.displayName || value.name || null;
+  return null;
+}
+function isOpaque(value) {
+  const v = value;
+  if ("$$typeof" in v) return true;
+  if (typeof v.nodeType === "number" && typeof v.nodeName === "string") return true;
+  if (v.window === v) return true;
+  if ("stateNode" in v && "return" in v && "child" in v) return true;
+  return false;
+}
+function joinPath(base, key) {
+  return /^[A-Za-z_$][\w$]*$/.test(key) ? base + "." + key : base + "[" + JSON.stringify(key) + "]";
+}
+function grepValue(root, re, scope, rootPath, limits, hits, skipRootKeys = /* @__PURE__ */ new Set()) {
+  const seen = /* @__PURE__ */ new Set();
+  let nodes = 0;
+  function record(hit) {
+    hits.push(hit);
+    return hits.length < limits.maxHits;
+  }
+  function visit(value, path, depth) {
+    if (hits.length >= limits.maxHits || nodes >= limits.maxNodes) return false;
+    nodes += 1;
+    const text = matchText(value);
+    if (text !== null) {
+      re.lastIndex = 0;
+      if (re.test(text)) return record({ scope, path, match: "value", value: preview(value) });
+      return true;
+    }
+    if (!value || typeof value !== "object") return true;
+    if (seen.has(value) || isOpaque(value) || depth >= limits.depth) return true;
+    seen.add(value);
+    const entries = [];
+    if (Array.isArray(value)) {
+      value.slice(0, limits.maxEntries).forEach((item, i) => entries.push(["[" + i + "]", item]));
+    } else if (value instanceof Map) {
+      let i = 0;
+      for (const [k, v] of value) {
+        if (i++ >= limits.maxEntries) break;
+        entries.push([typeof k === "string" ? k : "<" + preview(k) + ">", v]);
+      }
+    } else if (value instanceof Set) {
+      let i = 0;
+      for (const v of value) {
+        if (i >= limits.maxEntries) break;
+        entries.push(["[" + i++ + "]", v]);
+      }
+    } else {
+      let keys;
+      try {
+        keys = Object.keys(value);
+      } catch {
+        return true;
+      }
+      for (const k of keys.slice(0, limits.maxEntries)) {
+        if (depth === 0 && skipRootKeys.has(k)) continue;
+        let child;
+        try {
+          child = value[k];
+        } catch {
+          continue;
+        }
+        entries.push([k, child]);
+      }
+    }
+    for (const [key, child] of entries) {
+      const childPath = key.startsWith("[") ? path + key : joinPath(path, key);
+      if (!key.startsWith("[")) {
+        re.lastIndex = 0;
+        if (re.test(key) && !record({ scope, path: childPath, match: "key", value: preview(child) })) return false;
+      }
+      if (!visit(child, childPath, depth + 1)) return false;
+    }
+    return true;
+  }
+  visit(root, rootPath, 0);
+}
+const CLASS_COMPONENT_TAG = 1;
+const HOST_TAGS = /* @__PURE__ */ new Set([5, 6, 26, 27]);
+function hookSlots(fiber) {
+  const out = [];
+  if (fiber.tag === CLASS_COMPONENT_TAG || HOST_TAGS.has(fiber.tag)) return out;
+  const seen = /* @__PURE__ */ new Set();
+  let node = fiber.memoizedState;
+  let index = 0;
+  while (node && typeof node === "object" && !seen.has(node) && "next" in node) {
+    seen.add(node);
+    const tag = classifyHook(node, index).tag;
+    const ms = node.memoizedState;
+    const label = "hook[" + index + ":" + tag + "]";
+    if (tag === "Effect") {
+      const deps = ms == null ? void 0 : ms.deps;
+      if (Array.isArray(deps)) out.push([label + ".deps", deps]);
+    } else if (tag === "Ref") {
+      out.push([label + ".current", ms.current]);
+    } else if (tag === "Memo") {
+      out.push([label, ms[0]]);
+    } else {
+      out.push([label, ms]);
+    }
+    node = node.next;
+    index += 1;
+  }
+  return out;
+}
+function callsUseDebugValue(fiber) {
+  const types = fiber._debugHookTypes;
+  return Array.isArray(types) && types.includes("useDebugValue");
+}
+function grepFiber(fiber, re, scopes, limits, replay) {
+  const hits = [];
+  let replayInfo;
+  if (scopes.includes("props")) {
+    const props = fiber.memoizedProps;
+    if (typeof props === "string") grepValue(props, re, "props", "text", limits, hits);
+    else grepValue(props, re, "props", "props", limits, hits);
+  }
+  if (scopes.includes("state") && hits.length < limits.maxHits) {
+    if (fiber.tag === CLASS_COMPONENT_TAG) {
+      grepValue(fiber.memoizedState, re, "state", "state", limits, hits);
+    } else {
+      for (const [label, value] of hookSlots(fiber)) {
+        if (hits.length >= limits.maxHits) break;
+        grepValue(value, re, "state", label, limits, hits);
+      }
+    }
+  }
+  if (scopes.includes("debug") && replay && hits.length < limits.maxHits && callsUseDebugValue(fiber)) {
+    let result = null;
+    try {
+      result = replay(fiber);
+    } catch (e) {
+      replayInfo = { status: "failed", error: (e == null ? void 0 : e.message) || String(e) };
+    }
+    if (result) {
+      replayInfo = { status: result.replayStatus || "unknown", ...result.replayError ? { error: result.replayError } : {} };
+      for (const rec of result.records) {
+        if (rec.debugLabel === void 0 || hits.length >= limits.maxHits) continue;
+        const hookPath = (rec.path || []).map((frame) => frame.name);
+        const before = hits.length;
+        const label = "debug" + (hookPath.length ? "(" + hookPath.join(">") + ")" : "");
+        grepValue(rec.debugLabel, re, "debug", label, limits, hits);
+        for (let i = before; i < hits.length; i++) hits[i].hookPath = hookPath;
+      }
+    }
+  }
+  return { hits, ...replayInfo ? { replay: replayInfo } : {} };
+}
 function evalElementDom(element, parentLevel, getComputedStyle) {
   let el = element || null;
   if (!el || el.nodeType !== 1) return { error: "Target element is not available" };
@@ -4483,7 +4662,7 @@ function evalFiberPropValue(baseFiber, propName, ownerIndex, getHookSummary2, re
     value: serializeProp(value)
   };
 }
-function evalFindFibers(filters, helpers, rememberFiber) {
+function evalFindFibers(filters, helpers, rememberFiber, deps = {}) {
   const nameRe = (filters == null ? void 0 : filters.name) ? new RegExp(String(filters.name), "i") : null;
   const fileRe = (filters == null ? void 0 : filters.file) ? new RegExp(String(filters.file), "i") : null;
   const testIdRe = (filters == null ? void 0 : filters.testid) ? new RegExp(String(filters.testid), "i") : null;
@@ -4491,9 +4670,30 @@ function evalFindFibers(filters, helpers, rememberFiber) {
   const propName = (filters == null ? void 0 : filters.prop) ? String(filters.prop) : null;
   const max = Number.isFinite(Number(filters == null ? void 0 : filters.max)) ? Math.max(1, Math.floor(Number(filters == null ? void 0 : filters.max))) : 50;
   const matches = [];
+  let grepRe = null;
+  try {
+    grepRe = (filters == null ? void 0 : filters.grep) ? new RegExp(String(filters.grep), "i") : null;
+  } catch (e) {
+    return { ok: false, count: 0, items: [], error: "Invalid --grep regex: " + ((e == null ? void 0 : e.message) || String(e)) };
+  }
+  const { scopes, error: scopeError } = parseGrepScopes(filters == null ? void 0 : filters.in);
+  if (grepRe && scopeError) return { ok: false, count: 0, items: [], error: scopeError };
+  const depth = Number(filters == null ? void 0 : filters.depth);
+  const limits = {
+    ...DEFAULT_GREP_LIMITS,
+    ...Number.isFinite(depth) && depth > 0 ? { depth: Math.min(12, Math.floor(depth)) } : {}
+  };
+  const wantsDebug = scopes.includes("debug");
+  const replay = deps.replay || replayComponentHooks;
+  const maxReplays = deps.maxReplays ?? 300;
+  const grepStats = { scanned: 0, debugCandidates: 0, replayed: 0, replayFailed: 0, replaySkipped: 0 };
+  let truncated = false;
   helpers.walkAll((fiber) => {
     var _a2;
-    if (matches.length >= max) return;
+    if (matches.length >= max) {
+      truncated = true;
+      return;
+    }
     const info = helpers.fiberInfo(fiber);
     if (!(info == null ? void 0 : info.name)) return;
     if (nameRe && !nameRe.test(info.name)) return;
@@ -4504,10 +4704,44 @@ function evalFindFibers(filters, helpers, rememberFiber) {
       const props = fiber == null ? void 0 : fiber.memoizedProps;
       if (!props || typeof props !== "object" || !(propName in props)) return;
     }
+    let hits = null;
+    let replayInfo;
+    if (grepRe) {
+      grepStats.scanned += 1;
+      const debugCandidate = callsUseDebugValue(fiber);
+      if (debugCandidate) grepStats.debugCandidates += 1;
+      const canReplay = wantsDebug && debugCandidate && grepStats.replayed < maxReplays;
+      if (wantsDebug && debugCandidate && !canReplay) grepStats.replaySkipped += 1;
+      const result = grepFiber(fiber, grepRe, scopes, limits, canReplay ? replay : null);
+      if (result.replay) {
+        grepStats.replayed += 1;
+        if (result.replay.status !== "complete") grepStats.replayFailed += 1;
+        replayInfo = result.replay;
+      }
+      if (!result.hits.length) return;
+      hits = result.hits;
+    }
     const fiberId = rememberFiber(fiber);
-    matches.push({ fiberId, ...info });
+    matches.push({
+      fiberId,
+      ...info,
+      ...hits ? { hits, hitsTruncated: hits.length >= limits.maxHits } : {},
+      ...replayInfo && replayInfo.status !== "complete" ? { replay: replayInfo } : {}
+    });
   }, { limit: 2e5 });
-  return { count: matches.length, items: matches };
+  if (!grepRe) return { count: matches.length, items: matches };
+  return {
+    count: matches.length,
+    items: matches,
+    truncated,
+    grep: {
+      pattern: String(filters == null ? void 0 : filters.grep),
+      scopes,
+      depth: limits.depth,
+      ...grepStats,
+      ...!wantsDebug && grepStats.debugCandidates ? { note: grepStats.debugCandidates + " scanned fibers call useDebugValue; add debug to --in to search their labels (replays those components)." } : {}
+    }
+  };
 }
 async function resolveFindFiberSources(items, getFiber2, resolve) {
   await Promise.all(items.map(async (item) => {

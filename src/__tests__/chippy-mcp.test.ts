@@ -99,7 +99,7 @@ it('forwards every probe and fiber view through real MCP, HTTP, and the page Web
     expect((await call(first, 'chippy_inspect_fiber', { clientId: 'mcp-client', fiberId: 'fiber:1', view, hookIndex: 2, windowSize: 3, max: 9 })).result.isError, view).toBe(false);
     expect(commands.at(-1)).toMatchObject({ type: view === 'describe' ? 'describe-component' : view === 'explain' ? 'explain-component' : `inspect-fiber-${view}`, fiberId: 'fiber:1', hookIndex: 2, windowSize: 3, max: 9 });
   }
-  const filters = { name: 'Counter', file: 'Counter.tsx', prop: 'label', testid: 'counter', text: 'Count', max: 20 };
+  const filters = { name: 'Counter', file: 'Counter.tsx', prop: 'label', testid: 'counter', text: 'Count', grep: 'needle', in: 'props,debug', depth: 6, max: 20 };
   expect((await call(first, 'chippy_find_fibers', { clientId: 'mcp-client', filters })).result.isError).toBe(false);
   expect(commands.at(-1)).toMatchObject({ type: 'find-fibers', filters });
 });

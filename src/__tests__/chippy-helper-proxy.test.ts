@@ -178,3 +178,32 @@ printf '503'
     }
   });
 });
+
+describe('chippy.sh find-fibers grep options', () => {
+  it('forwards --grep, --in, and --depth into the find-fibers filters body', () => {
+    const directory = mkdtempSync(join(tmpdir(), 'chippy-sh-grep-'));
+    try {
+      const fakeCurl = join(directory, 'curl');
+      const bodyFile = join(directory, 'body.json');
+      writeFileSync(fakeCurl, `#!/bin/sh
+output_file=""
+while [ "$#" -gt 0 ]; do
+  case "$1" in -o) output_file="$2"; shift 2 ;; -d) printf '%s' "$2" > "${bodyFile}"; shift 2 ;; *) shift ;; esac
+done
+printf '{"ok":true,"result":{"count":0,"items":[]}}' > "$output_file"
+printf '200'
+`);
+      chmodSync(fakeCurl, 0o755);
+      const env: NodeJS.ProcessEnv = { ...process.env, PATH: `${directory}:${process.env.PATH || ''}`, CHIPPY_STATE_DIR: directory };
+      delete env.CHIPPY_HELPER_TOKEN;
+      const run = spawnSync('bash', [join(SCRIPTS, 'chippy.sh'), 'find-fibers', 'client-1', '--grep', 'PROJ-\\d+', '--in', 'props,debug', '--depth', '6', '--name', 'Row'], { env, encoding: 'utf8' });
+      expect(run.status, run.stderr).toBe(0);
+      expect(JSON.parse(require('node:fs').readFileSync(bodyFile, 'utf8'))).toEqual({
+        command: 'find-fibers',
+        filters: { grep: 'PROJ-\\d+', in: 'props,debug', depth: '6', name: 'Row' },
+      });
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+});
