@@ -75,6 +75,20 @@ export interface CommitTimingDTO {
   endTime: number;
   timeSinceLastCommit: number;
   detectorOverhead: number;
+  /** Render slices since the previous commit; null when the build has no slice signal. */
+  ticks: number | null;
+  /** Slice timing behind `ticks` (`performance.now()` clock), or null. */
+  render: {
+    ticks: number;
+    renderStart: number;
+    renderEnd: number;
+    workMs: number;
+    yieldedMs: number;
+    longestSliceMs: number;
+    slices: Array<[number, number]>;
+    slicesTruncated: boolean;
+    partial: boolean;
+  } | null;
 }
 
 /**
@@ -102,6 +116,8 @@ export interface ReportMetaDTO {
   metricsAdapter?: string | null;
   /** Per-field availability for commitStats indices and metricsByCommit. */
   dataAvailability?: Record<string, boolean>;
+  /** Render-tick signal: `sources` in use, or `reason` when unavailable. */
+  renderTicks?: { available: boolean; sources: string[]; reason: string | null };
   amplifiersMetrics?: {
     totalHookThrashes: number;
     affectedComponentCount: number;

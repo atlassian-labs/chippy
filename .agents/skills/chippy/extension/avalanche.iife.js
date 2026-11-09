@@ -888,6 +888,7 @@ this.__AVALANCHE__ = (function() {
     const integrationMode = (detectorConfig == null ? void 0 : detectorConfig.integrationMode) ?? "none";
     const metricsAdapter = adapterIdFromMode(integrationMode);
     const metricsAvailable = metricsAdapter !== null && hasMetricsData;
+    const renderTicks = (detectorConfig == null ? void 0 : detectorConfig.renderTicks) ?? { available: false, sources: [], reason: "detector not installed" };
     const meta = {
       version: 7,
       // v7: meta.timeOrigin; absolute commitTimings[N].startTime/endTime; action timestamps
@@ -919,8 +920,10 @@ this.__AVALANCHE__ = (function() {
         callbacks: true,
         contextUpdates: true,
         metricsByCommit: metricsAvailable,
-        atlByCommit: metricsAvailable
+        atlByCommit: metricsAvailable,
+        ticks: renderTicks.available
       },
+      renderTicks,
       timing: {
         totalDetectorOverhead,
         avgDetectorOverhead,
@@ -1601,6 +1604,228 @@ this.__AVALANCHE__ = (function() {
         while (state.actions.length > 0 && commitTime - state.actions[0].timestamp > windowMs) {
           state.actions.shift();
         }
+      }
+    };
+  }
+  const SLICE_END_HOOKS = ["markRenderYielded", "markRenderStopped"];
+  function createRenderTickTracker(options = {}) {
+    const now = options.now ?? (() => performance.now());
+    const maxSlices = options.maxSlices ?? 32;
+    let pending = null;
+    let sliceStart = -1;
+    let partialPending = false;
+    let lastFailure = null;
+    const sources = /* @__PURE__ */ new Map();
+    const releases = /* @__PURE__ */ new Map();
+    const prepared = /* @__PURE__ */ new WeakMap();
+    const trappedInternals = /* @__PURE__ */ new Set();
+    function openSlice() {
+      if (sliceStart >= 0) return;
+      sliceStart = now();
+    }
+    function closeSlice() {
+      if (sliceStart < 0) return;
+      const start = sliceStart;
+      const end = now();
+      sliceStart = -1;
+      const duration = end - start;
+      if (!pending) {
+        pending = {
+          ticks: 0,
+          renderStart: start,
+          renderEnd: end,
+          workMs: 0,
+          yieldedMs: 0,
+          longestSliceMs: 0,
+          slices: [],
+          slicesTruncated: false,
+          partial: partialPending
+        };
+      }
+      pending.ticks++;
+      pending.renderEnd = end;
+      pending.workMs += duration;
+      if (duration > pending.longestSliceMs) pending.longestSliceMs = duration;
+      if (pending.slices.length < maxSlices) pending.slices.push([start, end]);
+      else pending.slicesTruncated = true;
+    }
+    function attachAsyncDispatcher(owner) {
+      const previous = Object.getOwnPropertyDescriptor(owner, "A");
+      if (previous && previous.configurable === false) return null;
+      let stored = previous && "value" in previous ? previous.value : void 0;
+      const read = (previous == null ? void 0 : previous.get) ? () => previous.get.call(owner) : () => stored;
+      let outer = void 0;
+      function set(next) {
+        const before = read();
+        if (previous == null ? void 0 : previous.set) previous.set.call(owner, next);
+        else stored = next;
+        if (sliceStart < 0) {
+          outer = before;
+          openSlice();
+        } else if (next === outer) {
+          closeSlice();
+        }
+      }
+      try {
+        Object.defineProperty(owner, "A", {
+          configurable: true,
+          enumerable: (previous == null ? void 0 : previous.enumerable) ?? true,
+          get: read,
+          set
+        });
+      } catch (_) {
+        return null;
+      }
+      return () => {
+        const current = Object.getOwnPropertyDescriptor(owner, "A");
+        if ((current == null ? void 0 : current.set) !== set) return;
+        const value = read();
+        if ((previous == null ? void 0 : previous.get) || (previous == null ? void 0 : previous.set)) Object.defineProperty(owner, "A", previous);
+        else Object.defineProperty(owner, "A", { configurable: true, enumerable: (previous == null ? void 0 : previous.enumerable) ?? true, writable: true, value });
+      };
+    }
+    function compose(slot) {
+      const external = slot.external;
+      if (!slot.active) return external;
+      const hooks = { ...external || {} };
+      hooks.markRenderStarted = function markRenderStarted(...args) {
+        var _a2;
+        openSlice();
+        (_a2 = external == null ? void 0 : external.markRenderStarted) == null ? void 0 : _a2.call(external, ...args);
+      };
+      for (const name of SLICE_END_HOOKS) {
+        hooks[name] = function closeRenderSlice(...args) {
+          var _a2;
+          closeSlice();
+          (_a2 = external == null ? void 0 : external[name]) == null ? void 0 : _a2.call(external, ...args);
+        };
+      }
+      return hooks;
+    }
+    function prepareRenderer(renderer) {
+      if (!renderer || typeof renderer !== "object") return;
+      const r = renderer;
+      if (prepared.has(r) || typeof r.injectProfilingHooks !== "function") return;
+      const slot = {
+        original: r.injectProfilingHooks,
+        external: null,
+        active: false,
+        wrapper: (hooks) => {
+          slot.external = hooks;
+          slot.original(compose(slot));
+        }
+      };
+      prepared.set(r, slot);
+      try {
+        r.injectProfilingHooks = slot.wrapper;
+      } catch (_) {
+        prepared.delete(r);
+      }
+    }
+    function attachProfilingHooks(r, owned) {
+      if (!prepared.has(r)) {
+        if (owned) return null;
+        prepareRenderer(r);
+      }
+      const slot = prepared.get(r);
+      if (!slot) return null;
+      slot.active = true;
+      slot.original(compose(slot));
+      return () => {
+        slot.active = false;
+        slot.original(slot.external);
+        if (r.injectProfilingHooks === slot.wrapper) r.injectProfilingHooks = slot.original;
+        prepared.delete(r);
+      };
+    }
+    function attachRenderer(renderer, attachOptions = {}) {
+      if (!renderer || typeof renderer !== "object") return null;
+      const r = renderer;
+      const existing = sources.get(r);
+      if (existing) return existing;
+      const internals = r.currentDispatcherRef;
+      let source = null;
+      let release = null;
+      if (internals && typeof internals === "object" && "H" in internals && "A" in internals) {
+        if (trappedInternals.has(internals)) {
+          source = "async-dispatcher";
+          release = () => {
+          };
+        } else {
+          const untrap = attachAsyncDispatcher(internals);
+          if (untrap) {
+            trappedInternals.add(internals);
+            source = "async-dispatcher";
+            release = () => {
+              trappedInternals.delete(internals);
+              untrap();
+            };
+          } else {
+            lastFailure = "React 19 async dispatcher slot is not configurable";
+          }
+        }
+      } else if (typeof r.injectProfilingHooks === "function") {
+        release = attachProfilingHooks(r, !!attachOptions.profilingHooksOwned);
+        if (release) source = "profiling-hooks";
+        else lastFailure = "React DevTools attached to this React 18 renderer before Avalanche and owns its profiling hooks; reload with Avalanche armed";
+      } else {
+        lastFailure = "this React build exposes no render-slice signal (React 18 production builds have none)";
+      }
+      if (!source || !release) return null;
+      sources.set(r, source);
+      releases.set(r, release);
+      if (attachOptions.late) partialPending = true;
+      return source;
+    }
+    function takeCommitTicks() {
+      if (sources.size === 0) return null;
+      const taken = pending;
+      pending = null;
+      partialPending = false;
+      if (!taken) {
+        return {
+          ticks: 0,
+          renderStart: -1,
+          renderEnd: -1,
+          workMs: 0,
+          yieldedMs: 0,
+          longestSliceMs: 0,
+          slices: [],
+          slicesTruncated: false,
+          partial: true
+        };
+      }
+      taken.yieldedMs = Math.max(0, taken.renderEnd - taken.renderStart - taken.workMs);
+      return taken;
+    }
+    return {
+      prepareRenderer,
+      attachRenderer,
+      takeCommitTicks,
+      status() {
+        const list = Array.from(sources.values());
+        return {
+          available: list.length > 0,
+          sources: list,
+          reason: list.length > 0 ? null : lastFailure ?? "no React renderer registered with the DevTools hook"
+        };
+      },
+      reset() {
+        pending = null;
+        partialPending = false;
+      },
+      detach() {
+        for (const release of releases.values()) {
+          try {
+            release();
+          } catch (_) {
+          }
+        }
+        releases.clear();
+        sources.clear();
+        pending = null;
+        sliceStart = -1;
+        partialPending = false;
       }
     };
   }
@@ -2375,9 +2600,13 @@ this.__AVALANCHE__ = (function() {
       interactionCapture.reset();
       state.lastMetricsSnapshot = captureMetricsSnapshot();
       state.lastCommitEndTime = performance.now();
+      renderTicks.reset();
       sourceIdManager.clear();
     }
     const commitSurface = createCommitSurfaceOwnership();
+    const renderTicks = createRenderTickTracker();
+    let devtoolsInjectPrev;
+    let devtoolsInjectWrapper;
     let devtoolsHookPrev;
     let devtoolsUnmountPrev;
     let devtoolsHookCreatedByUs = false;
@@ -2454,6 +2683,7 @@ this.__AVALANCHE__ = (function() {
       debugRender.install();
       const commitHookStartTime = performance.now();
       const timeSinceLastCommit = commitHookStartTime - state.lastCommitEndTime;
+      const ticks = renderTicks.takeCommitTicks();
       const metricsBefore = state.lastMetricsSnapshot || captureMetricsSnapshot();
       const memoizedUpdaters = root.memoizedUpdaters;
       const committedComponents = recordTree(root.current, memoizedUpdaters || null);
@@ -2485,7 +2715,9 @@ this.__AVALANCHE__ = (function() {
         startTime: commitHookStartTime,
         endTime: commitHookEndTime,
         timeSinceLastCommit,
-        detectorOverhead: commitHookEndTime - commitHookStartTime
+        detectorOverhead: commitHookEndTime - commitHookStartTime,
+        ticks: ticks ? ticks.ticks : null,
+        render: ticks
       };
       state.lastCommitEndTime = commitHookEndTime;
       return committedComponents;
@@ -2620,6 +2852,26 @@ this.__AVALANCHE__ = (function() {
           if (fiber.alternate) lastSeenHookState.delete(fiber.alternate);
         };
         hook.onCommitFiberUnmount = devtoolsUnmountHandler;
+        if (hook.renderers && typeof hook.renderers.forEach === "function") {
+          const devtoolsInterfaces = hook.rendererInterfaces;
+          hook.renderers.forEach((renderer, id) => {
+            renderTicks.attachRenderer(renderer, {
+              late: true,
+              profilingHooksOwned: devtoolsInterfaces instanceof Map && devtoolsInterfaces.has(id)
+            });
+          });
+        }
+        if (typeof hook.inject === "function" && hook.inject !== devtoolsInjectWrapper) {
+          const prevInject = hook.inject;
+          devtoolsInjectPrev = prevInject;
+          devtoolsInjectWrapper = function inject(renderer) {
+            renderTicks.prepareRenderer(renderer);
+            const id = prevInject.call(this, renderer);
+            renderTicks.attachRenderer(renderer);
+            return id;
+          };
+          hook.inject = devtoolsInjectWrapper;
+        }
         integrationMode = "devtools";
         commitSurface.reset();
         const adapter = metricsAdapter;
@@ -2676,8 +2928,14 @@ this.__AVALANCHE__ = (function() {
             } else {
               delete hook.onCommitFiberUnmount;
             }
+            if (devtoolsInjectPrev && hook.inject === devtoolsInjectWrapper) {
+              hook.inject = devtoolsInjectPrev;
+            }
           }
         }
+        renderTicks.detach();
+        devtoolsInjectPrev = void 0;
+        devtoolsInjectWrapper = void 0;
         debugRender.uninstall();
         interactionCapture.uninstall();
         commitSurface.reset();
@@ -2709,7 +2967,8 @@ this.__AVALANCHE__ = (function() {
           captureFibers,
           historySize,
           detectionLevel,
-          integrationMode
+          integrationMode,
+          renderTicks: renderTicks.status()
         });
       },
       /**
@@ -4297,7 +4556,7 @@ this.__AVALANCHE__ = (function() {
         case "commit-list": {
           const top = Number.isFinite(Number(command == null ? void 0 : command.top)) ? Math.max(1, Math.floor(Number(command.top))) : 20;
           const by = String((command == null ? void 0 : command.by) || "collateral");
-          const allowedKeys = UPSTREAM_COMMIT_STAT_KEYS.concat(["sources"]);
+          const allowedKeys = UPSTREAM_COMMIT_STAT_KEYS.concat(["sources", "ticks"]);
           if (!allowedKeys.includes(by)) {
             return {
               ok: false,
@@ -4317,20 +4576,23 @@ this.__AVALANCHE__ = (function() {
           const sourcesByCommit = ser.sourcesByCommit || {};
           const ids = Object.keys(stats);
           const rows = ids.map((id) => {
-            var _a3;
+            var _a3, _b3;
             const tuple = stats[id];
             const stat = tupleToStats(tuple);
             const srcs = sourcesByCommit[id];
             const sourceCount = Array.isArray(srcs) ? srcs.length : srcs && typeof srcs === "object" ? Object.keys(srcs).length : 0;
             const actions = ((_a3 = ser.interactionsByCommit) == null ? void 0 : _a3[id]) || [];
-            return { commitId: Number(id), stat, sourceCount, latestAction: actions.length ? compactLatestAction(actions[actions.length - 1]) : null };
+            const timing = (_b3 = ser.commitTimings) == null ? void 0 : _b3[id];
+            const ticks = typeof (timing == null ? void 0 : timing.ticks) === "number" ? timing.ticks : null;
+            return { commitId: Number(id), stat, sourceCount, ticks, latestAction: actions.length ? compactLatestAction(actions[actions.length - 1]) : null };
           });
-          rows.sort((a, b) => {
-            var _a3, _b3;
-            const av = sortKey === "sources" ? a.sourceCount || 0 : ((_a3 = a.stat) == null ? void 0 : _a3[sortKey]) || 0;
-            const bv = sortKey === "sources" ? b.sourceCount || 0 : ((_b3 = b.stat) == null ? void 0 : _b3[sortKey]) || 0;
-            return bv - av;
-          });
+          const sortValue = (row) => {
+            var _a3;
+            if (sortKey === "sources") return row.sourceCount || 0;
+            if (sortKey === "ticks") return row.ticks ?? -1;
+            return ((_a3 = row.stat) == null ? void 0 : _a3[sortKey]) || 0;
+          };
+          rows.sort((a, b) => sortValue(b) - sortValue(a));
           return { ok: true, available: true, action, by: sortKey, total: rows.length, rows: rows.slice(0, top) };
         }
         // Removed: start, stop, metrics, help — not present on the current public surface.

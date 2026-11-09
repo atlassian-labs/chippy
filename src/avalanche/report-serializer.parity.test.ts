@@ -81,6 +81,11 @@ function makeTiming(): CommitTimingDTO {
     endTime: 4334.0,
     timeSinceLastCommit: 5.5,
     detectorOverhead: 0.4,
+    ticks: 2,
+    render: {
+      ticks: 2, renderStart: 4320, renderEnd: 4333, workMs: 9, yieldedMs: 4,
+      longestSliceMs: 5, slices: [[4320, 4325], [4329, 4333]], slicesTruncated: false, partial: false,
+    },
   };
 }
 
@@ -409,6 +414,8 @@ describe('serializeReport — DTO field parity', () => {
     expect(parsed.sources[0].sourceId).toBe('s');
     expect(parsed.atlByCommit['0'].mountWorkCount).toBe(1);
     expect(parsed.commitTimings['0'].startTime).toBe(4333.5);
+    expect(parsed.commitTimings['0'].ticks).toBe(2);
+    expect(parsed.commitTimings['0'].render.slices).toEqual([[4320, 4325], [4329, 4333]]);
     expect(parsed.meta.timeOrigin).toBe(1_700_000_000_000.5);
   });
 });

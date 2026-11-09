@@ -7,6 +7,7 @@
 
 import type { ComponentType, ChangedHook, Fiber, ThrashInfo } from './internals';
 import { CS_RESTARTS } from './commit-stats-indices';
+import type { CommitTicks, RenderTickStatus } from './render-ticks';
 import { getComponentName } from './internals';
 import type { ReportDTO } from './report-serializer';
 import { serializeReport } from './report-serializer';
@@ -269,7 +270,14 @@ export interface ReportMeta {
     metricsByCommit: boolean;
     /** @deprecated Alias of `metricsByCommit`, kept for one release. */
     atlByCommit: boolean;
+    /** `commitTimings[N].ticks` — render slices observed from the renderer */
+    ticks: boolean;
   };
+  /**
+   * Which signal counted render ticks, or why none could. When unavailable,
+   * every `commitTimings[N].ticks` is null.
+   */
+  renderTicks: RenderTickStatus;
   /** Amplifier summary (when detectionMode: 'amplifierMetrics') */
   amplifiersMetrics?: {
     totalHookThrashes: number;
@@ -560,6 +568,15 @@ export interface CommitTiming {
   timeSinceLastCommit: number;
   /** Time spent in avalanche detector processing (our overhead) */
   detectorOverhead: number;
+  /**
+   * Render ticks: synchronous render slices React ran since the previous
+   * commit. 1 for a synchronous render; more when React time-sliced the
+   * render and yielded to the browser between slices. Null when this React
+   * build exposes no slice signal (see `meta.renderTicks`).
+   */
+  ticks: number | null;
+  /** Slice timing behind `ticks`, or null when ticks are unavailable. */
+  render: CommitTicks | null;
 }
 
 /**
@@ -696,6 +713,8 @@ export function buildReport(
      * in commitStats and metricsByCommit. Defaults to 'none'.
      */
     integrationMode?: IntegrationMode;
+    /** Render-tick signal status from the detector. */
+    renderTicks?: RenderTickStatus;
   }
 ): Report {
   const { minCollateral = 1 } = options;
@@ -921,6 +940,8 @@ export function buildReport(
   const integrationMode = detectorConfig?.integrationMode ?? 'none';
   const metricsAdapter = adapterIdFromMode(integrationMode);
   const metricsAvailable = metricsAdapter !== null && hasMetricsData;
+  const renderTicks: RenderTickStatus = detectorConfig?.renderTicks
+    ?? { available: false, sources: [], reason: 'detector not installed' };
   const meta: ReportMeta = {
     version: 7, // v7: meta.timeOrigin; absolute commitTimings[N].startTime/endTime; action timestamps
     timeOrigin: performance.timeOrigin,
@@ -952,7 +973,9 @@ export function buildReport(
       contextUpdates: true,
       metricsByCommit: metricsAvailable,
       atlByCommit: metricsAvailable,
+      ticks: renderTicks.available,
     },
+    renderTicks,
     timing: {
       totalDetectorOverhead,
       avgDetectorOverhead,

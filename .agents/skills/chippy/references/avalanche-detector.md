@@ -111,8 +111,10 @@ Ranks commits. Rows are intentionally compact. If an event/action breadcrumb is 
 
 Valid sort keys (live and offline):
 ```text
-collateral sources restarts performedWork effects memos callbacks contextUpdates unmountedComponents unmountedSubtrees
+collateral sources restarts performedWork effects memos callbacks contextUpdates unmountedComponents unmountedSubtrees ticks
 ```
+
+Each row also carries `ticks`, the render slices React ran for that commit (see [Render ticks](#render-ticks)). `by ticks` ranks time-sliced and repeated renders first; commits with unknown ticks (`null`) sort last.
 
 Do **not** use undocumented keys like `byDuration`. Live and offline `commit-list` accept the same keys and return `ok:false` with `validBy` for any other key. The live shell command still exits 0: the helper envelope is `ok:true`, and the rejection is in `result.ok:false`, `result.error`, and `result.validBy`, so read `result.ok` before reading rows.
 
@@ -239,8 +241,29 @@ Start with these fields:
 - `commitStats[N]` — fixed tuple for commit `N`
 - `metricsByCommit[N]` — low-level adapter metrics for commit `N` (deprecated alias `atlByCommit`)
 - `sources[].restartWaste` / `maxRestartWaste` — restart attribution per source across the capture (adapter modes only)
-- `commitTimings[N]` — `startTime`, `endTime`, `timeSinceLastCommit`, `detectorOverhead` for commit `N` (`commit-peek ... timing`)
+- `commitTimings[N]` — `startTime`, `endTime`, `timeSinceLastCommit`, `detectorOverhead`, `ticks`, and `render` for commit `N` (`commit-peek ... timing`)
+- `meta.renderTicks` — whether ticks are counted, from which signal, and why not when they are unavailable
 - `meta.timeOrigin` — the page's `performance.timeOrigin` (Unix epoch ms)
+
+### Render ticks
+
+A tick is one uninterrupted render slice: React entering its render loop and leaving it, either to commit or to yield to the browser. `commitTimings[N].ticks` is how many slices React ran since the previous commit.
+
+- `1` — the render finished in one task (sync lanes, `flushSync`, discrete input, or a short concurrent render).
+- greater than `1` — React time-sliced the render (transitions, retries, idle work) and yielded between slices, or repeated it synchronously (error recovery, an external-store consistency check). Slices of renders React threw away or restarted count toward the commit that finally lands.
+- `null` — ticks are not measurable on this page. Read `meta.renderTicks.reason`; do not read a missing count as one tick.
+
+`commitTimings[N].render` holds the detail: `renderStart` / `renderEnd` (first slice start, last slice end, on the same clock as `startTime`), `workMs` (sum of slice durations), `yieldedMs` (time between slices, when the main thread ran other work), `longestSliceMs`, the first 32 `slices` as `[start, end]` pairs with `slicesTruncated`, and `partial`. `partial: true` means counting started while a render may already have been in progress, so the count is a lower bound; it is set on the first commit after Avalanche attaches to an already registered renderer.
+
+Ticks are page-wide: when several roots render between two commits, their slices count toward the next commit.
+
+| React build | Signal (`meta.renderTicks.sources`) | Availability |
+|---|---|---|
+| React 19+, development and production | `async-dispatcher` | Always |
+| React 18, development or profiling build | `profiling-hooks` | When Avalanche is armed before React DevTools attaches (`reload-with-avalanche`); composes with the DevTools Timeline |
+| React 18 production | none | Unavailable; `ticks` is `null` |
+
+`meta.dataAvailability.ticks` is `false` when no signal is available.
 
 ### Aligning commits with browser performance data
 
@@ -418,7 +441,7 @@ before/after diff   → whether the same waste disappeared
 ### Read from broad to narrow
 
 1. **Population shape.** Use raw React metrics to see whether the window is mostly render work, DOM work, mount work, context propagation, or discarded/restarted work.
-2. **Commit selection.** Use `commit-list` to pick the commit that best represents the suspicious stat shape (`collateral`, `sources`, `restarts`, `performedWork`, `effects`, `memos`, `callbacks`, `contextUpdates`, `unmountedComponents`, `unmountedSubtrees`).
+2. **Commit selection.** Use `commit-list` to pick the commit that best represents the suspicious stat shape (`collateral`, `sources`, `restarts`, `performedWork`, `effects`, `memos`, `callbacks`, `contextUpdates`, `unmountedComponents`, `unmountedSubtrees`, `ticks`).
 3. **Per-commit join.** Use `commit-peek` and read `commitStats[N]`, `sourcesByCommit[N]`, `metricsByCommit[N]`, and `renderedByCommit[N]` together.
 4. **Role classification.** Classify a component as source, hotspot, collateral, mount/remount, context/store participant, or restart/discarded work.
 5. **Fiber trace.** Use probes to inspect owner/parent/prop/hook flow before naming a specific cause.

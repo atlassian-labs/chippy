@@ -47,6 +47,8 @@ describe('Chippy React compatibility', () => {
           atlSlot: '__ATL_REACT_METRICS' in window,
           source: source || null,
           hook: source ? av.debugHook(source.sourceId, 0) : null,
+          renderTicks: report.meta.renderTicks,
+          ticks: Object.values(report.toSerializable().commitTimings).map((timing: any) => timing.ticks),
         };
       });
       expect(result.status.integrationMode).toBe('devtools');
@@ -55,6 +57,11 @@ describe('Chippy React compatibility', () => {
       expect(result.status.metricsAdapter).toBeNull();
       expect(result.source).not.toBeNull();
       expect(result.hook).toMatchObject({ ok: true, primitive: 'State' });
+      // Clicks are discrete updates: each commit renders in one slice.
+      expect(result.renderTicks).toEqual({
+        available: true, sources: [kind === 'stock' ? 'profiling-hooks' : 'async-dispatcher'], reason: null,
+      });
+      expect(result.ticks).toEqual([1, 1, 1, 1]);
     } finally { await page.close(); }
   }, 30000);
 

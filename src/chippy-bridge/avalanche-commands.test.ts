@@ -476,6 +476,17 @@ describe('evalAvalanche', () => {
     expect(rows[0].sourceCount).toBe(2); // commit 0 has 2 sources
   });
 
+  it('commit-list: reports ticks per commit and sorts by them, unknown counts last', () => {
+    const report = makeApi().report() as any;
+    report.commitTimings = { '0': { ticks: 1 }, '1': { ticks: 7 } };
+    const api = makeApi({ report: () => report });
+    const rows = evalAvalanche({ action: 'commit-list', by: 'ticks' }, api, null).rows as Array<{ commitId: number; ticks: number | null }>;
+    expect(rows.map((row) => [row.commitId, row.ticks])).toEqual([[1, 7], [0, 1]]);
+    report.commitTimings = { '1': { ticks: null } };
+    const unknown = evalAvalanche({ action: 'commit-list', by: 'ticks' }, api, null).rows as Array<{ commitId: number; ticks: number | null }>;
+    expect(unknown.map((row) => row.ticks)).toEqual([null, null]);
+  });
+
   it('unknown action returns explicit error', () => {
     const r = evalAvalanche({ action: 'fly-to-the-moon' }, makeApi(), null);
     expect(r).toMatchObject({ ok: false, available: true, action: 'fly-to-the-moon', error: expect.stringMatching(/Unknown/) });

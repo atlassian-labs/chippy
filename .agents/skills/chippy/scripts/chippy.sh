@@ -959,7 +959,7 @@ case "$cmd" in
     by="${4:-collateral}"
     if [[ -z "$client_id" ]]; then
       echo "avalanche-commit-list requires <clientId> [top] [by]" >&2
-      echo "  by ∈ collateral | sources | restarts | performedWork | effects | memos | callbacks | contextUpdates | unmountedComponents | unmountedSubtrees (live and avalanche-offline)" >&2
+      echo "  by ∈ collateral | sources | restarts | performedWork | effects | memos | callbacks | contextUpdates | unmountedComponents | unmountedSubtrees | ticks (live and avalanche-offline)" >&2
       exit 1
     fi
     post_avalanche "$client_id" "{\"action\":\"commit-list\",\"top\":$top,\"by\":\"$by\"}"

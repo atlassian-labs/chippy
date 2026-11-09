@@ -20,6 +20,7 @@ surrounding modules unless measurement proves it belongs in that path.
 | `internals.tsx` | Version-coupled React fiber tags, flags, and comparison helpers used only by the detector. |
 | `reporter.tsx` | Turns captured state into ranked sources, commit evidence, and report views. |
 | `report-serializer.tsx` | Produces DTOs that survive JSON/helper/offline transport without retaining live fibers or functions. |
+| `render-ticks.ts` | Counts render slices (ticks) per commit from React 19's async dispatcher slot or React 18's profiling hooks, composing with React DevTools and giving every slot back on uninstall. |
 | `interaction-capture.ts` | Records recent DOM interaction anchors and links them to later commits by time window. Proximity is a clue, not causality. |
 
 ## Boundaries and modes

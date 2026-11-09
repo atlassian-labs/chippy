@@ -69,6 +69,7 @@ import {
 } from './commit-metrics-adapter';
 import { createCommitSurfaceOwnership } from './commit-surface-ownership';
 import { createInteractionCapture } from './interaction-capture';
+import { createRenderTickTracker } from './render-ticks';
 import {
   CS_UNMOUNTED_COMPONENTS,
   CS_UNMOUNTED_SUBTREES,
@@ -1330,12 +1331,15 @@ export function createAvalancheDetector(options: DetectorOptions = {}) {
     state.lastMetricsSnapshot = captureMetricsSnapshot();
     // Reset timing baseline
     state.lastCommitEndTime = performance.now();
+    renderTicks.reset();
     sourceIdManager.clear();
   }
 
   type DevtoolsHook = {
     onCommitFiberRoot?: (...args: unknown[]) => void;
     onCommitFiberUnmount?: (...args: unknown[]) => void;
+    inject?: (renderer: unknown) => number;
+    renderers?: Map<number, unknown>;
     [key: string]: unknown;
   };
 
@@ -1348,6 +1352,11 @@ export function createAvalancheDetector(options: DetectorOptions = {}) {
     committedComponents: number;
     metricsBefore: CommitMetricsSnapshot | null;
   }>();
+
+  // Counts the render slices ("ticks") React runs before each commit.
+  const renderTicks = createRenderTickTracker();
+  let devtoolsInjectPrev: ((renderer: unknown) => number) | undefined;
+  let devtoolsInjectWrapper: ((renderer: unknown) => number) | undefined;
 
   // Chained predecessor on the DevTools hook (real React DevTools, etc.) — so
   // augmenting the hook never breaks an existing client. Restored on uninstall.
@@ -1465,6 +1474,7 @@ export function createAvalancheDetector(options: DetectorOptions = {}) {
     debugRender.install();
     const commitHookStartTime = performance.now();
     const timeSinceLastCommit = commitHookStartTime - state.lastCommitEndTime;
+    const ticks = renderTicks.takeCommitTicks();
 
     const metricsBefore = state.lastMetricsSnapshot || captureMetricsSnapshot();
 
@@ -1514,6 +1524,8 @@ export function createAvalancheDetector(options: DetectorOptions = {}) {
       endTime: commitHookEndTime,
       timeSinceLastCommit,
       detectorOverhead: commitHookEndTime - commitHookStartTime,
+      ticks: ticks ? ticks.ticks : null,
+      render: ticks,
     };
     state.lastCommitEndTime = commitHookEndTime;
     return committedComponents;
@@ -1662,6 +1674,32 @@ export function createAvalancheDetector(options: DetectorOptions = {}) {
       };
       hook.onCommitFiberUnmount = devtoolsUnmountHandler;
 
+      // Render ticks. Renderers already registered were seen by other clients
+      // first; renderers injected from now on are prepared before the
+      // previous inject (React DevTools) sees them, so its profiling hooks are
+      // composed with ours instead of replaced.
+      if (hook.renderers && typeof hook.renderers.forEach === 'function') {
+        // React DevTools records an interface per renderer it has attached to.
+        const devtoolsInterfaces = hook.rendererInterfaces as Map<number, unknown> | undefined;
+        hook.renderers.forEach((renderer, id) => {
+          renderTicks.attachRenderer(renderer, {
+            late: true,
+            profilingHooksOwned: devtoolsInterfaces instanceof Map && devtoolsInterfaces.has(id),
+          });
+        });
+      }
+      if (typeof hook.inject === 'function' && hook.inject !== devtoolsInjectWrapper) {
+        const prevInject = hook.inject;
+        devtoolsInjectPrev = prevInject;
+        devtoolsInjectWrapper = function inject(this: unknown, renderer: unknown): number {
+          renderTicks.prepareRenderer(renderer);
+          const id = prevInject.call(this, renderer);
+          renderTicks.attachRenderer(renderer);
+          return id;
+        };
+        hook.inject = devtoolsInjectWrapper;
+      }
+
       // Default observed mode until an adapter proves itself.
       integrationMode = 'devtools';
 
@@ -1728,8 +1766,14 @@ export function createAvalancheDetector(options: DetectorOptions = {}) {
           } else {
             delete hook.onCommitFiberUnmount;
           }
+          if (devtoolsInjectPrev && hook.inject === devtoolsInjectWrapper) {
+            hook.inject = devtoolsInjectPrev;
+          }
         }
       }
+      renderTicks.detach();
+      devtoolsInjectPrev = undefined;
+      devtoolsInjectWrapper = undefined;
       debugRender.uninstall();
       interactionCapture.uninstall();
       commitSurface.reset();
@@ -1764,6 +1808,7 @@ export function createAvalancheDetector(options: DetectorOptions = {}) {
         historySize,
         detectionLevel,
         integrationMode,
+        renderTicks: renderTicks.status(),
       });
     },
 

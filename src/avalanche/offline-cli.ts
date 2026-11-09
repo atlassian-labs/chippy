@@ -15,7 +15,7 @@ Commands:
   source-search --name <regex> [--top N]
 
 commit-list sort keys: collateral sources restarts performedWork effects memos
-  callbacks contextUpdates unmountedComponents unmountedSubtrees
+  callbacks contextUpdates unmountedComponents unmountedSubtrees ticks
 commit-peek include values: stats,sources,timing,metrics,actions,rendered (atl: deprecated alias of metrics)
 `;
 

@@ -260,7 +260,7 @@ function evalAvalanche(command, api, mod) {
       case "commit-list": {
         const top = Number.isFinite(Number(command?.top)) ? Math.max(1, Math.floor(Number(command.top))) : 20;
         const by = String(command?.by || "collateral");
-        const allowedKeys = UPSTREAM_COMMIT_STAT_KEYS.concat(["sources"]);
+        const allowedKeys = UPSTREAM_COMMIT_STAT_KEYS.concat(["sources", "ticks"]);
         if (!allowedKeys.includes(by)) {
           return {
             ok: false,
@@ -285,13 +285,16 @@ function evalAvalanche(command, api, mod) {
           const srcs = sourcesByCommit[id];
           const sourceCount = Array.isArray(srcs) ? srcs.length : srcs && typeof srcs === "object" ? Object.keys(srcs).length : 0;
           const actions = ser.interactionsByCommit?.[id] || [];
-          return { commitId: Number(id), stat, sourceCount, latestAction: actions.length ? compactLatestAction(actions[actions.length - 1]) : null };
+          const timing = ser.commitTimings?.[id];
+          const ticks = typeof timing?.ticks === "number" ? timing.ticks : null;
+          return { commitId: Number(id), stat, sourceCount, ticks, latestAction: actions.length ? compactLatestAction(actions[actions.length - 1]) : null };
         });
-        rows.sort((a, b) => {
-          const av = sortKey === "sources" ? a.sourceCount || 0 : a.stat?.[sortKey] || 0;
-          const bv = sortKey === "sources" ? b.sourceCount || 0 : b.stat?.[sortKey] || 0;
-          return bv - av;
-        });
+        const sortValue = (row) => {
+          if (sortKey === "sources") return row.sourceCount || 0;
+          if (sortKey === "ticks") return row.ticks ?? -1;
+          return row.stat?.[sortKey] || 0;
+        };
+        rows.sort((a, b) => sortValue(b) - sortValue(a));
         return { ok: true, available: true, action, by: sortKey, total: rows.length, rows: rows.slice(0, top) };
       }
       // Removed: start, stop, metrics, help — not present on the current public surface.
@@ -441,7 +444,7 @@ Commands:
   source-search --name <regex> [--top N]
 
 commit-list sort keys: collateral sources restarts performedWork effects memos
-  callbacks contextUpdates unmountedComponents unmountedSubtrees
+  callbacks contextUpdates unmountedComponents unmountedSubtrees ticks
 commit-peek include values: stats,sources,timing,metrics,actions,rendered (atl: deprecated alias of metrics)
 `;
 function fail(message) {

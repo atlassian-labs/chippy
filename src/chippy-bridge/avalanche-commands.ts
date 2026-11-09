@@ -373,7 +373,7 @@ export function evalAvalanche(
       case 'commit-list': {
         const top = Number.isFinite(Number(command?.top)) ? Math.max(1, Math.floor(Number(command!.top))) : 20;
         const by = String(command?.by || 'collateral');
-        const allowedKeys: string[] = (UPSTREAM_COMMIT_STAT_KEYS as readonly string[]).concat(['sources']);
+        const allowedKeys: string[] = (UPSTREAM_COMMIT_STAT_KEYS as readonly string[]).concat(['sources', 'ticks']);
         if (!allowedKeys.includes(by)) {
           return {
             ok: false,
@@ -402,13 +402,17 @@ export function evalAvalanche(
               ? Object.keys(srcs).length
               : 0;
           const actions = (ser.interactionsByCommit?.[id] || []) as unknown[];
-          return { commitId: Number(id), stat, sourceCount, latestAction: actions.length ? compactLatestAction(actions[actions.length - 1]) : null };
+          const timing = ser.commitTimings?.[id] as { ticks?: unknown } | undefined;
+          // null when the build exposes no render-slice signal (meta.renderTicks).
+          const ticks = typeof timing?.ticks === 'number' ? timing.ticks : null;
+          return { commitId: Number(id), stat, sourceCount, ticks, latestAction: actions.length ? compactLatestAction(actions[actions.length - 1]) : null };
         });
-        rows.sort((a, b) => {
-          const av = sortKey === 'sources' ? (a.sourceCount || 0) : (a.stat?.[sortKey] || 0);
-          const bv = sortKey === 'sources' ? (b.sourceCount || 0) : (b.stat?.[sortKey] || 0);
-          return bv - av;
-        });
+        const sortValue = (row: typeof rows[number]): number => {
+          if (sortKey === 'sources') return row.sourceCount || 0;
+          if (sortKey === 'ticks') return row.ticks ?? -1;
+          return row.stat?.[sortKey] || 0;
+        };
+        rows.sort((a, b) => sortValue(b) - sortValue(a));
         return { ok: true, available: true, action, by: sortKey, total: rows.length, rows: rows.slice(0, top) };
       }
       // Removed: start, stop, metrics, help — not present on the current public surface.

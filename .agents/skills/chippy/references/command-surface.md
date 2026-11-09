@@ -101,9 +101,9 @@ Load [active-stimulus](active-stimulus.md) before an active command. A `fiber:*`
 
 ### Commit selectors
 
-`avalanche-commit-list` live `by` values are `collateral`, `sources`, `restarts`, `performedWork`, `effects`, `memos`, `callbacks`, `contextUpdates`, `unmountedComponents`, and `unmountedSubtrees`.
+`avalanche-commit-list` live `by` values are `collateral`, `sources`, `restarts`, `performedWork`, `effects`, `memos`, `callbacks`, `contextUpdates`, `unmountedComponents`, `unmountedSubtrees`, and `ticks`.
 
-`avalanche-commit-peek` live `include` values are `stats`, `sources`, `timing`, `metrics`, `unmounts`, `actions`, and `rendered`; `atl` is a deprecated alias of `metrics`. `rendered` works in every mode; `trasherCounts` in it need `full` or `amplifiers`. `timing` returns `startTime` and `endTime` on the page's `performance.now()` clock, plus `timeSinceLastCommit` and `detectorOverhead`.
+`avalanche-commit-peek` live `include` values are `stats`, `sources`, `timing`, `metrics`, `unmounts`, `actions`, and `rendered`; `atl` is a deprecated alias of `metrics`. `rendered` works in every mode; `trasherCounts` in it need `full` or `amplifiers`. `timing` returns `startTime` and `endTime` on the page's `performance.now()` clock, plus `timeSinceLastCommit`, `detectorOverhead`, `ticks` (render slices since the previous commit, `null` when not measurable), and `render` (slice detail).
 
 Load [avalanche-detector](avalanche-detector.md) for schemas and evidence-reading rules.
 
