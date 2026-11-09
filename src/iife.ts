@@ -181,10 +181,14 @@ registerBuiltinPlugins();
     onCommitFiberUnmount() {},
     onPostCommitFiberRoot() {},
   };
+  // A same-origin frame adopts the top frame's hook. Reading a cross-origin
+  // top window throws, so such a frame keeps its own hook.
+  let shared: DevtoolsHook | undefined;
   try {
     if (runtime.top && !runtime.top.__REACT_DEVTOOLS_GLOBAL_HOOK__) runtime.top.__REACT_DEVTOOLS_GLOBAL_HOOK__ = hook;
+    shared = runtime.top?.__REACT_DEVTOOLS_GLOBAL_HOOK__;
   } catch (_) { /* cross-origin */ }
-  runtime.__REACT_DEVTOOLS_GLOBAL_HOOK__ = runtime.top?.__REACT_DEVTOOLS_GLOBAL_HOOK__ || hook;
+  runtime.__REACT_DEVTOOLS_GLOBAL_HOOK__ = shared || hook;
 })();
 
 const startupConfig = runtime.__CHIPPY_STARTUP_CONFIG;

@@ -49,6 +49,7 @@ const HELPER_SCRIPTS = [
   'extension/resolve-probes.js',
   'extension/probe-descriptor.js',
   'extension/avalanche.iife.js',
+  'extension/frame-link.js',
   'extension/chippy-page-bridge.js',
 ];
 

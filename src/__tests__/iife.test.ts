@@ -116,6 +116,26 @@ describe('src/iife.ts startup behavior', () => {
     mod.default.uninstall();
   });
 
+  it('keeps its own devtools hook in a cross-origin frame instead of throwing', async () => {
+    delete (globalThis as any).__AVALANCHE__;
+    delete (globalThis as any).__REACT_DEVTOOLS_GLOBAL_HOOK__;
+    const originalTop = Object.getOwnPropertyDescriptor(globalThis, 'top');
+    // A cross-origin top window throws a SecurityError on any property read.
+    const crossOriginTop = new Proxy({}, {
+      get() { throw new DOMException('Blocked a frame from accessing a cross-origin frame.', 'SecurityError'); },
+      set() { throw new DOMException('Blocked a frame from accessing a cross-origin frame.', 'SecurityError'); },
+    });
+    Object.defineProperty(globalThis, 'top', { configurable: true, get: () => crossOriginTop });
+    try {
+      const mod = await import('../iife');
+      expect(mod.default).toBeTruthy();
+      expect((globalThis as any).__REACT_DEVTOOLS_GLOBAL_HOOK__?.supportsFiber).toBe(true);
+    } finally {
+      if (originalTop) Object.defineProperty(globalThis, 'top', originalTop);
+      else delete (globalThis as any).top;
+    }
+  });
+
   it('runs no pre-page hook unless the ATL plugin is enabled', async () => {
     delete (globalThis as any).__AVALANCHE__;
     delete (globalThis as any).__ATL_REACT_METRICS;

@@ -32,6 +32,9 @@ function acquireOwner(mode = 'chippy') {
   if (
     !current ||
     current.ownerId === OWNER_ID ||
+    // The addon is user-driven and takes precedence over the extension, whose
+    // early startup can stamp this iframe before the preview evaluates.
+    current.integration?.kind === 'extension' ||
     (current.heartbeatAt && now - current.heartbeatAt > STALE_AFTER_MS)
   ) {
     const owner = {
@@ -65,6 +68,11 @@ function acquireOwner(mode = 'chippy') {
       delete globalThis.__CHIPPY_OWNER__;
       return { ok: true, owner };
     };
+    if (current && current.ownerId !== OWNER_ID) {
+      try {
+        globalThis.dispatchEvent(new CustomEvent('chippy-owner-claimed', { detail: JSON.stringify({ ownerId: OWNER_ID }) }));
+      } catch (_) {}
+    }
     return { ok: true, owner, reused: current?.ownerId === OWNER_ID, replacedStale: !!(current && current.ownerId !== OWNER_ID) };
   }
   return { ok: false, reason: 'owned-by-other-chippy', owner: current };

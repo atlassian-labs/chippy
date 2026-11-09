@@ -334,6 +334,7 @@
       title: global.document.title,
       storyId: getStoryId(),
       readyState: global.document.readyState,
+      frame: frameLink?.describe() || null,
     };
   }
 
@@ -414,6 +415,12 @@
   let snapshotSequence = 0;
   let lastLocationHref = global.location.href;
   const clientId = getStoredClientId();
+  // Links this client to the Chippy client in its parent frame, when there is
+  // one; the helper confirms a link only when both frames report it.
+  const frameLink = chippy.createFrameLink?.({
+    getClientId: () => clientId,
+    onChange: () => { if (!destroyed) sendHello('frame-link'); },
+  }) || null;
   // Build mode is detected lazily — React fibers are not available at injection
   // time if the script runs before the first render. We resolve it on first
   // snapshot and cache the result.
@@ -1714,6 +1721,7 @@
         if (destroyed) return;
         buildMode = detectBuildMode();
         sendHello('open');
+        frameLink?.refresh();
         if (config.activated && !probesInstalled()) {
           // A navigation clears the DOM; an ordinary socket reconnect does not.
           chippy.layoutLab?.exposeDefaultMarkers?.();
@@ -1893,6 +1901,7 @@
     try { if (onWindowMessage) global.removeEventListener('message', onWindowMessage); } catch (e) {}
     try { if (onExtCommand) global.document.removeEventListener('chippy-ext-command', onExtCommand); } catch (e) {}
     try { if (onOwnerClaimed) global.removeEventListener('chippy-owner-claimed', onOwnerClaimed); } catch (e) {}
+    try { frameLink?.stop(); } catch (e) {}
   }
 
   // ─── Public API ──────────────────────────────────────────────────────────
@@ -1962,6 +1971,7 @@
   if (isExtensionBridge() && isLiveForeignOwner(global.__CHIPPY_OWNER__)) {
     standDown(global.__CHIPPY_OWNER__);
   } else {
+    frameLink?.start();
     connect();
   }
 })(window);

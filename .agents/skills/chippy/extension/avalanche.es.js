@@ -5864,11 +5864,13 @@ registerBuiltinPlugins();
     onPostCommitFiberRoot() {
     }
   };
+  let shared;
   try {
     if (runtime.top && !runtime.top.__REACT_DEVTOOLS_GLOBAL_HOOK__) runtime.top.__REACT_DEVTOOLS_GLOBAL_HOOK__ = hook;
+    shared = (_a2 = runtime.top) == null ? void 0 : _a2.__REACT_DEVTOOLS_GLOBAL_HOOK__;
   } catch (_) {
   }
-  runtime.__REACT_DEVTOOLS_GLOBAL_HOOK__ = ((_a2 = runtime.top) == null ? void 0 : _a2.__REACT_DEVTOOLS_GLOBAL_HOOK__) || hook;
+  runtime.__REACT_DEVTOOLS_GLOBAL_HOOK__ = shared || hook;
 })();
 const startupConfig = runtime.__CHIPPY_STARTUP_CONFIG;
 const __auto = !!((_b = startupConfig == null ? void 0 : startupConfig.avalanche) == null ? void 0 : _b.autoStart);

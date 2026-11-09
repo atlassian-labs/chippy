@@ -215,4 +215,5 @@ Both share:
 - resolve-probes.js
 - probe-descriptor.js
 - avalanche.iife.js
+- frame-link.js
 - chippy-page-bridge.js

@@ -104,6 +104,23 @@ describe('Chippy unified in-page panel', () => {
     dom.window.close();
   });
 
+  it('defers the panel until <body> exists when activated at document start', () => {
+    const { dom, win } = openLayoutLab({ ui: 'panel', integration: { kind: 'extension' } }, false);
+    const body = win.document.body;
+    body.remove();
+    expect(win.document.body).toBeNull();
+
+    expect(() => win.__CHIPPY.layoutLab.exposeDefaultMarkers()).not.toThrow();
+    expect(() => win.__CHIPPY.layoutLab.exposeDefaultMarkers()).not.toThrow();
+    expect(win.document.querySelector('[data-layout-lab-panel]')).toBeNull();
+
+    win.document.documentElement.appendChild(body);
+    win.document.dispatchEvent(new win.Event('DOMContentLoaded'));
+    expect(win.document.querySelectorAll('[data-layout-lab-panel]')).toHaveLength(1);
+    expect(win.__CHIPPY.layoutLab.getMarkerState('1').docked).toBe(true);
+    dom.window.close();
+  });
+
   it('offers extension settings inside the expanded panel', () => {
     const { dom, win } = openLayoutLab({
       ui: 'panel',

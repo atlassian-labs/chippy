@@ -40,17 +40,33 @@ const LATE_BUNDLE_SCRIPTS = [
   'panel-dom.js',
   'layout-lab.js',
   'resolve-probes.js',
+  'frame-link.js',
   'chippy-page-bridge.js',
 ];
 // Late bundle is bridge/probes only. Avalanche lifecycle is owned by
 // EARLY_STARTUP_SCRIPTS; re-injecting avalanche code here causes duplicate
 // globals and races bootstrap ordering.
 
+// Every injection targets one frame. Frame 0 is the top document; an iframe
+// gets Chippy only in its own frame, as a separate connected page.
+function frameTarget(tabId, frameId) {
+  return frameId ? { tabId, frameIds: [frameId] } : { tabId };
+}
+
+function originOf(url) {
+  try {
+    const origin = new URL(url).origin;
+    return origin && origin !== 'null' ? origin : null;
+  } catch {
+    return null;
+  }
+}
+
 // Inject content script into a tab, ignoring errors (already injected, restricted page, etc.)
-async function ensureContentScript(tabId) {
+async function ensureContentScript(tabId, frameId = 0) {
   try {
     await chrome.scripting.executeScript({
-      target: { tabId },
+      target: frameTarget(tabId, frameId),
       files: CONTENT_SCRIPTS,
     });
   } catch {
@@ -109,10 +125,10 @@ async function lookupClientIdForTab(tabId, helperBaseUrl) {
 // with integration.kind !== 'extension' already holds window.__CHIPPY_OWNER__,
 // the extension stands down instead of stomping the lock. Runs in the page
 // (MAIN) world because __CHIPPY_OWNER__ only exists there.
-async function detectLiveForeignOwner(tabId) {
+async function detectLiveForeignOwner(tabId, frameId = 0) {
   try {
     const results = await chrome.scripting.executeScript({
-      target: { tabId },
+      target: frameTarget(tabId, frameId),
       world: 'MAIN',
       injectImmediately: true,
       func: () => {
@@ -138,14 +154,14 @@ async function detectLiveForeignOwner(tabId) {
   }
 }
 
-async function injectEarlyStartup(tabId, startupConfig) {
+async function injectEarlyStartup(tabId, startupConfig, frameId = 0) {
   // Timing-critical path: do NOT run an owner-detection preflight before these
   // startup scripts. reload-with-avalanche relies on devtools-hook-shim +
   // avalanche.iife.js landing as early as possible on navigation. Owner/yield
   // checks happen later in ensureBundleScripts before bridge/probes activation.
   try {
     await chrome.scripting.executeScript({
-      target: { tabId },
+      target: frameTarget(tabId, frameId),
       world: 'MAIN',
       injectImmediately: true,
       func: (cfg, integration) => {
@@ -181,7 +197,7 @@ async function injectEarlyStartup(tabId, startupConfig) {
   for (const file of EARLY_STARTUP_SCRIPTS) {
     try {
       await chrome.scripting.executeScript({
-        target: { tabId },
+        target: frameTarget(tabId, frameId),
         files: [file],
         world: 'MAIN',
         injectImmediately: true,
@@ -195,8 +211,8 @@ async function injectEarlyStartup(tabId, startupConfig) {
 }
 
 // Write Chippy config into the page world and inject non-startup bundle scripts.
-async function ensureBundleScripts(tabId, helperBaseUrl, options = {}) {
-  const foreignOwner = await detectLiveForeignOwner(tabId);
+async function ensureBundleScripts(tabId, helperBaseUrl, options = {}, frameId = 0) {
+  const foreignOwner = await detectLiveForeignOwner(tabId, frameId);
   if (foreignOwner) {
     return { ok: true, yielded: true, detail: `extension yielded to ${foreignOwner.who || foreignOwner.kind}` };
   }
@@ -212,7 +228,7 @@ async function ensureBundleScripts(tabId, helperBaseUrl, options = {}) {
 
   try {
     await chrome.scripting.executeScript({
-      target: { tabId },
+      target: frameTarget(tabId, frameId),
       func: (nextConfig) => {
         window.__CHIPPY = window.__CHIPPY || {};
         window.__CHIPPY.config = {
@@ -233,7 +249,7 @@ async function ensureBundleScripts(tabId, helperBaseUrl, options = {}) {
   for (const file of LATE_BUNDLE_SCRIPTS) {
     try {
       await chrome.scripting.executeScript({
-        target: { tabId },
+        target: frameTarget(tabId, frameId),
         files: [file],
         world: 'MAIN',
       });
@@ -246,9 +262,9 @@ async function ensureBundleScripts(tabId, helperBaseUrl, options = {}) {
 }
 
 // Full injection: content script + bundle
-async function ensureAll(tabId, helperBaseUrl, options = {}) {
-  await ensureContentScript(tabId);
-  return ensureBundleScripts(tabId, helperBaseUrl, options);
+async function ensureAll(tabId, helperBaseUrl, options = {}, frameId = 0) {
+  await ensureContentScript(tabId, frameId);
+  return ensureBundleScripts(tabId, helperBaseUrl, options, frameId);
 }
 
 // When popup/content-script ask us to ensure injection
@@ -263,13 +279,29 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (messageType === 'chippy-inject-bundle') {
-    const tabId = message.tabId || sender.tab?.id;
+    // The popup names the tab it enabled and targets its top frame. A content
+    // script asks for its own frame, which gets Chippy only when that frame's
+    // origin is enabled; an enabled iframe never injects into its parent.
+    if (message.tabId) {
+      ensureBundleScripts(message.tabId, message.helperBaseUrl || DEFAULT_HELPER, message.options || {})
+        .then((result) => sendResponse(result))
+        .catch((e) => sendResponse({ ok: false, step: 'inject-bundle', error: e.message }));
+      return true;
+    }
+    const tabId = sender.tab?.id;
     if (!tabId) {
       sendResponse({ ok: false, step: 'resolve-tab', error: 'No tabId available for bundle injection' });
       return false;
     }
-
-    ensureBundleScripts(tabId, message.helperBaseUrl || DEFAULT_HELPER, message.options || {})
+    const frameId = sender.frameId ?? 0;
+    const origin = sender.origin && sender.origin !== 'null' ? sender.origin : originOf(sender.url);
+    chrome.storage.local.get({ enabledOrigins: {} })
+      .then((stored) => {
+        if (!origin || !stored.enabledOrigins?.[origin]) {
+          return { ok: false, step: 'origin-disabled', error: `Chippy is not enabled for ${origin || 'this frame'}` };
+        }
+        return ensureBundleScripts(tabId, message.helperBaseUrl || DEFAULT_HELPER, message.options || {}, frameId);
+      })
       .then((result) => sendResponse(result))
       .catch((e) => sendResponse({ ok: false, step: 'inject-bundle', error: e.message }));
     return true;
@@ -279,18 +311,25 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 });
 
 // Early startup-critical injection on navigation commit.
+// An iframe is gated by its own origin and gets its own early startup.
 chrome.webNavigation.onCommitted.addListener(async (details) => {
-  if (details.frameId !== 0) return;
   const tabId = details.tabId;
+  const frameId = details.frameId || 0;
   try {
-    const tab = await chrome.tabs.get(tabId);
-    if (!tab?.url) return;
-    const origin = new URL(tab.url).origin;
+    let url = details.url;
+    if (frameId === 0) {
+      const tab = await chrome.tabs.get(tabId);
+      url = tab?.url;
+    }
+    const origin = originOf(url);
+    if (!origin) return;
     const stored = await chrome.storage.local.get({ helperBaseUrl: DEFAULT_HELPER, enabledOrigins: {}, plugins: BUILD_DEFAULT_PLUGINS });
     if (!stored.enabledOrigins?.[origin]) return;
-    const clientId = await lookupClientIdForTab(tabId, stored.helperBaseUrl);
+    // Armed captures keyed by client id belong to the top page; an iframe
+    // follows the arm state of its own origin.
+    const clientId = frameId === 0 ? await lookupClientIdForTab(tabId, stored.helperBaseUrl) : null;
     const startupConfig = await getStartupConfig(origin, stored.helperBaseUrl, clientId, stored.plugins);
-    await injectEarlyStartup(tabId, startupConfig);
+    await injectEarlyStartup(tabId, startupConfig, frameId);
     if (startupConfig && startupConfig.avalanche && startupConfig.avalanche.autoStart) {
       try {
         await fetch(`${(stored.helperBaseUrl || DEFAULT_HELPER).replace(/\/+$/, '')}/__chippy/api/avalanche-arm`, {

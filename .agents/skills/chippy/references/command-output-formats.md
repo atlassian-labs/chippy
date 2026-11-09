@@ -156,8 +156,37 @@ Records are separated by one blank line. `score` is useful only for ordering res
 `page` sub-object:
 
 ```json
-{ "url": "http://…", "title": "Example app", "storyId": null }
+{
+  "url": "http://…",
+  "title": "Example app",
+  "storyId": null,
+  "frame": {
+    "isTop": false,
+    "path": [0],
+    "ancestorOrigins": ["https://top.example"],
+    "parentClientId": "abc-123",
+    "parentOrigin": "https://top.example",
+    "unconfirmedParentClientId": null,
+    "topClientId": "abc-123",
+    "childClientIds": []
+  }
+}
 ```
+
+**`page.frame`** places the client in the browser's frame tree. Each frame that runs Chippy is a separate client.
+
+| Field | Meaning |
+|---|---|
+| `isTop` | `true` for the tab's top document. |
+| `path` | Frame indexes from the top window, `[]` for the top document; `null` when unreadable. |
+| `ancestorOrigins` | Browser-reported origins of the enclosing frames, nearest first. |
+| `parentClientId` | The connected client of the parent frame. Set only when both frames confirm the link and the parent page's origin matches `parentOrigin`. |
+| `parentOrigin` | Origin of the parent frame, as seen by this frame. |
+| `unconfirmedParentClientId` | A parent this frame named that is disconnected or has not confirmed it. Do not treat it as a link. |
+| `topClientId` | The top document's client, when every link up to it is confirmed. |
+| `childClientIds` | Connected clients of child frames with confirmed links. |
+
+`frame` is `null` for a page bridge that does not report frame data.
 
 `buildMode`: `"dev" | "production" | "unknown"`
 

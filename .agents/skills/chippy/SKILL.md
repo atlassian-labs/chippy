@@ -136,6 +136,15 @@ The extension toolbar popup shows the Chippy mark and name with Enable and Disab
 
 Each connected page reports `integration.kind`, `who`, `source`, `reinjectsOnReload`, and `reloadAction`. Use those fields instead of inferring how Chippy arrived.
 
+### Iframes
+
+Each frame that loads Chippy, same-origin or cross-origin, connects as its own page with its own `clientId`. Every command targets one frame: to read or click inside an iframe, use the iframe's client, not its parent's. `page.frame` in `pages` places a client in the frame tree: `isTop`, `path` (frame indexes from the top window), `parentClientId`, `topClientId`, and `childClientIds`. A link appears only when Chippy runs in both frames and both confirm it. Select a frame client by its `page.url` and its `page.frame` link; never assume the top page's client covers iframe content.
+
+- Extension: enabling an origin enables Chippy in every frame of that origin, including an iframe inside a page whose origin is not enabled. Chippy is not injected into that parent page.
+- Playwright: pre-page init scripts run in every frame. For the ad-hoc import, evaluate the import in each `page.frames()` entry you need.
+- Console import: run it in the iframe's context (DevTools console context selector).
+- Proxy: only the document whose path matches `originalUrl` gets Chippy.
+
 An explicitly user-driven integration, such as the Storybook addon or a console import, takes precedence over the extension, which stands down while that owner is live. On a Storybook page, `pages` reports the `storybook` integration, not `extension`; read `integration.kind` instead of inferring the owner.
 
 For a user-controlled page without the extension, run this in the browser console:

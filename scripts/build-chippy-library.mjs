@@ -53,7 +53,7 @@ writeFileSync(preview, readFileSync(preview, 'utf8').replaceAll('../../.agents/s
 mkdirSync(join(output, 'extension'), { recursive: true });
 for (const asset of [
   'inspect-react.js', 'panel-dom.js', 'layout-lab.js', 'resolve-probes.js',
-  'avalanche.es.js', 'avalanche.es.js.map', 'chippy-page-bridge.js',
+  'avalanche.es.js', 'avalanche.es.js.map', 'frame-link.js', 'chippy-page-bridge.js',
 ]) copyFileSync(join('.agents/skills/chippy/extension', asset), join(output, 'extension', asset));
 // The skill ships at the package root in skills/<name>/, the Agent Skills
 // layout that skill installers and TanStack Intent look for.

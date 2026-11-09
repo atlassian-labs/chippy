@@ -31,6 +31,12 @@
 - do not search Chippy's own source code to answer live questions like "where is p1?"
 - instead, explain that there is no live probe state yet and help the user connect or reload the target page
 
+## Iframe content is missing or an iframe has no client
+- an iframe is a separate page: commands on the top page's client do not see or click inside it; use the iframe's own client from `pages`
+- extension: enable the iframe's own origin; enabling the top page's origin does not cover a cross-origin iframe
+- an iframe with an opaque origin (`about:srcdoc`, sandboxed without `allow-same-origin`) cannot be enabled by origin
+- `page.frame.parentClientId` is `null` with `unconfirmedParentClientId` set: the parent frame has no Chippy client, or it has not confirmed the link yet; load Chippy in the parent frame too
+
 ## Bundle failed to load
 - extension: the extension injects its packaged scripts, not `inject.js`; check the page console for `[chippy-ext]` injection errors, check the helper URL configured in the extension, then reload the page
 - script tag, console import, or Playwright bootstrap: check the page network tab for `/__chippy/inject.js`, `/__chippy/inject.mjs`, or `avalanche.iife.js`, and check the page's CSP

@@ -8,6 +8,7 @@ import '../../.agents/skills/chippy/extension/panel-dom.js';
 import '../../.agents/skills/chippy/extension/layout-lab.js';
 import '../../.agents/skills/chippy/extension/resolve-probes.js';
 import avalanche from '../../.agents/skills/chippy/extension/avalanche.es.js';
+import '../../.agents/skills/chippy/extension/frame-link.js';
 import '../../.agents/skills/chippy/extension/chippy-page-bridge.js';
 
 if (ownerResult.ok) {

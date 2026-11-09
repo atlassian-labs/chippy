@@ -13,6 +13,7 @@ const { createProbeAnnotationChannel } = require('./probe-annotation-channel');
 const helperAccess = require('./helper-access');
 const pageSocketTrust = require('./page-socket-trust');
 const helperProxy = require('./helper-proxy');
+const { describeClientFrame } = require('./frame-tree');
  
 // ─── Config ───────────────────────────────────────────────────────────────────
 
@@ -27,7 +28,7 @@ const EXTENSION_ROOT = path.join(path.resolve(__dirname, '..'), 'extension');
 // avalanche.iife.js is injected by the extension via chrome.scripting (MAIN world,
 // pre-document). Helper bundle excludes it to avoid double install
 // ("[avalanche] __AVALANCHE__ already defined; overwriting").
-const INJECT_FILES = ['inspect-react.js', 'panel-dom.js', 'layout-lab.js', 'resolve-probes.js', 'chippy-page-bridge.js'];
+const INJECT_FILES = ['inspect-react.js', 'panel-dom.js', 'layout-lab.js', 'resolve-probes.js', 'frame-link.js', 'chippy-page-bridge.js'];
 
 function cliFlag(flag) {
   const i = process.argv.findIndex((a) => a === flag || a.startsWith(`${flag}=`));
@@ -630,7 +631,9 @@ function summarizeClient(client, mode = 'minimal', boundaryRe = null) {
     activity: client.activity || null,
     latestSnapshotAt,
     snapshotAgeMs,
-    bridgeVersion: client.bridgeVersion || null, page: client.page || null,
+    bridgeVersion: client.bridgeVersion || null,
+    // page.frame carries only links both frames confirmed, not the raw report.
+    page: client.page ? { ...client.page, frame: describeClientFrame(client, clients) } : null,
     integration: client.integration || null,
     activated: client.activated, probesActive: Boolean(client.probesActive),
     buildMode: client.buildMode || 'unknown',

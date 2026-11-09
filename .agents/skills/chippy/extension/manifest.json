@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Chippy Probe Bridge",
-  "version": "0.4.25",
+  "version": "0.4.26",
   "description": "Inspects connected React pages to trace components, boundaries, hooks, props, and render behavior.",
   "permissions": [
     "storage",
@@ -49,6 +49,7 @@
         "layout-lab.js",
         "resolve-probes.js",
         "probe-descriptor.js",
+        "frame-link.js",
         "chippy-page-bridge.js",
         "avalanche.iife.js",
         "avalanche.iife.js.map",

@@ -1435,7 +1435,20 @@
     };
   }
 
+  let exposeDeferred = false;
   function exposeDefaultMarkers() {
+    // A document-start integration can activate before <body> exists; the
+    // panel and dock attach to body, so expose them once the document parses.
+    if (!document.body) {
+      if (!exposeDeferred) {
+        exposeDeferred = true;
+        document.addEventListener('DOMContentLoaded', () => {
+          exposeDeferred = false;
+          exposeDefaultMarkers();
+        }, { once: true });
+      }
+      return;
+    }
     // Clean up any existing markers + highlights + parent border
     document.querySelectorAll('[data-layout-lab-marker]').forEach((marker) => marker.remove());
     document.querySelectorAll('[data-layout-lab-highlight]').forEach((el) => el.remove());

@@ -232,7 +232,7 @@ describe('Chippy integration identities', () => {
     let response: unknown = null;
     runtimeMessageListener?.(
       { type: 'chippy-inject-bundle', helperBaseUrl: 'http://127.0.0.1:7823' },
-      { tab: { id: 42 } },
+      { tab: { id: 42 }, frameId: 0, url: 'https://example.test/page' },
       (r: unknown) => { response = r; },
     );
     for (let i = 0; i < 10 && response == null; i += 1) {

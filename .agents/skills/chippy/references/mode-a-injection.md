@@ -25,7 +25,7 @@ Mode A has two runtime-loading variants that end with the same explicit detector
 
 ## Pre-page start-up
 
-Use this variant when the agent must record the initial page load without the extension. It writes the startup configuration that the extension writes in Mode B, then adds the early scripts and the page bridge as init scripts. Every document, including each reload, installs Avalanche before React DOM evaluates.
+Use this variant when the agent must record the initial page load without the extension. It writes the startup configuration that the extension writes in Mode B, then adds the early scripts and the page bridge as init scripts. Every document, including each reload, installs Avalanche before React DOM evaluates. Playwright runs init scripts in every frame, so each iframe document connects as its own client, linked to its parent in `page.frame`.
 
 Register the init scripts before `page.goto(...)`, in this order. The files ship in this skill's `extension/` folder:
 
@@ -43,7 +43,7 @@ await page.addInitScript({ content: read('devtools-hook-shim.js') });
 await page.addInitScript({ content: read('avalanche.iife.js') });
 await page.addInitScript({ content: read('early-bootstrap.js') });
 await page.addInitScript({
-  content: ['inspect-react.js', 'panel-dom.js', 'layout-lab.js', 'resolve-probes.js', 'chippy-page-bridge.js']
+  content: ['inspect-react.js', 'panel-dom.js', 'layout-lab.js', 'resolve-probes.js', 'frame-link.js', 'chippy-page-bridge.js']
     .map(read)
     .join('\n'),
 });

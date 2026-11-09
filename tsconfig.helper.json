@@ -15,6 +15,7 @@
   "files": [
     ".agents/skills/chippy/scripts/chippy-helper-server.js",
     "types/chippy-page-globals.d.ts",
+    ".agents/skills/chippy/extension/frame-link.js",
     ".agents/skills/chippy/extension/chippy-page-bridge.js"
   ]
 }

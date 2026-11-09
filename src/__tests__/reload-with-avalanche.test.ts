@@ -61,6 +61,7 @@ const CHIPPY_INJECT_BUNDLE = [
   'panel-dom.js',
   'layout-lab.js',
   'resolve-probes.js',
+  'frame-link.js',
   'chippy-page-bridge.js',
 ].map((file) => readFileSync(`.agents/skills/chippy/extension/${file}`, 'utf8')).join('\n');
 
