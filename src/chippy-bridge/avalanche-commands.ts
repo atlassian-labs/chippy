@@ -9,6 +9,8 @@
  * to work unchanged.
  */
 
+import { warmComponentTypes, type NameRecoveryStats } from './component-origin';
+
 // ─── Type definitions ────────────────────────────────────────────────────
 
 export type AvalancheApiStatus = {
@@ -50,6 +52,8 @@ export type AvalancheApi = {
   reset?: () => unknown;
   exportLast?: (n?: number) => unknown;
   report?: () => Reportish;
+  /** Component types the detector recorded; used to recover production names. */
+  componentTypes?: () => unknown[];
   debugHook?: (sourceId: string, hookIndex: number, windowSize?: number) => unknown;
   [key: string]: unknown;
 };
@@ -422,4 +426,27 @@ export function evalAvalanche(
   } catch (error) {
     return { ok: false, available: true, action, error: (error as { message?: string })?.message || String(error) };
   }
+}
+
+// ─── Production names ────────────────────────────────────────────────────
+
+/** Default time budget for recovering production names before a report. */
+export const AVALANCHE_NAME_BUDGET_MS = 3000;
+
+/**
+ * Recover authored names for the component types Avalanche recorded, so
+ * report source ids read `ProjectList#1@3` rather than a minified name on
+ * production builds. Call before `evalAvalanche` on production pages only.
+ */
+export function warmAvalancheNames(
+  api: AvalancheApi | null | undefined,
+  budgetMs = AVALANCHE_NAME_BUDGET_MS,
+): Promise<NameRecoveryStats | null> {
+  let types: unknown[] = [];
+  try {
+    types = api?.componentTypes?.() ?? [];
+  } catch {
+    types = [];
+  }
+  return types.length ? warmComponentTypes(types, budgetMs) : Promise.resolve(null);
 }

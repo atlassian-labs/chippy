@@ -31,6 +31,7 @@ function decodeMappings(mappings, sourceCount) {
   let sourceIndex = 0;
   let originalLine = 0;
   let originalColumn = 0;
+  let nameIndex = 0;
   for (const encodedLine of mappings.split(";")) {
     const segments = [];
     let generatedColumn = 0;
@@ -39,7 +40,7 @@ function decodeMappings(mappings, sourceCount) {
       if (values.length < 4) {
         if (values.length > 0) {
           generatedColumn += values[0];
-          segments.push({ generatedColumn, sourceIndex: null, originalLine: null, originalColumn: null });
+          segments.push({ generatedColumn, sourceIndex: null, originalLine: null, originalColumn: null, nameIndex: null });
         }
         continue;
       }
@@ -47,8 +48,10 @@ function decodeMappings(mappings, sourceCount) {
       sourceIndex += values[1];
       originalLine += values[2];
       originalColumn += values[3];
+      const named = values.length >= 5;
+      if (named) nameIndex += values[4];
       if (sourceIndex >= 0 && sourceIndex < sourceCount) {
-        segments.push({ generatedColumn, sourceIndex, originalLine, originalColumn });
+        segments.push({ generatedColumn, sourceIndex, originalLine, originalColumn, nameIndex: named ? nameIndex : null });
       }
     }
     segments.sort((left, right) => left.generatedColumn - right.generatedColumn);
@@ -88,7 +91,16 @@ function parseSourceMap(text) {
   }
   const sources = resolveSources(raw);
   if (sources === null || typeof raw.mappings !== "string") return [];
-  return [{ sources, lines: decodeMappings(raw.mappings, sources.length), offset: { line: 0, column: 0 } }];
+  const names = Array.isArray(raw.names) ? raw.names.map((name) => typeof name === "string" ? name : "") : [];
+  const contents = Array.isArray(raw.sourcesContent) ? raw.sourcesContent : [];
+  const sourcesContent = sources.map((_, index) => typeof contents[index] === "string" ? contents[index] : null);
+  return [{
+    sources,
+    names,
+    sourcesContent,
+    lines: decodeMappings(raw.mappings, sources.length),
+    offset: { line: 0, column: 0 }
+  }];
 }
 function sectionsFor(maps, line, column) {
   var _a2, _b2;
@@ -115,7 +127,7 @@ function segmentAt(segments, column) {
   }
   return found;
 }
-function originalPositionFor(maps, line, column) {
+function mappingAt(maps, line, column) {
   for (const map of sectionsFor(maps, line, column)) {
     const localLine = line - map.offset.line;
     const localColumn = localLine === 1 ? column - map.offset.column : column;
@@ -126,9 +138,20 @@ function originalPositionFor(maps, line, column) {
     if (found.sourceIndex === null || found.originalLine === null || found.originalColumn === null) return null;
     const source = map.sources[found.sourceIndex];
     if (source === void 0 || source === "") continue;
-    return { source, line: found.originalLine + 1, column: found.originalColumn + 1 };
+    return {
+      source,
+      line: found.originalLine + 1,
+      column: found.originalColumn + 1,
+      name: found.nameIndex === null ? null : map.names[found.nameIndex] || null,
+      exact: found.generatedColumn === localColumn - 1,
+      sourceContent: map.sourcesContent[found.sourceIndex] ?? null
+    };
   }
   return null;
+}
+function originalPositionFor(maps, line, column) {
+  const found = mappingAt(maps, line, column);
+  return found === null ? null : { source: found.source, line: found.line, column: found.column };
 }
 function sourceMappingUrlOf(code) {
   var _a2;
@@ -158,6 +181,410 @@ function inlineSourceMapOf(url) {
   } catch {
     return null;
   }
+}
+function parseUrl(url, base) {
+  try {
+    return new URL(url, base);
+  } catch {
+    return null;
+  }
+}
+function sourcePath(source, moduleUrl) {
+  var _a2;
+  if (/^\/(?:Users|home|private|Volumes)\//.test(source)) return source;
+  const direct = parseUrl(source);
+  if ((direct == null ? void 0 : direct.protocol) === "file:") return decodeURIComponent(direct.pathname);
+  if (direct && /^(?:webpack|rollup|vite|ng):$/.test(direct.protocol)) {
+    return source.replace(/^[a-z]+:\/\/[^/]*\/?/i, "").replace(/^\.\//, "");
+  }
+  const resolved = ((_a2 = parseUrl(source, moduleUrl)) == null ? void 0 : _a2.href) ?? source;
+  const parsed = parseUrl(resolved);
+  return parsed ? parsed.pathname.replace(/^\/+/, "") : resolved;
+}
+function createModuleMapCache(fetchModule) {
+  const byKey = /* @__PURE__ */ new Map();
+  const stats = { modules: 0, maps: 0 };
+  async function mapsOf(code, url) {
+    var _a2;
+    const annotation = sourceMappingUrlOf(code);
+    if (annotation === null) return { code, maps: [], sourceBaseUrl: url };
+    const inline = inlineSourceMapOf(annotation);
+    if (inline !== null) {
+      stats.maps += 1;
+      return { code, maps: parseSourceMap(inline), sourceBaseUrl: url };
+    }
+    const mapUrl = ((_a2 = parseUrl(annotation, url)) == null ? void 0 : _a2.href) ?? null;
+    const text = mapUrl === null ? null : await fetchModule(mapUrl);
+    if (text === null || mapUrl === null) return { code, maps: [], sourceBaseUrl: url };
+    stats.maps += 1;
+    return { code, maps: parseSourceMap(text), sourceBaseUrl: mapUrl };
+  }
+  function forUrl(url) {
+    const cached = byKey.get(url);
+    if (cached) return cached;
+    const pending = (async () => {
+      stats.modules += 1;
+      const code = await fetchModule(url);
+      return code === null ? null : mapsOf(code, url);
+    })().catch(() => null);
+    byKey.set(url, pending);
+    return pending;
+  }
+  function forCode(key, code, baseUrl) {
+    const cached = byKey.get(key);
+    if (cached) return cached;
+    const pending = mapsOf(code, baseUrl).catch(() => ({ code, maps: [], sourceBaseUrl: baseUrl }));
+    byKey.set(key, pending);
+    return pending;
+  }
+  return { forUrl, forCode, stats };
+}
+async function fetchModuleFromPage(url) {
+  const fetchFn = globalThis.fetch;
+  if (!fetchFn) return null;
+  const controller = typeof AbortController === "function" ? new AbortController() : null;
+  const timeout = controller ? setTimeout(() => controller.abort(), 4e3) : null;
+  try {
+    const response = await fetchFn(url, {
+      credentials: "same-origin",
+      signal: controller == null ? void 0 : controller.signal
+    });
+    return response.ok ? await response.text() : null;
+  } catch {
+    return null;
+  } finally {
+    if (timeout !== null) clearTimeout(timeout);
+  }
+}
+const IDENTIFIER = "[A-Za-z_$][\\w$]*";
+const OWN_FUNCTION_NAME = new RegExp(`^(?:async\\s*)?function\\s*\\*?\\s*(${IDENTIFIER})\\s*\\(`);
+const OWN_CLASS_NAME = new RegExp(`^class\\s+(${IDENTIFIER})(?=[\\s{])`);
+const AUTHORED_OWN_NAME = new RegExp(
+  `^(?:export\\s+(?:default\\s+)?)?(?:async\\s+)?(?:function\\s*\\*?\\s*|class\\s+)(${IDENTIFIER})`
+);
+const CALLEE = `(?:\\(\\s*0\\s*,\\s*${IDENTIFIER}(?:\\.${IDENTIFIER})*\\s*\\)|${IDENTIFIER}(?:\\.${IDENTIFIER})*)`;
+const GENERATED_BINDING = new RegExp(`(${IDENTIFIER})\\s*[=:]\\s*(?:${CALLEE}\\s*\\(\\s*)*$`);
+const AUTHORED_BINDING = new RegExp(
+  `(?:^|[^\\w$.])(${IDENTIFIER})\\s*(?::[^=;{}()]*)?=\\s*(?:${CALLEE}\\s*(?:<[^()]*>)?\\s*\\(\\s*)*$`
+);
+const GENERATED_LOOKBACK = 160;
+const AUTHORED_LOOKBACK = 240;
+const MIN_FUNCTION_TEXT = 12;
+function componentFunctionOf(type, depth = 0) {
+  if (typeof type === "function") return type;
+  if (!type || typeof type !== "object" || depth > 4) return null;
+  const wrapper = type;
+  if (typeof wrapper.render === "function") return wrapper.render;
+  return wrapper.type ? componentFunctionOf(wrapper.type, depth + 1) : null;
+}
+function functionText(fn) {
+  try {
+    const text = Function.prototype.toString.call(fn);
+    if (text.length < MIN_FUNCTION_TEXT || /\{\s*\[native code\]\s*\}$/.test(text)) return null;
+    return text;
+  } catch {
+    return null;
+  }
+}
+function positionOf(lineStarts, offset) {
+  let low = 0;
+  let high = lineStarts.length - 1;
+  while (low < high) {
+    const middle = low + high + 1 >> 1;
+    if (lineStarts[middle] <= offset) low = middle;
+    else high = middle - 1;
+  }
+  return { line: low + 1, column: offset - lineStarts[low] };
+}
+function lineStartsOf(text) {
+  const starts = [0];
+  for (let index = text.indexOf("\n"); index !== -1; index = text.indexOf("\n", index + 1)) {
+    starts.push(index + 1);
+  }
+  return starts;
+}
+function offsetOf(text, line, column) {
+  let offset = 0;
+  for (let current = 1; current < line; current += 1) {
+    const next = text.indexOf("\n", offset);
+    if (next === -1) return null;
+    offset = next + 1;
+  }
+  return offset + column;
+}
+function identifierAt(text, offset) {
+  const match = new RegExp(`^${IDENTIFIER}`).exec(text.slice(offset, offset + 200));
+  return match ? match[0] : null;
+}
+function authoredNames(mapping) {
+  var _a2, _b2;
+  const content = mapping.sourceContent;
+  if (content === null) return { own: null, binding: null };
+  const offset = offsetOf(content, mapping.line, mapping.column - 1);
+  if (offset === null) return { own: null, binding: null };
+  const own = ((_a2 = AUTHORED_OWN_NAME.exec(content.slice(offset, offset + 300))) == null ? void 0 : _a2[1]) ?? null;
+  const before = content.slice(Math.max(0, offset - AUTHORED_LOOKBACK), offset);
+  const binding = ((_b2 = AUTHORED_BINDING.exec(before)) == null ? void 0 : _b2[1]) ?? null;
+  return { own, binding };
+}
+function createComponentOriginResolver(deps) {
+  const modules = deps.modules ?? createModuleMapCache(fetchModuleFromPage);
+  const settled = /* @__PURE__ */ new WeakMap();
+  const pending = /* @__PURE__ */ new WeakMap();
+  const lineStarts = /* @__PURE__ */ new Map();
+  const recentScripts = [];
+  const stats = { functions: 0, scripts: 0, resolved: 0 };
+  function moduleFor(script) {
+    stats.scripts = modules.stats.modules;
+    return script.text === null ? modules.forUrl(script.url) : modules.forCode(script.key, script.text, script.url);
+  }
+  function orderedScripts() {
+    const scripts = deps.listScripts();
+    const rank = new Map(recentScripts.map((key, index) => [key, index]));
+    return scripts.map((script, index) => ({ script, index })).sort((a, b) => (rank.get(a.script.key) ?? Infinity) - (rank.get(b.script.key) ?? Infinity) || a.index - b.index).map((entry) => entry.script);
+  }
+  async function locate(text) {
+    for (const script of orderedScripts()) {
+      const module = await moduleFor(script);
+      if (!module) continue;
+      const offset = module.code.indexOf(text);
+      if (offset === -1) continue;
+      const ambiguous = module.code.indexOf(text, offset + 1) !== -1;
+      const at = recentScripts.indexOf(script.key);
+      if (at !== -1) recentScripts.splice(at, 1);
+      recentScripts.unshift(script.key);
+      if (recentScripts.length > 16) recentScripts.length = 16;
+      return { script, module, offset, ambiguous };
+    }
+    return null;
+  }
+  function startsOf(located) {
+    let starts = lineStarts.get(located.script.key);
+    if (!starts) {
+      starts = lineStartsOf(located.module.code);
+      lineStarts.set(located.script.key, starts);
+    }
+    return starts;
+  }
+  function mappedNameAt(located, offset) {
+    const { line, column } = positionOf(startsOf(located), offset);
+    const mapping = mappingAt(located.module.maps, line, column + 1);
+    if (!mapping || !mapping.exact) return null;
+    if (mapping.name) return mapping.name;
+    if (mapping.sourceContent === null) return null;
+    const authoredOffset = offsetOf(mapping.sourceContent, mapping.line, mapping.column - 1);
+    return authoredOffset === null ? null : identifierAt(mapping.sourceContent, authoredOffset);
+  }
+  async function compute(fn) {
+    const generatedName = typeof fn.name === "string" && fn.name !== "" ? fn.name : null;
+    const base = {
+      status: "not-found",
+      name: null,
+      nameEvidence: null,
+      generatedName,
+      definition: null,
+      script: null,
+      generated: null
+    };
+    const text = functionText(fn);
+    if (text === null) return { ...base, status: "unsupported" };
+    const located = await locate(text);
+    if (!located) return base;
+    const generated = positionOf(startsOf(located), located.offset);
+    const found = {
+      ...base,
+      script: located.script.text === null ? located.script.url : located.script.key,
+      generated: { line: generated.line, column: generated.column + 1 }
+    };
+    if (located.ambiguous) return { ...found, status: "ambiguous" };
+    if (located.module.maps.length === 0) return { ...found, status: "no-source-map" };
+    const mapping = mappingAt(located.module.maps, generated.line, generated.column + 1);
+    if (!mapping) return { ...found, status: "unmapped" };
+    const definition = {
+      fileName: sourcePath(mapping.source, located.module.sourceBaseUrl),
+      lineNumber: mapping.line,
+      columnNumber: mapping.column
+    };
+    const ownMatch = OWN_FUNCTION_NAME.exec(text) ?? OWN_CLASS_NAME.exec(text);
+    const ownOffset = ownMatch ? located.offset + ownMatch[0].lastIndexOf(ownMatch[1]) : null;
+    const lookback = located.module.code.slice(Math.max(0, located.offset - GENERATED_LOOKBACK), located.offset);
+    const bindingMatch = GENERATED_BINDING.exec(lookback);
+    const bindingOffset = bindingMatch ? located.offset - lookback.length + bindingMatch.index + bindingMatch[0].indexOf(bindingMatch[1]) : null;
+    const authored = authoredNames(mapping);
+    const candidates = [
+      ["map-name", () => ownOffset === null ? null : mappedNameAt(located, ownOffset)],
+      ["source-text", () => authored.own],
+      ["binding-map-name", () => bindingOffset === null ? null : mappedNameAt(located, bindingOffset)],
+      ["binding-source-text", () => authored.binding]
+    ];
+    for (const [evidence, read] of candidates) {
+      const name = read();
+      if (name) return { ...found, status: "resolved", name, nameEvidence: evidence, definition };
+    }
+    return { ...found, status: "resolved", definition };
+  }
+  function resolve(type) {
+    const fn = componentFunctionOf(type);
+    if (!fn) {
+      return Promise.resolve({
+        status: "unsupported",
+        name: null,
+        nameEvidence: null,
+        generatedName: null,
+        definition: null,
+        script: null,
+        generated: null
+      });
+    }
+    const cached = pending.get(fn);
+    if (cached) return cached;
+    stats.functions += 1;
+    const answer = compute(fn).catch(() => ({
+      status: "not-found",
+      name: null,
+      nameEvidence: null,
+      generatedName: fn.name || null,
+      definition: null,
+      script: null,
+      generated: null
+    })).then((origin) => {
+      if (origin.status === "resolved") stats.resolved += 1;
+      settled.set(fn, origin);
+      return origin;
+    });
+    pending.set(fn, answer);
+    return answer;
+  }
+  function peek(type) {
+    const fn = componentFunctionOf(type);
+    return fn ? settled.get(fn) ?? null : null;
+  }
+  return { resolve, peek, stats };
+}
+const SCRIPT_PATH = /\.(?:m?js|cjs|jsx|tsx?)$/i;
+function isChippyAsset(url) {
+  return url.pathname.startsWith("/__chippy/") || url.protocol === "chrome-extension:" || url.protocol === "moz-extension:";
+}
+function listPageScripts() {
+  var _a2, _b2, _c2, _d2;
+  const scope = globalThis;
+  const base = (_a2 = scope.location) == null ? void 0 : _a2.href;
+  if (!base) return [];
+  const out = [];
+  const seen = /* @__PURE__ */ new Set();
+  const add = (raw, initiator) => {
+    let url;
+    try {
+      url = new URL(raw, base);
+    } catch {
+      return;
+    }
+    if (url.protocol !== "http:" && url.protocol !== "https:" && url.protocol !== "file:") return;
+    if (isChippyAsset(url)) return;
+    if (initiator !== null && initiator !== "script" && !SCRIPT_PATH.test(url.pathname)) return;
+    url.hash = "";
+    if (seen.has(url.href)) return;
+    seen.add(url.href);
+    out.push({ key: url.href, url: url.href, text: null });
+  };
+  Array.from(((_b2 = scope.document) == null ? void 0 : _b2.scripts) ?? []).forEach((script, index) => {
+    if (script.src) add(script.src, null);
+    else if (script.text && script.text.length >= MIN_FUNCTION_TEXT) {
+      out.push({ key: `inline:${index}`, url: base, text: script.text });
+    }
+  });
+  try {
+    for (const entry of ((_d2 = (_c2 = scope.performance) == null ? void 0 : _c2.getEntriesByType) == null ? void 0 : _d2.call(_c2, "resource")) ?? []) {
+      add(entry.name, entry.initiatorType ?? "");
+    }
+  } catch {
+  }
+  return out;
+}
+let pageResolver$1 = null;
+function pageComponentOrigins() {
+  if (!pageResolver$1) pageResolver$1 = createComponentOriginResolver({ listScripts: listPageScripts });
+  return pageResolver$1;
+}
+function recoveredComponentName(type) {
+  var _a2;
+  return ((_a2 = pageResolver$1 == null ? void 0 : pageResolver$1.peek(type)) == null ? void 0 : _a2.name) ?? null;
+}
+function componentDefinitionOf(type) {
+  var _a2;
+  return ((_a2 = pageResolver$1 == null ? void 0 : pageResolver$1.peek(type)) == null ? void 0 : _a2.definition) ?? null;
+}
+function resolveComponentOrigin(type) {
+  return pageComponentOrigins().resolve(type);
+}
+function ownName(value) {
+  if (!value || typeof value !== "object" && typeof value !== "function") return null;
+  const named = value;
+  if (typeof named.displayName === "string" && named.displayName !== "") return named.displayName;
+  return null;
+}
+function readComponentName(type) {
+  if (!type) return null;
+  if (typeof type === "string") return type;
+  if (typeof type !== "object" && typeof type !== "function") return null;
+  const explicit = ownName(type);
+  if (explicit) return explicit;
+  const recovered = recoveredComponentName(type);
+  if (recovered) return recovered;
+  const name = type.name;
+  return typeof name === "string" && name !== "" ? name : null;
+}
+function minifiedComponentName(type) {
+  const origin = pageResolver$1 == null ? void 0 : pageResolver$1.peek(type);
+  if (!(origin == null ? void 0 : origin.name) || ownName(type)) return null;
+  return origin.generatedName && origin.generatedName !== origin.name ? origin.generatedName : null;
+}
+function applyRecoveredOrigin(entry, type) {
+  if (!entry) return;
+  const minifiedName = minifiedComponentName(type);
+  const definition = componentDefinitionOf(type);
+  if (minifiedName) {
+    entry.name = readComponentName(type);
+    entry.minifiedName = minifiedName;
+  }
+  if (definition) entry.definition = definition;
+}
+function needsComponentOrigin(fiber) {
+  if (!fiber || !componentFunctionOf(fiber.type)) return false;
+  if (fiber._debugSource || fiber._debugStack || fiber._debugOwner) return false;
+  const type = fiber.type;
+  return !type._debugSource && !ownName(fiber.type);
+}
+function resolveFiberComponentOrigin(fiber) {
+  return needsComponentOrigin(fiber) ? resolveComponentOrigin(fiber.type).catch(() => null) : Promise.resolve(null);
+}
+async function warmComponentNames(walk2, budgetMs = 3e3, resolver = pageComponentOrigins()) {
+  const types = /* @__PURE__ */ new Set();
+  walk2((fiber) => {
+    if (needsComponentOrigin(fiber)) types.add(componentFunctionOf(fiber.type));
+  });
+  return warmComponentTypes(types, budgetMs, resolver);
+}
+async function warmComponentTypes(candidates, budgetMs = 3e3, resolver = pageComponentOrigins()) {
+  const types = /* @__PURE__ */ new Set();
+  for (const candidate of candidates) {
+    const fn = componentFunctionOf(candidate);
+    if (fn && !ownName(candidate) && !candidate._debugSource) types.add(fn);
+  }
+  if (types.size === 0) return null;
+  const stats = { types: types.size, resolved: 0, named: 0, skipped: 0, statuses: {} };
+  const deadline = Date.now() + budgetMs;
+  for (const type of types) {
+    if (Date.now() > deadline) {
+      stats.skipped += 1;
+      continue;
+    }
+    const origin = await resolver.resolve(type);
+    stats.statuses[origin.status] = (stats.statuses[origin.status] ?? 0) + 1;
+    if (origin.status === "resolved") stats.resolved += 1;
+    if (origin.name) stats.named += 1;
+  }
+  return stats;
 }
 function recordedLiteralPosition(code, source) {
   const column = source.columnNumber === null ? "" : `,\\s*columnNumber:\\s*${source.columnNumber}`;
@@ -271,46 +698,18 @@ function writerLocationOf(frames, originalFor) {
   }
   return null;
 }
-function parseUrl(url, base) {
-  try {
-    return new URL(url, base);
-  } catch {
-    return null;
-  }
-}
-function sourcePath(source, moduleUrl) {
-  var _a2;
-  if (/^\/(?:Users|home|private|Volumes)\//.test(source)) return source;
-  const direct = parseUrl(source);
-  if ((direct == null ? void 0 : direct.protocol) === "file:") return decodeURIComponent(direct.pathname);
-  const resolved = ((_a2 = parseUrl(source, moduleUrl)) == null ? void 0 : _a2.href) ?? source;
-  const parsed = parseUrl(resolved);
-  return parsed ? parsed.pathname.replace(/^\/+/, "") : resolved;
-}
 function createCallSiteResolver(fetchModule, moduleUrlsFor = () => []) {
-  const maps = /* @__PURE__ */ new Map();
+  const modules = createModuleMapCache(fetchModule);
   const sites = /* @__PURE__ */ new Map();
   const recordedSites = /* @__PURE__ */ new Map();
-  const stats = { modules: 0, sites: 0, located: 0 };
-  async function mapsFor(url) {
-    const cached = maps.get(url);
-    if (cached) return cached;
-    const pending = (async () => {
-      var _a2;
-      stats.modules += 1;
-      const code = await fetchModule(url);
-      if (code === null) return null;
-      const annotation = sourceMappingUrlOf(code);
-      if (annotation === null) return null;
-      const inline = inlineSourceMapOf(annotation);
-      if (inline !== null) return { code, maps: parseSourceMap(inline), sourceBaseUrl: url };
-      const mapUrl = ((_a2 = parseUrl(annotation, url)) == null ? void 0 : _a2.href) ?? null;
-      const text = mapUrl === null ? null : await fetchModule(mapUrl);
-      return text === null || mapUrl === null ? null : { code, maps: parseSourceMap(text), sourceBaseUrl: mapUrl };
-    })();
-    maps.set(url, pending);
-    return pending;
-  }
+  const stats = {
+    get modules() {
+      return modules.stats.modules;
+    },
+    sites: 0,
+    located: 0
+  };
+  const mapsFor = (url) => modules.forUrl(url);
   async function locateFrame(frame) {
     const parsed = await mapsFor(frame.url);
     if (!parsed || parsed.maps.length === 0) return null;
@@ -404,23 +803,6 @@ function getFiberSource$2(fiber) {
   if (cached !== void 0) return cached;
   return getFiberSourceCandidate(fiber);
 }
-async function fetchModuleFromPage(url) {
-  const fetchFn = globalThis.fetch;
-  if (!fetchFn) return null;
-  const controller = typeof AbortController === "function" ? new AbortController() : null;
-  const timeout = controller ? setTimeout(() => controller.abort(), 2e3) : null;
-  try {
-    const response = await fetchFn(url, {
-      credentials: "same-origin",
-      signal: controller == null ? void 0 : controller.signal
-    });
-    return response.ok ? await response.text() : null;
-  } catch {
-    return null;
-  } finally {
-    if (timeout !== null) clearTimeout(timeout);
-  }
-}
 function pageResolver() {
   if (!defaultResolver) defaultResolver = createCallSiteResolver(fetchModuleFromPage, pageModuleUrls);
   return defaultResolver;
@@ -440,7 +822,8 @@ function resolveFiberSource$1(fiber, resolver = pageResolver()) {
   }
   const frames = getFiberStackFrames(fiber);
   const fallback = writerLocationOf(frames, () => null);
-  const pending = resolver.locate(frames).catch(() => null).then((source) => {
+  const origin = frames.length === 0 ? resolveFiberComponentOrigin(fiber) : Promise.resolve(null);
+  const pending = Promise.all([resolver.locate(frames), origin]).then(([source]) => source).catch(() => null).then((source) => {
     const located = source ?? fallback;
     resolvedFiberSources.set(fiber, located);
     return located;
@@ -489,9 +872,7 @@ function isReactInternalComponentType(type) {
   return typeof type === "symbol";
 }
 function getComponentName(fiber) {
-  const type = fiber.type;
-  const elementType = fiber.elementType;
-  const named = (type == null ? void 0 : type.displayName) || (type == null ? void 0 : type.name) || (elementType == null ? void 0 : elementType.displayName) || (elementType == null ? void 0 : elementType.name);
+  const named = readComponentName(fiber.type) || readComponentName(fiber.elementType);
   if (named) return named;
   const source = getFiberSourceCandidate(fiber);
   return source && `<${source.fileName}:${source.lineNumber}>` || "Anonymous";
@@ -1342,15 +1723,21 @@ function getFiber(node) {
   return key ? node[key] : null;
 }
 function getDisplayName(type) {
-  if (!type) return null;
-  if (typeof type === "string") return type;
-  const obj = type;
-  return obj.displayName || obj.name || null;
+  return readComponentName(type);
+}
+function describeRecoveredOrigin(type) {
+  const definition = componentDefinitionOf(type);
+  const minifiedName = minifiedComponentName(type);
+  return {
+    ...definition ? { definition } : {},
+    ...minifiedName ? { minifiedName } : {}
+  };
 }
 function isUserComponent(fiber) {
   if (!fiber) return false;
+  if (typeof fiber.type === "string") return false;
   const name = getDisplayName(fiber.type);
-  if (!name || typeof fiber.type === "string") return false;
+  if (!name) return needsComponentOrigin(fiber);
   if (["hookified", "unboundStoryFn", "Anonymous"].includes(name)) return false;
   return true;
 }
@@ -1395,7 +1782,8 @@ function describeOwnerEntry(fiber) {
     key: fiber.key || null,
     props: fiber.memoizedProps ? Object.keys(fiber.memoizedProps) : [],
     ...getHookSummary(fiber),
-    source: describeFiberSource(fiber)
+    source: describeFiberSource(fiber),
+    ...describeRecoveredOrigin(fiber.type)
   };
 }
 function getOwnerChainFibers(fiber) {
@@ -1472,7 +1860,8 @@ function describeComponent(fiber) {
     stateNode: fiber.stateNode instanceof Element ? fiber.stateNode.tagName.toLowerCase() : null,
     ownerStackKind: ownerChain.ownerStackKind,
     owners: ownerChain.fibers.map(describeOwnerEntry),
-    parents: getReturnComponentChain(fiber)
+    parents: getReturnComponentChain(fiber),
+    ...describeRecoveredOrigin(fiber.type)
   };
 }
 const EXPLICIT_INTERACTION_EVENTS = ["click", "keydown", "keyup", "input", "change", "submit"];
@@ -2959,6 +3348,13 @@ function createAvalancheDetector(options = {}) {
      * @param options - Report filtering options (e.g., minCollateral to hide low-impact sources)
      * @returns Report containing sources, blast radius, and optional thrashing data
      */
+    /** Distinct component types behind recorded sources and amplifiers. */
+    componentTypes() {
+      const types = /* @__PURE__ */ new Set();
+      for (const source of state.sources.values()) types.add(source.type);
+      for (const amplifier of state.amplifierSources.values()) types.add(amplifier.type);
+      return Array.from(types);
+    },
     report(topN = 10, sortBy = "effect", reportOptions) {
       return buildReport(state, thrashMode, topN, sortBy, reportOptions, {
         effectThrashMode,
@@ -3288,8 +3684,7 @@ function primitiveFamily(primitive) {
 const MAX_HOOKS = 500;
 function evalFiberHooks(fiber) {
   if (!fiber) return { name: "Unknown", hookCount: 0, truncated: false, maxHooks: MAX_HOOKS, hooks: [], error: "No fiber available" };
-  const type = fiber.type;
-  const name = (type == null ? void 0 : type.displayName) || (type == null ? void 0 : type.name) || "Unknown";
+  const name = readComponentName(fiber.type) || "Unknown";
   const hooks = [];
   const seen = /* @__PURE__ */ new Set();
   let hookNode = fiber.memoizedState;
@@ -3371,7 +3766,8 @@ function isDispatcherIdle(ref) {
 }
 function replayComponentHooks(fiber) {
   const type = fiber == null ? void 0 : fiber.type;
-  const componentName = (type == null ? void 0 : type.displayName) || (type == null ? void 0 : type.name) || "Unknown";
+  const frameName = (type == null ? void 0 : type.displayName) || (type == null ? void 0 : type.name) || "Unknown";
+  const componentName = readComponentName(fiber == null ? void 0 : fiber.type) || "Unknown";
   const fallbackRecords = fiberOnlyHookRecords(fiber);
   const dispatcherRef = getDispatcherRef();
   if (!dispatcherRef) {
@@ -3414,7 +3810,7 @@ function replayComponentHooks(fiber) {
     return parseStackFrames(new Error().stack || "");
   }
   function currentPath(frames) {
-    return customHookPathFromFrames(frames, componentName);
+    return customHookPathFromFrames(frames, frameName);
   }
   function currentDebugOwner(frames) {
     const path = currentPath(frames);
@@ -4279,13 +4675,17 @@ function evalDescribeComponent(fiberIdRaw, nameRaw, deps) {
     path: r.path || [],
     hooks: [{ hookId: r.index, primitive: r.primitive, debugLabel: r.debugLabel }]
   }));
-  const text = deps.renderTreeText(componentName, source, tree);
+  const definition = componentDefinitionOf(fiber.type);
+  const minifiedName = minifiedComponentName(fiber.type);
+  const text = deps.renderTreeText(componentName, source ?? definition, tree);
   return {
     ok: true,
     componentName,
+    ...minifiedName ? { minifiedName } : {},
     fiberId,
     resolvedBy,
     source: source ? { fileName: (source == null ? void 0 : source.fileName) || null, lineNumber: (source == null ? void 0 : source.lineNumber) || null } : null,
+    ...definition ? { definition } : {},
     hookCount,
     liveHookCount,
     replayedHookCount,
@@ -4601,6 +5001,17 @@ function evalAvalanche(command, api2, mod) {
     return { ok: false, available: true, action, error: (error == null ? void 0 : error.message) || String(error) };
   }
 }
+const AVALANCHE_NAME_BUDGET_MS = 3e3;
+function warmAvalancheNames(api2, budgetMs = AVALANCHE_NAME_BUDGET_MS) {
+  var _a2;
+  let types = [];
+  try {
+    types = ((_a2 = api2 == null ? void 0 : api2.componentTypes) == null ? void 0 : _a2.call(api2)) ?? [];
+  } catch {
+    types = [];
+  }
+  return types.length ? warmComponentTypes(types, budgetMs) : Promise.resolve(null);
+}
 const GREP_SCOPES = ["props", "state", "debug"];
 const DEFAULT_GREP_SCOPES = ["props", "state"];
 const DEFAULT_GREP_LIMITS = { depth: 4, maxHits: 10, maxNodes: 2e3, maxEntries: 50 };
@@ -4822,8 +5233,7 @@ function evalFiberProps(baseFiber, ownerIndex, getHookSummary2, resolveOwnerFibe
   const targetFiber = ownerIndex == null ? baseFiber : resolveOwnerFiber2(baseFiber, ownerIndex);
   if (!targetFiber) return { error: "Target fiber not available for ownerIndex " + ownerIndex };
   const props = targetFiber.memoizedProps || {};
-  const t = targetFiber.type;
-  const name = (t == null ? void 0 : t.displayName) || (t == null ? void 0 : t.name) || "Unknown";
+  const name = readComponentName(targetFiber.type) || "Unknown";
   const hookSummary = getHookSummary2 ? getHookSummary2(targetFiber) : { hookCount: null, hookCountTruncated: false, hookCountMax: null };
   const pod = {};
   const nonPod = [];
@@ -4851,12 +5261,11 @@ function evalFiberProps(baseFiber, ownerIndex, getHookSummary2, resolveOwnerFibe
       const hasRef = Object.values(ownerProps).some((pv) => pv === v);
       if (!hasRef) {
         const prevType = i > 0 ? ownerFibersChain[i - 1].type : null;
-        terminatesAt = i === 0 ? { ownerIndex: -1, name: name + " (probe component)" } : { ownerIndex: i - 1, name: (prevType == null ? void 0 : prevType.displayName) || (prevType == null ? void 0 : prevType.name) || "Unknown" };
+        terminatesAt = i === 0 ? { ownerIndex: -1, name: name + " (probe component)" } : { ownerIndex: i - 1, name: readComponentName(prevType) || "Unknown" };
         break;
       }
       if (i === ownerFibersChain.length - 1) {
-        const lastType = ownerFibersChain[i].type;
-        terminatesAt = { ownerIndex: i, name: (lastType == null ? void 0 : lastType.displayName) || (lastType == null ? void 0 : lastType.name) || "Unknown", note: "last known owner" };
+        terminatesAt = { ownerIndex: i, name: readComponentName(ownerFibersChain[i].type) || "Unknown", note: "last known owner" };
       }
     }
     if (!terminatesAt) {
@@ -4881,8 +5290,7 @@ function evalFiberPropValue(baseFiber, propName, ownerIndex, getHookSummary2, re
   const targetFiber = ownerIndex == null ? baseFiber : resolveOwnerFiber2(baseFiber, ownerIndex);
   if (!targetFiber) return { error: "Target fiber not available for ownerIndex " + ownerIndex };
   const props = targetFiber.memoizedProps || {};
-  const t = targetFiber.type;
-  const name = (t == null ? void 0 : t.displayName) || (t == null ? void 0 : t.name) || "Unknown";
+  const name = readComponentName(targetFiber.type) || "Unknown";
   const hookSummary = getHookSummary2 ? getHookSummary2(targetFiber) : { hookCount: null, hookCountTruncated: false, hookCountMax: null };
   if (!(propName in props)) return { error: 'Prop "' + propName + '" not found on ' + name + ". Available: " + Object.keys(props).join(", ") };
   const value = props[propName];
@@ -5027,7 +5435,16 @@ async function resolveFindFiberSources(items, getFiber2, resolve) {
       if (source) item.source = source;
     } catch {
     }
+    applyRecoveredOrigin(item, fiber.type);
   }));
+}
+const NAME_RECOVERY_BUDGET_MS = 3e3;
+function warmFindFiberNames(filters, helpers, budgetMs = NAME_RECOVERY_BUDGET_MS) {
+  if (!(filters == null ? void 0 : filters.name)) return Promise.resolve(null);
+  return warmComponentNames(
+    (visit) => helpers.walkAll((fiber) => visit(fiber), { limit: 2e5 }),
+    budgetMs
+  );
 }
 function safeJson(value, depth = 6, seen = /* @__PURE__ */ new WeakSet()) {
   if (value == null) return value;
@@ -5490,6 +5907,12 @@ function fingerprintFiberProp(value) {
 function readSource(fiber) {
   return getFiberSourceCandidate(fiber);
 }
+function runtimeName(fiber, fallback) {
+  const type = fiber.type;
+  if (typeof type === "string") return type;
+  const raw = (type == null ? void 0 : type.displayName) || (type == null ? void 0 : type.name);
+  return typeof raw === "string" && raw !== "" ? raw : fallback;
+}
 function fiberToken(fiber, name, source) {
   const sourceKey = source ? `${source.fileName}:${source.lineNumber ?? ""}:${source.columnNumber ?? ""}` : "";
   return [String(fiber.tag ?? ""), name, String(fiber.key ?? ""), sourceKey].join("|");
@@ -5515,7 +5938,7 @@ function captureFiberState(options, deps) {
         break;
       }
       const source = readSource(fiber);
-      const token = fiberToken(fiber, name, source);
+      const token = fiberToken(fiber, runtimeName(fiber, name), source);
       const occurrenceKey = `${parentPath}\0${token}`;
       const occurrence = siblingOccurrences.get(occurrenceKey) || 0;
       siblingOccurrences.set(occurrenceKey, occurrence + 1);
@@ -5918,6 +6341,9 @@ const api = {
     }
     return r;
   },
+  componentTypes() {
+    return detector ? detector.componentTypes() : [];
+  },
   debugHook(sourceId, hookIndex, windowSize) {
     if (!detector) return { ok: false, error: "not installed" };
     const fn = detector.debugHook;
@@ -6008,11 +6434,16 @@ const api = {
     evalDescribeComponent,
     readAvalancheStatus,
     evalAvalanche,
+    warmAvalancheNames,
     evalElementDom,
     evalFiberProps,
     evalFiberPropValue,
     evalFindFibers,
     resolveFindFiberSources,
+    warmFindFiberNames,
+    readComponentName,
+    resolveComponentOrigin,
+    applyRecoveredOrigin,
     safeJson,
     resolveOwnerFiber,
     getOwnerStackKind,

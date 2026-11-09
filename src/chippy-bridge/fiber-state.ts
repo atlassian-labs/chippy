@@ -227,6 +227,17 @@ function readSource(fiber: Fiber): FiberStateEntry['source'] {
   return getFiberSourceCandidate(fiber);
 }
 
+/**
+ * The runtime name, not a name recovered from a source map later: path ids
+ * must stay stable whether or not recovery finished between two captures.
+ */
+function runtimeName(fiber: Fiber, fallback: string): string {
+  const type = fiber.type as { displayName?: unknown; name?: unknown } | string | undefined;
+  if (typeof type === 'string') return type;
+  const raw = type?.displayName || type?.name;
+  return typeof raw === 'string' && raw !== '' ? raw : fallback;
+}
+
 function fiberToken(fiber: Fiber, name: string, source: FiberStateEntry['source']): string {
   const sourceKey = source ? `${source.fileName}:${source.lineNumber ?? ''}:${source.columnNumber ?? ''}` : '';
   return [String(fiber.tag ?? ''), name, String(fiber.key ?? ''), sourceKey].join('|');
@@ -257,7 +268,7 @@ export function captureFiberState(
     if (name) {
       if (fibers.length >= maxFibers) { truncated = true; break; }
       const source = readSource(fiber);
-      const token = fiberToken(fiber, name, source);
+      const token = fiberToken(fiber, runtimeName(fiber, name), source);
       const occurrenceKey = `${parentPath}\u0000${token}`;
       const occurrence = siblingOccurrences.get(occurrenceKey) || 0;
       siblingOccurrences.set(occurrenceKey, occurrence + 1);

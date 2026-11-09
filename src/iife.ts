@@ -69,14 +69,20 @@ import {
   renderCompactComponentText,
 } from './chippy-bridge/inspect-formatters';
 import { evalDescribeComponent as evalDescribeComponentImpl } from './chippy-bridge/describe-component';
-import { readAvalancheStatus as readAvalancheStatusImpl, evalAvalanche as evalAvalancheImpl } from './chippy-bridge/avalanche-commands';
+import {
+  readAvalancheStatus as readAvalancheStatusImpl,
+  evalAvalanche as evalAvalancheImpl,
+  warmAvalancheNames as warmAvalancheNamesImpl,
+} from './chippy-bridge/avalanche-commands';
 import {
   evalElementDom as evalElementDomImpl,
   evalFiberProps as evalFiberPropsImpl,
   evalFiberPropValue as evalFiberPropValueImpl,
   evalFindFibers as evalFindFibersImpl,
   resolveFindFiberSources as resolveFindFiberSourcesImpl,
+  warmFindFiberNames as warmFindFiberNamesImpl,
 } from './chippy-bridge/eval-helpers';
+import { applyRecoveredOrigin, readComponentName, resolveComponentOrigin } from './chippy-bridge/component-origin';
 import {
   safeJson as safeJsonImpl,
   resolveOwnerFiber as resolveOwnerFiberImpl,
@@ -203,6 +209,7 @@ type AvalancheApi = {
   reset: () => { ok: true };
   report: (topN?: number, sortBy?: 'effect' | 'callback' | 'memo' | 'total', options?: Record<string, unknown>) => unknown;
   exportLast: (n?: number) => unknown;
+  componentTypes: () => unknown[];
   debugHook: (sourceId: string, hookIndex: number, windowSize?: number) => unknown;
   _debugRawHookEvents: (componentName: string) => unknown;
   status: () => {
@@ -272,11 +279,16 @@ type AvalancheApi = {
     evalDescribeComponent: (fiberIdRaw: unknown, nameRaw: unknown, deps: DescribeComponentDeps) => unknown;
     readAvalancheStatus: (api: unknown, mod: unknown) => unknown;
     evalAvalanche: (command: unknown, api: unknown, mod: unknown) => unknown;
+    warmAvalancheNames: (api: unknown) => Promise<unknown>;
     evalElementDom: typeof evalElementDomImpl;
     evalFiberProps: typeof evalFiberPropsImpl;
     evalFiberPropValue: typeof evalFiberPropValueImpl;
     evalFindFibers: typeof evalFindFibersImpl;
     resolveFindFiberSources: typeof resolveFindFiberSourcesImpl;
+    warmFindFiberNames: typeof warmFindFiberNamesImpl;
+    readComponentName: typeof readComponentName;
+    resolveComponentOrigin: typeof resolveComponentOrigin;
+    applyRecoveredOrigin: typeof applyRecoveredOrigin;
     safeJson: typeof safeJsonImpl;
     resolveOwnerFiber: typeof resolveOwnerFiberImpl;
     getOwnerStackKind: typeof getOwnerStackKindImpl;
@@ -331,6 +343,9 @@ const api: AvalancheApi = {
       return { ...(r as any), commits: (r as any).commits.slice(-n) };
     }
     return r;
+  },
+  componentTypes() {
+    return detector ? detector.componentTypes() : [];
   },
   debugHook(sourceId, hookIndex, windowSize) {
     if (!detector) return { ok: false, error: 'not installed' };
@@ -421,11 +436,16 @@ const api: AvalancheApi = {
     evalDescribeComponent: evalDescribeComponentImpl,
     readAvalancheStatus: readAvalancheStatusImpl,
     evalAvalanche: evalAvalancheImpl,
+    warmAvalancheNames: warmAvalancheNamesImpl as (api: unknown) => Promise<unknown>,
     evalElementDom: evalElementDomImpl,
     evalFiberProps: evalFiberPropsImpl,
     evalFiberPropValue: evalFiberPropValueImpl,
     evalFindFibers: evalFindFibersImpl,
     resolveFindFiberSources: resolveFindFiberSourcesImpl,
+    warmFindFiberNames: warmFindFiberNamesImpl,
+    readComponentName,
+    resolveComponentOrigin,
+    applyRecoveredOrigin,
     safeJson: safeJsonImpl,
     resolveOwnerFiber: resolveOwnerFiberImpl,
     getOwnerStackKind: getOwnerStackKindImpl,

@@ -664,6 +664,15 @@ Timeout / client not found: same shape as `get-computed-style`.
 
 `ownerStackKind` reports which chain `owners` holds: `owners` for `_debugOwner`, or `parents` when the build has no owner data (production) and the list is the component `fiber.return` chain. `ownerIndex` then counts component-parent hops, and `probe-props` / `probe-prop-value` resolve the same index against the same chain.
 
+### Production component names
+
+Production React keeps no source metadata, and minifiers rename components (`ProjectList` becomes `cp`) or drop the names of function expressions entirely (`memo(function ProjectRow() {})`). When the page serves source maps, Chippy recovers the authored name and definition. It finds each component function's text in a loaded script, maps that position through the script's inline or external source map, and reads the name from the map's `names` entry or from `sourcesContent`. Probe results, `find-fibers`, `describe-component`, `explain-component`, and Avalanche reports then show the authored name, and each recovered entry adds:
+
+- `minifiedName`: the runtime name, when the build had one. Fiber-state tokens keep using it, so captures from before and after recovery still compare.
+- `definition`: `{ fileName, lineNumber, columnNumber }` of the component's definition in the authored source. `fileName` is resolved against the source map's URL. This is where the component is defined, not the JSX call site that `source` reports in development builds.
+
+Nothing is recovered when the bundle has no source map, the map cannot be fetched, or the function's text occurs more than once in its script. The component then keeps its minified name, or has no name if the minifier dropped it.
+
 ```json
 {
   "ok": true,
@@ -779,6 +788,8 @@ Timeout / client not found: same shape as `get-computed-style`.
 Searches the live fiber tree without probe placement. Returns remembered `fiberId` tokens for the current page realm.
 
 Only named fibers are returned. `--name`, `--file`, `--testid` and `--text` are case-insensitive regexes. `--text` and `--testid` match the fiber's nearest DOM text and `data-testid`. `--prop` is an exact prop name and matches when the prop is present, whatever its value. All given filters must match. `--max` defaults to 50.
+
+On a production build, `--name` matches the authored names Chippy recovers from the page's source maps (see [Production builds](#production-component-names)). Before matching, Chippy resolves each component type in the tree within a 3-second budget, and the result carries `nameRecovery`: `types` (component types without development metadata), `resolved`, `named`, `skipped` (types left when the budget ran out), and `statuses` (count per resolution status). Each recovered item adds `minifiedName` and `definition`.
 
 An invalid regex in any filter, or an unknown `--in` scope, fails the command: the helper answers HTTP 422 with `error` naming the flag (for example `Invalid --grep regex: …`), and `chippy.sh` exits non-zero. An empty `items` list therefore always means the pattern was valid and nothing matched.
 
@@ -967,6 +978,8 @@ Whole-component structural map. Shell default is `--text`: print the full render
 Resolution:
 - If the second arg starts with `fiber:` — resolved against the fiber registry (returned by `find-fibers`).
 - Otherwise — treated as a component name. By Rules of Hooks, all instances of one component share the same hook shape, so the first matching fiber is used.
+
+On a production build, `describe-component` and `explain-component` add `minifiedName` and `definition` when Chippy recovered the component's name from a source map, as described in [Production component names](#production-component-names).
 
 ```json
 {

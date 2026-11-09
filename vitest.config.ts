@@ -6,6 +6,7 @@ const browserSuites = [
   'src/__tests__/reload-with-avalanche.test.ts',
   'src/avalanche/detector.lifecycle.pw.test.ts',
   'src/__tests__/chippy-stock-react.pw.test.ts',
+  'src/__tests__/chippy-production-names.pw.test.ts',
   'src/__tests__/chippy-proxy.pw.test.ts',
   'src/__tests__/chippy-vite-sources.pw.test.ts',
   'src/__tests__/chippy-extension-armed-reload.pw.test.ts',

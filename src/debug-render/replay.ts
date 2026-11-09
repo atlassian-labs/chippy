@@ -25,6 +25,7 @@ import { readContextValueFromFiber, type ContextFiber } from './context-replay';
 // Renderer discovery is shared with the fiber-schedule-update capability — one
 // place knows how to enumerate __REACT_DEVTOOLS_GLOBAL_HOOK__.renderers.
 import { getDispatcherRef } from '../chippy-bridge/react-renderer';
+import { readComponentName } from '../chippy-bridge/component-origin';
 export { getDispatcherRef, readContextValueFromFiber };
 
 // ---------------------------------------------------------------------------
@@ -325,8 +326,7 @@ const MAX_HOOKS = 500;
 export function evalFiberHooks(fiber: Fiber | null | undefined): FiberHooksResult {
   if (!fiber) return { name: 'Unknown', hookCount: 0, truncated: false, maxHooks: MAX_HOOKS, hooks: [], error: 'No fiber available' };
 
-  const type = fiber.type as { displayName?: string; name?: string } | undefined;
-  const name = type?.displayName || type?.name || 'Unknown';
+  const name = readComponentName(fiber.type) || 'Unknown';
   const hooks: ClassifiedHook[] = [];
   const seen = new Set<HookNode>();
   let hookNode = fiber.memoizedState as HookNode | null | undefined;
@@ -436,7 +436,10 @@ export function isDispatcherIdle(ref: DispatcherRef): boolean {
  */
 export function replayComponentHooks(fiber: Fiber): ReplayResult {
   const type = fiber?.type as { displayName?: string; name?: string } | undefined;
-  const componentName = type?.displayName || type?.name || 'Unknown';
+  // Stack frames carry the runtime function name, which differs from the
+  // recovered name on minified production builds.
+  const frameName = type?.displayName || type?.name || 'Unknown';
+  const componentName = readComponentName(fiber?.type) || 'Unknown';
   const fallbackRecords = fiberOnlyHookRecords(fiber);
 
   const dispatcherRef = getDispatcherRef();
@@ -502,7 +505,7 @@ export function replayComponentHooks(fiber: Fiber): ReplayResult {
   }
 
   function currentPath(frames: StackFrame[]): StackFrame[] {
-    return customHookPathFromFrames(frames, componentName);
+    return customHookPathFromFrames(frames, frameName);
   }
 
   function currentDebugOwner(frames: StackFrame[]): string {

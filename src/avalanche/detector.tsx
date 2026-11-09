@@ -1801,6 +1801,14 @@ export function createAvalancheDetector(options: DetectorOptions = {}) {
      * @param options - Report filtering options (e.g., minCollateral to hide low-impact sources)
      * @returns Report containing sources, blast radius, and optional thrashing data
      */
+    /** Distinct component types behind recorded sources and amplifiers. */
+    componentTypes(): ComponentType[] {
+      const types = new Set<ComponentType>();
+      for (const source of state.sources.values()) types.add(source.type);
+      for (const amplifier of state.amplifierSources.values()) types.add(amplifier.type);
+      return Array.from(types);
+    },
+
     report(topN: number = 10, sortBy: SortBy = 'effect', reportOptions?: ReportOptions): Report {
       return buildReport(state, thrashMode, topN, sortBy, reportOptions, {
         effectThrashMode,

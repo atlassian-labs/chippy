@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   inlineSourceMapOf,
+  mappingAt,
   originalPositionFor,
   parseSourceMap,
   sourceMappingUrlOf,
@@ -85,5 +86,22 @@ describe('React 19 source-map decoding', () => {
     const json = JSON.stringify({ version: 3, sources: ['café.ts'], mappings: 'AAAA' });
     expect(inlineSourceMapOf(`data:application/json;base64,${Buffer.from(json).toString('base64')}`)).toBe(json);
     expect(inlineSourceMapOf(`data:application/json,${encodeURIComponent(json)}`)).toBe(json);
+  });
+
+  it('reads segment names, sourcesContent, and whether the column is exact', () => {
+    const map = parseSourceMap(JSON.stringify({
+      version: 3,
+      sources: ['a.tsx'],
+      names: ['Foo', 'Bar'],
+      sourcesContent: ['function Foo() {}'],
+      mappings: 'AAAAA,KAAKC',
+    }));
+    expect(map[0]?.names).toEqual(['Foo', 'Bar']);
+    expect(mappingAt(map, 1, 1)).toEqual({
+      source: 'a.tsx', line: 1, column: 1, name: 'Foo', exact: true, sourceContent: 'function Foo() {}',
+    });
+    expect(mappingAt(map, 1, 6)).toMatchObject({ column: 6, name: 'Bar', exact: true });
+    expect(mappingAt(map, 1, 8)).toMatchObject({ column: 6, name: 'Bar', exact: false });
+    expect(originalPositionFor(map, 1, 8)).toEqual({ source: 'a.tsx', line: 1, column: 6 });
   });
 });

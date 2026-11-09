@@ -23,6 +23,12 @@
 // by the bridge shell.
 
 import { collectOwnerFibers, isComponentFiber } from './owner-chain';
+import {
+  applyRecoveredOrigin,
+  readComponentName,
+  warmComponentNames,
+  type NameRecoveryStats,
+} from './component-origin';
 import { replayComponentHooks } from '../debug-render/replay';
 import {
   DEFAULT_GREP_LIMITS,
@@ -157,8 +163,7 @@ export function evalFiberProps(
   if (!targetFiber) return { error: 'Target fiber not available for ownerIndex ' + ownerIndex };
 
   const props = (targetFiber.memoizedProps || {}) as Record<string, unknown>;
-  const t = targetFiber.type as { displayName?: string; name?: string } | undefined;
-  const name = t?.displayName || t?.name || 'Unknown';
+  const name = readComponentName(targetFiber.type) || 'Unknown';
   const hookSummary = getHookSummary
     ? getHookSummary(targetFiber)
     : { hookCount: null, hookCountTruncated: false, hookCountMax: null };
@@ -188,15 +193,14 @@ export function evalFiberProps(
       const ownerProps = (ownerFibersChain[i].memoizedProps || {}) as Record<string, unknown>;
       const hasRef = Object.values(ownerProps).some((pv) => pv === v);
       if (!hasRef) {
-        const prevType = i > 0 ? ownerFibersChain[i - 1].type as { displayName?: string; name?: string } : null;
+        const prevType = i > 0 ? ownerFibersChain[i - 1].type : null;
         terminatesAt = i === 0
           ? { ownerIndex: -1, name: name + ' (probe component)' }
-          : { ownerIndex: i - 1, name: prevType?.displayName || prevType?.name || 'Unknown' };
+          : { ownerIndex: i - 1, name: readComponentName(prevType) || 'Unknown' };
         break;
       }
       if (i === ownerFibersChain.length - 1) {
-        const lastType = ownerFibersChain[i].type as { displayName?: string; name?: string };
-        terminatesAt = { ownerIndex: i, name: lastType?.displayName || lastType?.name || 'Unknown', note: 'last known owner' };
+        terminatesAt = { ownerIndex: i, name: readComponentName(ownerFibersChain[i].type) || 'Unknown', note: 'last known owner' };
       }
     }
     if (!terminatesAt) {
@@ -235,8 +239,7 @@ export function evalFiberPropValue(
   if (!targetFiber) return { error: 'Target fiber not available for ownerIndex ' + ownerIndex };
 
   const props = (targetFiber.memoizedProps || {}) as Record<string, unknown>;
-  const t = targetFiber.type as { displayName?: string; name?: string } | undefined;
-  const name = t?.displayName || t?.name || 'Unknown';
+  const name = readComponentName(targetFiber.type) || 'Unknown';
   const hookSummary = getHookSummary
     ? getHookSummary(targetFiber)
     : { hookCount: null, hookCountTruncated: false, hookCountMax: null };
@@ -405,5 +408,26 @@ export async function resolveFindFiberSources<S>(
       const source = await resolve(fiber);
       if (source) item.source = source;
     } catch {}
+    applyRecoveredOrigin(item, fiber.type);
   }));
+}
+
+/** Default time budget for recovering production names before a name filter. */
+export const NAME_RECOVERY_BUDGET_MS = 3000;
+
+/**
+ * Before `find-fibers --name` on a production build, recover authored names
+ * for the page's component types so the filter matches them. Returns null
+ * when there is no name filter or every component has development metadata.
+ */
+export function warmFindFiberNames(
+  filters: FindFibersFilters,
+  helpers: Pick<ScriptHelpers, 'walkAll'>,
+  budgetMs = NAME_RECOVERY_BUDGET_MS,
+): Promise<NameRecoveryStats | null> {
+  if (!filters?.name) return Promise.resolve(null);
+  return warmComponentNames(
+    (visit) => helpers.walkAll((fiber) => visit(fiber as Parameters<typeof visit>[0]), { limit: 200000 }),
+    budgetMs,
+  );
 }

@@ -7,6 +7,13 @@ import {
   getFiberSource as readFiberSource,
   resolveFiberSource as resolveSourceLocation,
 } from '../chippy-bridge/fiber-source';
+import {
+  componentDefinitionOf,
+  minifiedComponentName,
+  needsComponentOrigin,
+  readComponentName,
+  type ComponentDefinition,
+} from '../chippy-bridge/component-origin';
 import { collectOwnerFibers, type OwnerChain, type OwnerStackKind } from '../chippy-bridge/owner-chain';
 
 /**
@@ -46,13 +53,22 @@ export type HookSummary = {
   hookCountMax: number;
 };
 
+/**
+ * Present only on production builds whose names were recovered from the
+ * bundle's source map: the authored definition and the runtime name.
+ */
+export type RecoveredOrigin = {
+  definition?: ComponentDefinition;
+  minifiedName?: string;
+};
+
 export type OwnerEntry = {
   name: string | null;
   key: string | null;
   props: string[];
 } & HookSummary & {
   source: DescribedSource | null;
-};
+} & RecoveredOrigin;
 
 export type FiberTarget = {
   domTag: string | null;
@@ -71,7 +87,7 @@ export type ComponentDescription = {
   ownerStackKind: OwnerStackKind;
   owners: OwnerEntry[];
   parents: OwnerEntry[];
-} & HookSummary;
+} & HookSummary & RecoveredOrigin;
 
 /**
  * Find the React fiber key in a DOM node's own properties.
@@ -96,13 +112,21 @@ export function getFiber(node: Node | Element | null | undefined): Fiber | null 
 
 /**
  * Extract display name from a React type (class, function, or string).
- * Returns displayName > name > null for functions; 'string' for primitives.
+ * Returns displayName > recovered production name > name > null for
+ * functions; the tag for host strings.
  */
 export function getDisplayName(type: unknown): string | null {
-  if (!type) return null;
-  if (typeof type === 'string') return type;
-  const obj = type as { displayName?: unknown; name?: unknown };
-  return (obj.displayName as string) || (obj.name as string) || null;
+  return readComponentName(type);
+}
+
+/** Recovered definition and runtime name for a production component type. */
+export function describeRecoveredOrigin(type: unknown): RecoveredOrigin {
+  const definition = componentDefinitionOf(type);
+  const minifiedName = minifiedComponentName(type);
+  return {
+    ...(definition ? { definition } : {}),
+    ...(minifiedName ? { minifiedName } : {}),
+  };
 }
 
 /**
@@ -110,8 +134,11 @@ export function getDisplayName(type: unknown): string | null {
  */
 export function isUserComponent(fiber: Fiber | null | undefined): boolean {
   if (!fiber) return false;
+  if (typeof fiber.type === 'string') return false;
   const name = getDisplayName(fiber.type);
-  if (!name || typeof fiber.type === 'string') return false;
+  // Minifiers drop function-expression names (`memo(function Row() {})`);
+  // a nameless production component still owns its subtree.
+  if (!name) return needsComponentOrigin(fiber);
   if (['hookified', 'unboundStoryFn', 'Anonymous'].includes(name)) return false;
   return true;
 }
@@ -172,6 +199,7 @@ function describeOwnerEntry(fiber: Fiber): OwnerEntry {
     props: fiber.memoizedProps ? Object.keys(fiber.memoizedProps) : [],
     ...getHookSummary(fiber),
     source: describeFiberSource(fiber),
+    ...describeRecoveredOrigin(fiber.type),
   };
 }
 
@@ -298,5 +326,6 @@ export function describeComponent(fiber: Fiber | null | undefined): ComponentDes
     ownerStackKind: ownerChain.ownerStackKind,
     owners: ownerChain.fibers.map(describeOwnerEntry),
     parents: getReturnComponentChain(fiber),
+    ...describeRecoveredOrigin(fiber.type),
   };
 }

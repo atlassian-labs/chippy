@@ -295,6 +295,13 @@
       marker.resolved.confidence = 'dev';
       marker.resolved.note = null;
     }
+    // Production builds: names and definitions recovered while resolving.
+    const applyOrigin = getBridge()?.applyRecoveredOrigin;
+    if (applyOrigin && marker.resolved.component) {
+      applyOrigin(marker.resolved.component, componentFiber.type);
+      ownerFibers.forEach((fiber, index) => applyOrigin(marker.resolved.component.owners?.[index], fiber.type));
+      parentFibers.forEach((fiber, index) => applyOrigin(marker.resolved.component.parents?.[index], fiber.type));
+    }
   }
 
   async function enrichMarkerSources(markers) {
@@ -895,8 +902,12 @@
       }
       case 'eval-avalanche': {
         const requestId = command.requestId || null;
-        const result = evalAvalanche(command);
-        send({ type: 'eval-avalanche-result', clientId, requestId, result });
+        // Production builds: recover authored names for recorded component
+        // types first, so report source ids are readable.
+        const warm = resolveBuildMode() !== 'dev' ? getBridge()?.warmAvalancheNames?.(getAvalancheApi()) : null;
+        Promise.resolve(warm).catch(() => null).then(() => {
+          send({ type: 'eval-avalanche-result', clientId, requestId, result: evalAvalanche(command) });
+        });
         break;
       }
       case 'eval-script': {
@@ -974,9 +985,12 @@
 
   function buildScriptHelpers(log) {
     function devtoolsHook() { return global.__REACT_DEVTOOLS_GLOBAL_HOOK__ || null; }
+    // Delegated to avalanche.iife.js — see src/chippy-bridge/component-origin.ts
+    const readComponentName = getBridge()?.readComponentName || null;
     function getDisplayName(fiber) {
       const t = fiber?.type;
       if (!t) return null;
+      if (readComponentName) return readComponentName(t);
       return t.displayName || t.name || (typeof t === 'string' ? t : null);
     }
     // Return the live HostRoot fiber of every React root. A FiberRoot (from
@@ -1187,6 +1201,8 @@
   function getFiberDisplayName(fiber) {
     if (!fiber) return 'Unknown';
     if (typeof fiber.type === 'string') return fiber.type;
+    const recovered = getBridge()?.readComponentName?.(fiber.type);
+    if (recovered) return recovered;
     if (fiber.type && (fiber.type.displayName || fiber.type.name)) return fiber.type.displayName || fiber.type.name;
     if (typeof fiber.elementType === 'string') return fiber.elementType;
     if (fiber.elementType && (fiber.elementType.displayName || fiber.elementType.name)) return fiber.elementType.displayName || fiber.elementType.name;
@@ -1490,11 +1506,15 @@
   async function evalFindFibers(filters) {
     const b = getBridge();
     if (!b) return { count: 0, items: [], ...BRIDGE_MODULE_MISSING };
-    const result = b.evalFindFibers(filters, buildScriptHelpers([]), rememberFiber);
+    const helpers = buildScriptHelpers([]);
+    // Production builds: recover authored names before the name filter runs.
+    const nameRecovery = b.warmFindFiberNames ? await b.warmFindFiberNames(filters, helpers) : null;
+    const result = b.evalFindFibers(filters, helpers, rememberFiber);
     // Map each item's source through the served module, as `explain` does.
     if (b.resolveFindFiberSources && b.resolveFiberSource) {
       await b.resolveFindFiberSources(result.items, getRememberedFiber, b.resolveFiberSource);
     }
+    if (nameRecovery) result.nameRecovery = nameRecovery;
     return result;
   }
 
@@ -1672,13 +1692,18 @@
     const warnings = [];
     if (!replayAttempted) warnings.push('fiber-only: component functions and hooks were not executed; custom-hook ancestry is unavailable unless captured metadata exists');
     if (replayError) warnings.push('replay-error: ' + replayError + ' (stack logged to browser console)');
-    const text = renderCompactComponentText(componentName, source, summary, records, warnings);
+    // Production builds: the definition recovered from the bundle's source map.
+    const origin = {};
+    if (b?.applyRecoveredOrigin) b.applyRecoveredOrigin(origin, fiber.type);
+    const text = renderCompactComponentText(componentName, source || origin.definition || null, summary, records, warnings);
     return {
       ok: true,
       componentName,
+      ...(origin.minifiedName ? { minifiedName: origin.minifiedName } : {}),
       fiberId,
       resolvedBy,
       source: source ? { fileName: source.fileName || null, lineNumber: source.lineNumber || null } : null,
+      ...(origin.definition ? { definition: origin.definition } : {}),
       hookCount: summary.hookCount,
       liveHookCount: summary.liveHookCount,
       replayedHookCount: summary.replayedHookCount,

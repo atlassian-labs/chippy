@@ -51,19 +51,38 @@ Available in production:
 
 Limited or unavailable in production:
 
-- **Component names** are minified unless the code keeps them, so a component
-  may appear as `c` or `eu`.
-- **Source locations** are unavailable, because production React omits
-  `_debugSource` and `_debugStack`.
+- **Component names** are minified unless the code keeps them or the page
+  serves source maps, so a component may appear as `c` or `eu`, or have no
+  name at all.
+- **Source locations** of JSX call sites are unavailable, because production
+  React omits `_debugSource` and `_debugStack`. With source maps, Chippy
+  reports where each component is defined instead.
 - **Owner chains** are unavailable. Chippy reports the parent chain instead and
   labels it as parents, which shows where a component is rendered but not which
   component created it.
 - **Custom-hook structure, hook replay, and forced re-renders** need
   development internals.
 
-Keeping display names in production code helps the most. Chippy reads a
-component's `displayName`, then its function or class name, so either of these
-keeps results readable:
+### Recovering names from source maps
+
+When the production bundle has a source map, inline or linked through
+`sourceMappingURL`, Chippy recovers the authored component names. For each
+component, it finds the function's text in the page's loaded scripts, maps that
+position through the source map, and reads the authored name from the map's
+`names` or `sourcesContent`. Results then show the authored name, plus
+`minifiedName` and `definition`, the file and line where the component is
+defined. This covers probes, `find-fibers --name`, `describe-component`,
+`explain-component`, and Avalanche reports.
+
+Recovery needs the page to be able to fetch the bundle and its map. It does not
+apply when the map is missing or unreachable, or when the same function text
+appears twice in one script.
+
+### Keeping names in the build
+
+Without source maps, keeping display names in production code helps the most.
+Chippy reads a component's `displayName`, then its function or class name, so
+either of these keeps results readable:
 
 - Set `displayName` on the components you want to find, for example
   `ProjectList.displayName = 'ProjectList'`.

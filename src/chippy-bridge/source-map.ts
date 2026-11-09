@@ -1,8 +1,9 @@
 /**
  * Small, dependency-free Source Map v3 reader.
  *
- * Chippy only needs the generated-position lookup used by React 19's
- * `_debugStack` source path, so it deliberately omits names and source contents.
+ * Chippy needs generated-to-original position lookups for React 19's
+ * `_debugStack` source path, and the `names` table and `sourcesContent` to
+ * recover component names from production bundles.
  */
 
 const DIGITS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
@@ -16,10 +17,14 @@ type Segment = {
   sourceIndex: number | null;
   originalLine: number | null;
   originalColumn: number | null;
+  nameIndex: number | null;
 };
 
 export type SourceMap = {
   sources: readonly string[];
+  names: readonly string[];
+  /** Authored text per source, or null when the map omits it. */
+  sourcesContent: readonly (string | null)[];
   lines: readonly (readonly Segment[])[];
   offset: { line: number; column: number };
 };
@@ -30,9 +35,21 @@ export type OriginalPosition = {
   column: number;
 };
 
+/** The segment covering a generated position, with its original name. */
+export type GeneratedMapping = OriginalPosition & {
+  /** The `names` entry of the segment, or null when it has none. */
+  name: string | null;
+  /** True when the segment starts exactly at the requested column. */
+  exact: boolean;
+  /** Authored text of `source`, or null when the map omits it. */
+  sourceContent: string | null;
+};
+
 type RawMap = {
   version?: unknown;
   sources?: unknown;
+  names?: unknown;
+  sourcesContent?: unknown;
   sourceRoot?: unknown;
   mappings?: unknown;
   sections?: unknown;
@@ -70,6 +87,7 @@ function decodeMappings(mappings: string, sourceCount: number): Segment[][] {
   let sourceIndex = 0;
   let originalLine = 0;
   let originalColumn = 0;
+  let nameIndex = 0;
 
   for (const encodedLine of mappings.split(';')) {
     const segments: Segment[] = [];
@@ -80,7 +98,7 @@ function decodeMappings(mappings: string, sourceCount: number): Segment[][] {
       if (values.length < 4) {
         if (values.length > 0) {
           generatedColumn += values[0]!;
-          segments.push({ generatedColumn, sourceIndex: null, originalLine: null, originalColumn: null });
+          segments.push({ generatedColumn, sourceIndex: null, originalLine: null, originalColumn: null, nameIndex: null });
         }
         continue;
       }
@@ -89,8 +107,10 @@ function decodeMappings(mappings: string, sourceCount: number): Segment[][] {
       sourceIndex += values[1]!;
       originalLine += values[2]!;
       originalColumn += values[3]!;
+      const named = values.length >= 5;
+      if (named) nameIndex += values[4]!;
       if (sourceIndex >= 0 && sourceIndex < sourceCount) {
-        segments.push({ generatedColumn, sourceIndex, originalLine, originalColumn });
+        segments.push({ generatedColumn, sourceIndex, originalLine, originalColumn, nameIndex: named ? nameIndex : null });
       }
     }
 
@@ -138,7 +158,16 @@ export function parseSourceMap(text: string): SourceMap[] {
 
   const sources = resolveSources(raw);
   if (sources === null || typeof raw.mappings !== 'string') return [];
-  return [{ sources, lines: decodeMappings(raw.mappings, sources.length), offset: { line: 0, column: 0 } }];
+  const names = Array.isArray(raw.names) ? raw.names.map((name) => (typeof name === 'string' ? name : '')) : [];
+  const contents = Array.isArray(raw.sourcesContent) ? raw.sourcesContent : [];
+  const sourcesContent = sources.map((_, index) => (typeof contents[index] === 'string' ? contents[index] as string : null));
+  return [{
+    sources,
+    names,
+    sourcesContent,
+    lines: decodeMappings(raw.mappings, sources.length),
+    offset: { line: 0, column: 0 },
+  }];
 }
 
 function sectionsFor(maps: readonly SourceMap[], line: number, column: number): readonly SourceMap[] {
@@ -174,11 +203,15 @@ function segmentAt(segments: readonly Segment[], column: number): Segment | unde
   return found;
 }
 
-export function originalPositionFor(
+/**
+ * The mapping covering a generated position. `line` and `column` are 1-based;
+ * the returned original position is 1-based too.
+ */
+export function mappingAt(
   maps: readonly SourceMap[],
   line: number,
   column: number,
-): OriginalPosition | null {
+): GeneratedMapping | null {
   for (const map of sectionsFor(maps, line, column)) {
     const localLine = line - map.offset.line;
     const localColumn = localLine === 1 ? column - map.offset.column : column;
@@ -194,10 +227,26 @@ export function originalPositionFor(
     ) return null;
     const source = map.sources[found.sourceIndex];
     if (source === undefined || source === '') continue;
-    return { source, line: found.originalLine + 1, column: found.originalColumn + 1 };
+    return {
+      source,
+      line: found.originalLine + 1,
+      column: found.originalColumn + 1,
+      name: found.nameIndex === null ? null : map.names[found.nameIndex] || null,
+      exact: found.generatedColumn === localColumn - 1,
+      sourceContent: map.sourcesContent[found.sourceIndex] ?? null,
+    };
   }
 
   return null;
+}
+
+export function originalPositionFor(
+  maps: readonly SourceMap[],
+  line: number,
+  column: number,
+): OriginalPosition | null {
+  const found = mappingAt(maps, line, column);
+  return found === null ? null : { source: found.source, line: found.line, column: found.column };
 }
 
 export function sourceMappingUrlOf(code: string): string | null {

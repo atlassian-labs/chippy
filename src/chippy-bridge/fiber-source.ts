@@ -1,11 +1,6 @@
-import {
-  inlineSourceMapOf,
-  originalPositionFor,
-  parseSourceMap,
-  sourceMappingUrlOf,
-  type OriginalPosition,
-  type SourceMap,
-} from './source-map';
+import { originalPositionFor, type OriginalPosition } from './source-map';
+import { createModuleMapCache, fetchModuleFromPage, sourcePath, type FetchModule } from './module-maps';
+import { resolveFiberComponentOrigin } from './component-origin';
 import { baseName, pageModuleUrls, recordedLiteralPosition } from './recorded-source';
 
 export type FiberSourceLocation = {
@@ -27,7 +22,7 @@ export type SourceFiber = {
   _debugStack?: unknown;
 };
 
-export type FetchModule = (url: string) => Promise<string | null>;
+export type { FetchModule };
 
 /** Module URLs that may serve a file named by React <=18 `_debugSource`. */
 export type ModuleUrlsFor = (fileName: string) => readonly string[];
@@ -37,12 +32,6 @@ export type CallSiteResolver = {
   /** Map a recorded `_debugSource` position through its served module. */
   locateRecorded(source: FiberSourceLocation): Promise<FiberSourceLocation>;
   readonly stats: { modules: number; sites: number; located: number };
-};
-
-type ResolvedMaps = {
-  code: string;
-  maps: readonly SourceMap[];
-  sourceBaseUrl: string;
 };
 
 const V8_FRAME = /^\s*at\s+(?:(.+?)\s+\()?(.+?):(\d+):(\d+)\)?$/;
@@ -108,54 +97,20 @@ export function writerLocationOf(
   return null;
 }
 
-function parseUrl(url: string, base?: string): URL | null {
-  try {
-    return new URL(url, base);
-  } catch {
-    return null;
-  }
-}
-
-function sourcePath(source: string, moduleUrl: string): string {
-  if (/^\/(?:Users|home|private|Volumes)\//.test(source)) return source;
-  const direct = parseUrl(source);
-  if (direct?.protocol === 'file:') return decodeURIComponent(direct.pathname);
-  const resolved = parseUrl(source, moduleUrl)?.href ?? source;
-  const parsed = parseUrl(resolved);
-  return parsed ? parsed.pathname.replace(/^\/+/, '') : resolved;
-}
-
 export function createCallSiteResolver(
   fetchModule: FetchModule,
   moduleUrlsFor: ModuleUrlsFor = () => [],
 ): CallSiteResolver {
-  const maps = new Map<string, Promise<ResolvedMaps | null>>();
+  const modules = createModuleMapCache(fetchModule);
   const sites = new Map<string, Promise<FiberSourceLocation | null>>();
   const recordedSites = new Map<string, Promise<FiberSourceLocation>>();
-  const stats = { modules: 0, sites: 0, located: 0 };
+  const stats = {
+    get modules() { return modules.stats.modules; },
+    sites: 0,
+    located: 0,
+  };
 
-  async function mapsFor(url: string): Promise<ResolvedMaps | null> {
-    const cached = maps.get(url);
-    if (cached) return cached;
-
-    const pending = (async () => {
-      stats.modules += 1;
-      const code = await fetchModule(url);
-      if (code === null) return null;
-      const annotation = sourceMappingUrlOf(code);
-      if (annotation === null) return null;
-      const inline = inlineSourceMapOf(annotation);
-      if (inline !== null) return { code, maps: parseSourceMap(inline), sourceBaseUrl: url };
-      const mapUrl = parseUrl(annotation, url)?.href ?? null;
-      const text = mapUrl === null ? null : await fetchModule(mapUrl);
-      return text === null || mapUrl === null
-        ? null
-        : { code, maps: parseSourceMap(text), sourceBaseUrl: mapUrl };
-    })();
-
-    maps.set(url, pending);
-    return pending;
-  }
+  const mapsFor = (url: string) => modules.forUrl(url);
 
   async function locateFrame(frame: StackFrame): Promise<FiberSourceLocation | null> {
     const parsed = await mapsFor(frame.url);
@@ -271,24 +226,6 @@ export function getFiberSource(fiber: SourceFiber | null | undefined): FiberSour
   return getFiberSourceCandidate(fiber);
 }
 
-async function fetchModuleFromPage(url: string): Promise<string | null> {
-  const fetchFn = (globalThis as { fetch?: typeof fetch }).fetch;
-  if (!fetchFn) return null;
-  const controller = typeof AbortController === 'function' ? new AbortController() : null;
-  const timeout = controller ? setTimeout(() => controller.abort(), 2000) : null;
-  try {
-    const response = await fetchFn(url, {
-      credentials: 'same-origin',
-      signal: controller?.signal,
-    });
-    return response.ok ? await response.text() : null;
-  } catch {
-    return null;
-  } finally {
-    if (timeout !== null) clearTimeout(timeout);
-  }
-}
-
 function pageResolver(): CallSiteResolver {
   if (!defaultResolver) defaultResolver = createCallSiteResolver(fetchModuleFromPage, pageModuleUrls);
   return defaultResolver;
@@ -319,7 +256,11 @@ export function resolveFiberSource(
 
   const frames = getFiberStackFrames(fiber);
   const fallback = writerLocationOf(frames, () => null);
-  const pending = resolver.locate(frames)
+  // Production fibers record no call site; recover the component's name and
+  // definition from the bundle instead, so later synchronous reads see them.
+  const origin = frames.length === 0 ? resolveFiberComponentOrigin(fiber) : Promise.resolve(null);
+  const pending = Promise.all([resolver.locate(frames), origin])
+    .then(([source]) => source)
     .catch(() => null)
     .then((source) => {
       const located = source ?? fallback;

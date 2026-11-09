@@ -10,6 +10,7 @@
 import type { Source, TreeGroup } from './inspect-formatters';
 import { renderTreeText } from './inspect-formatters';
 import { getFiberSource } from './fiber-source';
+import { componentDefinitionOf, minifiedComponentName, type ComponentDefinition } from './component-origin';
 
 // ─── Type definitions for injected dependencies ──────────────────────────
 
@@ -84,9 +85,13 @@ export type DescribeComponentResult = {
   ok: boolean;
   error?: string;
   componentName?: string;
+  /** Runtime name, when a production name was recovered from the source map. */
+  minifiedName?: string;
   fiberId?: string;
   resolvedBy?: string;
   source?: { fileName: string | null; lineNumber: number | null } | null;
+  /** Authored definition recovered from the bundle's source map (production). */
+  definition?: ComponentDefinition;
   hookCount?: number;
   liveHookCount?: number;
   replayedHookCount?: number;
@@ -143,14 +148,18 @@ export function evalDescribeComponent(
     path: (r.path as unknown[] as any) || [],
     hooks: [{ hookId: r.index, primitive: r.primitive, debugLabel: r.debugLabel }],
   }));
-  const text = deps.renderTreeText(componentName, source as Source | null, tree);
+  const definition = componentDefinitionOf(fiber.type);
+  const minifiedName = minifiedComponentName(fiber.type);
+  const text = deps.renderTreeText(componentName, (source ?? definition) as Source | null, tree);
 
   return {
     ok: true,
     componentName,
+    ...(minifiedName ? { minifiedName } : {}),
     fiberId,
     resolvedBy,
     source: source ? { fileName: (source as any)?.fileName || null, lineNumber: (source as any)?.lineNumber || null } : null,
+    ...(definition ? { definition } : {}),
     hookCount,
     liveHookCount,
     replayedHookCount,

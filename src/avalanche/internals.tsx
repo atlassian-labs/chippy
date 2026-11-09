@@ -1,6 +1,7 @@
 // React fiber constants and structural comparisons used by the commit detector.
 
 import { getFiberSourceCandidate } from '../chippy-bridge/fiber-source';
+import { readComponentName } from '../chippy-bridge/component-origin';
 
 export type ComponentType =
   | Function
@@ -212,20 +213,7 @@ export function isReactInternalComponentType(type: ComponentType): boolean {
 }
 
 export function getComponentName(fiber: Fiber): string {
-  type TypeWithName = {
-    displayName?: string;
-    name?: string;
-  };
-  // eslint-disable-next-line @typescript-eslint/consistent-type-assertions
-  const type = fiber.type as TypeWithName;
-  // eslint-disable-next-line @typescript-eslint/consistent-type-assertions
-  const elementType = fiber.elementType as TypeWithName;
-  const named = (
-    type?.displayName ||
-    type?.name ||
-    elementType?.displayName ||
-    elementType?.name
-  );
+  const named = readComponentName(fiber.type) || readComponentName(fiber.elementType);
   if (named) return named;
   const source = getFiberSourceCandidate(fiber);
   return (source && `<${source.fileName}:${source.lineNumber}>`) || 'Anonymous';

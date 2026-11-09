@@ -4,6 +4,26 @@
 // src/avalanche/offline-cli.ts
 var import_node_fs = require("node:fs");
 
+// src/chippy-bridge/source-map.ts
+var DIGITS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+var VALUE_OF = new Int8Array(128).fill(-1);
+for (let index = 0; index < DIGITS.length; index += 1) {
+  VALUE_OF[DIGITS.charCodeAt(index)] = index;
+}
+
+// src/chippy-bridge/component-origin.ts
+var IDENTIFIER = "[A-Za-z_$][\\w$]*";
+var OWN_FUNCTION_NAME = new RegExp(`^(?:async\\s*)?function\\s*\\*?\\s*(${IDENTIFIER})\\s*\\(`);
+var OWN_CLASS_NAME = new RegExp(`^class\\s+(${IDENTIFIER})(?=[\\s{])`);
+var AUTHORED_OWN_NAME = new RegExp(
+  `^(?:export\\s+(?:default\\s+)?)?(?:async\\s+)?(?:function\\s*\\*?\\s*|class\\s+)(${IDENTIFIER})`
+);
+var CALLEE = `(?:\\(\\s*0\\s*,\\s*${IDENTIFIER}(?:\\.${IDENTIFIER})*\\s*\\)|${IDENTIFIER}(?:\\.${IDENTIFIER})*)`;
+var GENERATED_BINDING = new RegExp(`(${IDENTIFIER})\\s*[=:]\\s*(?:${CALLEE}\\s*\\(\\s*)*$`);
+var AUTHORED_BINDING = new RegExp(
+  `(?:^|[^\\w$.])(${IDENTIFIER})\\s*(?::[^=;{}()]*)?=\\s*(?:${CALLEE}\\s*(?:<[^()]*>)?\\s*\\(\\s*)*$`
+);
+
 // src/chippy-bridge/avalanche-commands.ts
 var UPSTREAM_COMMIT_STAT_KEYS = [
   "collateral",
