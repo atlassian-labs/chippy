@@ -61,6 +61,20 @@ describe('chippy.sh detection mode', () => {
   });
 });
 
+describe('chippy.sh find-fibers', () => {
+  it('fails with the page error when the helper rejects the pattern', () => {
+    const run = runWithFakeCurl(['find-fibers', 'client-1', '--grep', '('], [{
+      match: '/api/pages/client-1/eval-probe',
+      status: 422,
+      body: { ok: false, error: 'Invalid --grep regex: Unterminated group', result: { ok: false, count: 0, items: [] } },
+    }]);
+    expect(run.status).not.toBe(0);
+    expect(run.stderr).toContain('http_status=422');
+    expect(run.stderr).toContain('error: Invalid --grep regex: Unterminated group');
+    expect(run.stdout).toBe('');
+  });
+});
+
 describe('chippy.sh reload-with-avalanche', () => {
   it('exits 1 with an explanation when the page does not reconnect', () => {
     const run = runWithFakeCurl(

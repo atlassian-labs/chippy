@@ -69,6 +69,11 @@ Known limits:
   report URLs on its own origin, and a client id belongs to the origin that first
   used it, so a page on another origin cannot take over an existing page entry or
   receive its commands.
+- Pages on the same origin share one trust domain. Another tab or a script on
+  the inspected origin can reuse a page's client id and report forged snapshots
+  and results. It gains nothing it does not already have, because a script on
+  that origin can rewrite the DOM and React state that the real page reports.
+  Chippy does not authenticate pages within an origin.
 - An enabled extension origin is a page-injection setting, not authentication
   for the helper API.
 

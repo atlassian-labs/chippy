@@ -91,6 +91,18 @@ function withPageResultHint(result) {
   return { ...result, ok: false, error: result.result.error, hint: BRIDGE_MODULE_MISSING_HINT };
 }
 
+// A page command that ran but rejected its input (for example an invalid
+// find-fibers regex) answers { ok: false, error }. Report that as a request
+// error so the CLI exits non-zero instead of printing an empty result.
+function withPageCommandError(result) {
+  const status = pageResultStatus(result);
+  const inner = status === 200 ? result.result : null;
+  if (!inner || inner.ok !== false || typeof inner.error !== 'string') {
+    return { status, body: withPageResultHint(result) };
+  }
+  return { status: 422, body: { ...result, ok: false, error: inner.error } };
+}
+
 function resolvePendingResult(pendingMap, requestId, result) {
   const pending = pendingMap.get(requestId);
   if (!pending) return false;
@@ -1745,7 +1757,8 @@ async function handleChippyHttp(req, res, url) {
       const delivered = sendToClient(clientId, wsCommand);
       if (!delivered.ok) { json(res, delivered.code, { ok: false, error: delivered.error }); return true; }
       const result = await waitForPendingResult(pendingEvalProbe, requestId, timeoutMs, 'Timeout waiting for eval-probe result');
-      json(res, pageResultStatus(result), { ...withPageResultHint(result), targetClientId: delivered.clientId, resolvedFrom: delivered.resolvedFrom, requestId });
+      const answer = withPageCommandError(result);
+      json(res, answer.status, { ...answer.body, targetClientId: delivered.clientId, resolvedFrom: delivered.resolvedFrom, requestId });
     } catch (e) { json(res, 400, { ok: false, error: e.message }); }
     return true;
   }

@@ -53,6 +53,11 @@ must stay compatible with the extension version in the store.
 
 ### Fixed
 
+- `find-fibers` fails on an invalid regex in `--grep`, `--name`, `--file`,
+  `--testid`, or `--text`, and on an unknown `--in` scope. The helper answers
+  HTTP 422 with the page's error, so `chippy.sh` exits non-zero. Previously the
+  command succeeded with zero items, which looked like a valid search with no
+  matches.
 - `avalanche-commit-peek ... timing` and Avalanche exports return per-commit
   timing. The serializer previously dropped `commitTimings`, so the slice was
   always `null`.

@@ -133,6 +133,8 @@ describe('evalFindFibers --grep', () => {
   it('rejects an unknown scope and keeps the legacy shape without grep', () => {
     expect(evalFindFibers({ grep: 'x', in: 'dom' }, helpers, () => 'id')).toMatchObject({ ok: false, error: expect.stringMatching(/Unknown grep scope/) });
     expect(evalFindFibers({ grep: '(' }, helpers, () => 'id')).toMatchObject({ ok: false, error: expect.stringMatching(/Invalid --grep regex/) });
+    expect(evalFindFibers({ name: '(' }, helpers, () => 'id')).toMatchObject({ ok: false, count: 0, error: expect.stringMatching(/Invalid --name regex/) });
+    expect(evalFindFibers({ text: '[' }, helpers, () => 'id')).toMatchObject({ ok: false, count: 0, error: expect.stringMatching(/Invalid --text regex/) });
     expect(Object.keys(evalFindFibers({}, helpers, () => 'id'))).toEqual(['count', 'items']);
   });
 });

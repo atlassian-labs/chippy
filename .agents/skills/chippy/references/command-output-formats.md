@@ -751,6 +751,8 @@ Searches the live fiber tree without probe placement. Returns remembered `fiberI
 
 Only named fibers are returned. `--name`, `--file`, `--testid` and `--text` are case-insensitive regexes. `--text` and `--testid` match the fiber's nearest DOM text and `data-testid`. `--prop` is an exact prop name and matches when the prop is present, whatever its value. All given filters must match. `--max` defaults to 50.
 
+An invalid regex in any filter, or an unknown `--in` scope, fails the command: the helper answers HTTP 422 with `error` naming the flag (for example `Invalid --grep regex: …`), and `chippy.sh` exits non-zero. An empty `items` list therefore always means the pattern was valid and nothing matched.
+
 `--grep <regex>` searches each fiber's runtime data case-insensitively and returns only fibers with at least one hit. It combines with the other filters, so `--name` or `--file` narrows the scan. `--in` picks scopes (default `props,state`):
 
 - `props`: memoized props, walked to `--depth` (default 4, max 12). Keys, string/number/boolean values, and function names match. React elements, DOM nodes, and fibers are not entered; each element is its own fiber.

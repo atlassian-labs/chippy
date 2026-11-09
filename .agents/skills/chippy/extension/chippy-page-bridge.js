@@ -755,7 +755,7 @@
         const requestId = command.requestId || null;
         Promise.resolve(evalFindFibers(command.filters || {}))
           .then((result) => send({ type: 'eval-probe-result', clientId, requestId, result }))
-          .catch((e) => send({ type: 'eval-probe-result', clientId, requestId, result: { count: 0, items: [], error: e?.message || String(e) } }));
+          .catch((e) => send({ type: 'eval-probe-result', clientId, requestId, result: { ok: false, count: 0, items: [], error: e?.message || String(e) } }));
         break;
       }
       case 'capture-fiber-state': {

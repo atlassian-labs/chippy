@@ -283,25 +283,40 @@ export function evalFiberPropValue(
 
 // ─── evalFindFibers ──────────────────────────────────────────────────────
 
+
+/** Build a case-insensitive filter regex, naming the flag when the pattern is invalid. */
+function filterRegex(pattern: unknown, flag: string): RegExp | null {
+  if (!pattern) return null;
+  try {
+    return new RegExp(String(pattern), 'i');
+  } catch (e) {
+    throw new Error('Invalid --' + flag + ' regex: ' + ((e as Error)?.message || String(e)));
+  }
+}
 export function evalFindFibers(
   filters: FindFibersFilters,
   helpers: ScriptHelpers,
   rememberFiber: RememberFiber,
   deps: FindFibersDeps = {},
 ): { count: number; items: Array<Record<string, unknown>>; [key: string]: unknown } {
-  const nameRe = filters?.name ? new RegExp(String(filters.name), 'i') : null;
-  const fileRe = filters?.file ? new RegExp(String(filters.file), 'i') : null;
-  const testIdRe = filters?.testid ? new RegExp(String(filters.testid), 'i') : null;
-  const textRe = filters?.text ? new RegExp(String(filters.text), 'i') : null;
+  let nameRe: RegExp | null, fileRe: RegExp | null, testIdRe: RegExp | null, textRe: RegExp | null;
+  try {
+    nameRe = filterRegex(filters?.name, 'name');
+    fileRe = filterRegex(filters?.file, 'file');
+    testIdRe = filterRegex(filters?.testid, 'testid');
+    textRe = filterRegex(filters?.text, 'text');
+  } catch (e) {
+    return { ok: false, count: 0, items: [], error: (e as Error).message };
+  }
   const propName = filters?.prop ? String(filters.prop) : null;
   const max = Number.isFinite(Number(filters?.max)) ? Math.max(1, Math.floor(Number(filters?.max))) : 50;
   const matches: Array<Record<string, unknown>> = [];
 
-  let grepRe: RegExp | null = null;
+  let grepRe: RegExp | null;
   try {
-    grepRe = filters?.grep ? new RegExp(String(filters.grep), 'i') : null;
+    grepRe = filterRegex(filters?.grep, 'grep');
   } catch (e) {
-    return { ok: false, count: 0, items: [], error: 'Invalid --grep regex: ' + ((e as Error)?.message || String(e)) };
+    return { ok: false, count: 0, items: [], error: (e as Error).message };
   }
   const { scopes, error: scopeError } = parseGrepScopes(filters?.in);
   if (grepRe && scopeError) return { ok: false, count: 0, items: [], error: scopeError };

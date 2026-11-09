@@ -4664,19 +4664,32 @@ this.__AVALANCHE__ = (function() {
       value: serializeProp(value)
     };
   }
+  function filterRegex(pattern, flag) {
+    if (!pattern) return null;
+    try {
+      return new RegExp(String(pattern), "i");
+    } catch (e) {
+      throw new Error("Invalid --" + flag + " regex: " + ((e == null ? void 0 : e.message) || String(e)));
+    }
+  }
   function evalFindFibers(filters, helpers, rememberFiber, deps = {}) {
-    const nameRe = (filters == null ? void 0 : filters.name) ? new RegExp(String(filters.name), "i") : null;
-    const fileRe = (filters == null ? void 0 : filters.file) ? new RegExp(String(filters.file), "i") : null;
-    const testIdRe = (filters == null ? void 0 : filters.testid) ? new RegExp(String(filters.testid), "i") : null;
-    const textRe = (filters == null ? void 0 : filters.text) ? new RegExp(String(filters.text), "i") : null;
+    let nameRe, fileRe, testIdRe, textRe;
+    try {
+      nameRe = filterRegex(filters == null ? void 0 : filters.name, "name");
+      fileRe = filterRegex(filters == null ? void 0 : filters.file, "file");
+      testIdRe = filterRegex(filters == null ? void 0 : filters.testid, "testid");
+      textRe = filterRegex(filters == null ? void 0 : filters.text, "text");
+    } catch (e) {
+      return { ok: false, count: 0, items: [], error: e.message };
+    }
     const propName = (filters == null ? void 0 : filters.prop) ? String(filters.prop) : null;
     const max = Number.isFinite(Number(filters == null ? void 0 : filters.max)) ? Math.max(1, Math.floor(Number(filters == null ? void 0 : filters.max))) : 50;
     const matches = [];
-    let grepRe = null;
+    let grepRe;
     try {
-      grepRe = (filters == null ? void 0 : filters.grep) ? new RegExp(String(filters.grep), "i") : null;
+      grepRe = filterRegex(filters == null ? void 0 : filters.grep, "grep");
     } catch (e) {
-      return { ok: false, count: 0, items: [], error: "Invalid --grep regex: " + ((e == null ? void 0 : e.message) || String(e)) };
+      return { ok: false, count: 0, items: [], error: e.message };
     }
     const { scopes, error: scopeError } = parseGrepScopes(filters == null ? void 0 : filters.in);
     if (grepRe && scopeError) return { ok: false, count: 0, items: [], error: scopeError };
