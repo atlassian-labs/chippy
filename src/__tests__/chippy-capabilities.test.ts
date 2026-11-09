@@ -325,6 +325,9 @@ describe('Chippy browser capabilities from scenario matrix', () => {
     await chippyPanel.getByLabel('P1 comment').fill(annotation.comment);
     await chippyPanel.getByLabel('P1 intent').selectOption(annotation.intent);
     expect(await chippyPanel.getByRole('button', { name: 'Attach to P1' }).count()).toBe(0);
+    // A Change note is a draft until Enter in the comment sends it.
+    expect(await chippyPanel.getByText('Not sent.', { exact: false }).count()).toBe(1);
+    await chippyPanel.getByLabel('P1 comment').press('Enter');
     await expect.poll(
       () => frame.locator('body').evaluate(() => (window as any).__CHIPPY_PROBE_ANNOTATION_RESULT__),
       { timeout: 10_000 },
