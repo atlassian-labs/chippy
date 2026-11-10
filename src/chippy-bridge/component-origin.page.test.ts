@@ -188,6 +188,47 @@ describe('production names through the page realm', () => {
     });
   });
 
+  it('returns ambiguous fibers whose possible names match find-fibers --name, with breadcrumbs', async () => {
+    const top = fiber(null, null, { tag: 3 });
+    const both = fiber(dup.exports.Both, top);
+    const heart = fiber(dup.exports.HeartIcon, fiber('p', both, { tag: 5 }));
+    const walkAll = walkFrom(top);
+    await warmFindFiberNames({ name: 'HeartIcon' }, { walkAll });
+
+    const fibers = new Map<string, Fiber>();
+    const result = evalFindFibers({ name: '^HeartIcon$' }, {
+      walkAll,
+      fiberInfo: (node) => ({ name: readComponentName(node.type) }),
+    }, (node) => {
+      const id = `fiber:${fibers.size + 1}`;
+      fibers.set(id, node);
+      return id;
+    });
+    expect(result).toMatchObject({ count: 1, possibleMatches: 1 });
+    expect(fibers.get(result.items[0]!.fiberId as string)).toBe(heart);
+    await resolveFindFiberSources(result.items, (id) => fibers.get(id), async () => null);
+    expect(result.items[0]).toMatchObject({
+      match: 'possible',
+      possibleNames: ['HeartIcon'],
+      breadcrumbs: {
+        whereToLook: [
+          { name: 'StarIcon', line: 2, confidence: 'possible' },
+          { name: 'HeartIcon', line: 3, confidence: 'possible' },
+        ],
+      },
+    });
+  });
+
+  it('keeps nameless production components in find-fibers results', () => {
+    const top = fiber(null, null, { tag: 3 });
+    fiber((() => () => null)(), top, { memoizedProps: { label: 'x' } });
+    const result = evalFindFibers({ prop: 'label' }, {
+      walkAll: walkFrom(top),
+      fiberInfo: (node) => ({ name: readComponentName(node.type) }),
+    }, () => 'fiber:1');
+    expect(result.count).toBe(1);
+  });
+
   it('treats nameless production components as user components', () => {
     const nameless = (() => () => null)();
     expect(nameless.name).toBe('');

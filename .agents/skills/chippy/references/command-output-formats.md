@@ -685,6 +685,37 @@ A name inferred for one fiber applies to every fiber of that component type, bec
 
 Nothing is recovered when the bundle has no source map or the map cannot be fetched. The component then keeps its minified name, or has no name if the minifier dropped it.
 
+### Where to look: `breadcrumbs`
+
+A production build cannot prove which authored component a fiber came from, so Chippy hands over every lead the page offers and labels each one. The target component of `probe`, `probe-owners`, `describe-component`, and `explain-component`, and each production item of `find-fibers`, carry `breadcrumbs`:
+
+- `whereToLook`: authored locations, most likely first, up to 8; `whereToLookOmitted` counts the rest. Each entry has `file`, `line`, `column`, `name`, `why`, and `confidence`:
+  - `exact`: the source map maps this component's code to this definition.
+  - `inferred`: the location follows from an ancestor's code, either the definition its code references or that ancestor itself.
+  - `possible`: identical minified code also maps here. The component is one of the `possible` entries, not necessarily the first.
+- `grep`: string literals from the component's own code, such as class names, test ids, visible text, and translation keys, which survive minification. A dashed attribute is written as `data-testid="toolbar"`. Search the repository for them. They need no source map.
+- `script`: the bundle URL and the generated `line` and `column` of the component.
+- `nearestTestId`: the `data-testid` on or above the component's first DOM element.
+- `errorBoundary`: the nearest error boundary above the component, as `{ name, distance }` in fibers.
+- `limits`: what the page could not provide, such as `no source map for <script>: file unknown; search for the grep strings`. An empty list means the definition is exact.
+
+`whereToLook` is empty without a source map; `grep`, `script`, `nearestTestId`, and `errorBoundary` remain. Without source maps, local or Storybook builds are not expected to match the production bundle, so the strings and the surrounding test ids are the leads to follow.
+
+```json
+"breadcrumbs": {
+  "whereToLook": [
+    { "file": "src/icons.jsx", "line": 2, "column": 0, "name": "StarIcon", "why": "Toolbar's code references StarIcon", "confidence": "inferred" },
+    { "file": "src/icons.jsx", "line": 3, "column": 0, "name": "HeartIcon", "why": "identical minified code", "confidence": "possible" },
+    { "file": "src/Toolbar.jsx", "line": 11, "column": 7, "name": "Toolbar", "why": "nearest ancestor whose code references it", "confidence": "inferred" }
+  ],
+  "grep": ["star-icon"],
+  "script": { "url": "https://app.example.com/assets/index-3f2a.js", "line": 1, "column": 5120 },
+  "nearestTestId": "toolbar",
+  "errorBoundary": { "name": "AppErrorBoundary", "distance": 6 },
+  "limits": ["name inferred from Toolbar's code; identical code maps to 2 components"]
+}
+```
+
 ```json
 {
   "ok": true,
@@ -801,7 +832,7 @@ Searches the live fiber tree without probe placement. Returns remembered `fiberI
 
 Only named fibers are returned. `--name`, `--file`, `--testid` and `--text` are case-insensitive regexes. `--text` and `--testid` match the fiber's nearest DOM text and `data-testid`. `--prop` is an exact prop name and matches when the prop is present, whatever its value. All given filters must match. `--max` defaults to 50.
 
-On a production build, `--name` matches the authored names Chippy recovers from the page's source maps (see [Production builds](#production-component-names)). Before matching, Chippy resolves the component types of fibers that pass the other filters (`--prop`, `--file`, `--testid`, `--text`), within a 3-second budget. With `--name` alone, that is every component type in the tree, so combine it with another filter on large pages. The result carries `nameRecovery`: `types` (component types without development metadata), `cached` (already resolved by an earlier command), `resolved`, `named`, `skipped` (types left when the budget ran out), `byContext` (ambiguous types named from an ancestor's code, also counted in `named`), and `statuses` (count per text resolution status, including `ambiguous`). Each recovered item adds `minifiedName` and `definition`, and `nameInferredFrom` when its name came from an ancestor.
+On a production build, `--name` matches the authored names Chippy recovers from the page's source maps (see [Production builds](#production-component-names)). Before matching, Chippy resolves the component types of fibers that pass the other filters (`--prop`, `--file`, `--testid`, `--text`), within a 3-second budget. With `--name` alone, that is every component type in the tree, so combine it with another filter on large pages. The result carries `nameRecovery`: `types` (component types without development metadata), `cached` (already resolved by an earlier command), `resolved`, `named`, `skipped` (types left when the budget ran out), `byContext` (ambiguous types named from an ancestor's code, also counted in `named`), and `statuses` (count per text resolution status, including `ambiguous`). Each recovered item adds `minifiedName` and `definition`, and `nameInferredFrom` when its name came from an ancestor. When a component's identical code maps to several authored names and no ancestor settles which one, `--name` still returns the fiber if one of those names matches, with `match: "possible"` and `possibleNames`; the result counts these in `possibleMatches`. Production items carry [`breadcrumbs`](#where-to-look-breadcrumbs).
 
 An invalid regex in any filter, or an unknown `--in` scope, fails the command: the helper answers HTTP 422 with `error` naming the flag (for example `Invalid --grep regex: …`), and `chippy.sh` exits non-zero. An empty `items` list therefore always means the pattern was valid and nothing matched.
 

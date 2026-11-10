@@ -13,7 +13,7 @@ const APP_SOURCE = `import { memo, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 
 function ProjectList({ items }) {
-  return <ul id="list">{items.map((item) => <ProjectRow key={item} label={item} />)}</ul>;
+  return <ul id="list" data-testid="project-list">{items.map((item) => <ProjectRow key={item} label={item} />)}</ul>;
 }
 const ProjectRow = memo(function ProjectRow({ label }) {
   const [open, setOpen] = useState(false);
@@ -92,6 +92,27 @@ describe('Chippy on a minified production React build', () => {
         minifiedName: expect.any(String),
         definition: { fileName: 'src/app.jsx', lineNumber: 4 },
       });
+    } finally { await page.close(); }
+  }, 30000);
+
+  it('hands over breadcrumbs for a production component', async () => {
+    const page = await openPage();
+    try {
+      const breadcrumbs = await page.evaluate(async () => {
+        const av = (window as any).__AVALANCHE__;
+        const fiber = av.layoutLab.getNearestComponent(document.querySelector('#row-a'));
+        await av.layoutLab.resolveFiberSource(fiber);
+        const entry: Record<string, any> = {};
+        av.bridge.applyProductionBreadcrumbs(entry, fiber);
+        return entry.breadcrumbs;
+      });
+      expect(breadcrumbs).toMatchObject({
+        whereToLook: [{ file: 'src/app.jsx', line: 7, name: 'ProjectRow', confidence: 'exact' }],
+        nearestTestId: 'project-list',
+        script: { url: `${ORIGIN}/assets/index-prod.js` },
+        limits: [],
+      });
+      expect(breadcrumbs.grep).toEqual(expect.arrayContaining(['row-', '(open)']));
     } finally { await page.close(); }
   }, 30000);
 

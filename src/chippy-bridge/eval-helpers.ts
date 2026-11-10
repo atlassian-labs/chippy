@@ -25,10 +25,13 @@
 import { collectOwnerFibers, isComponentFiber } from './owner-chain';
 import {
   applyRecoveredOrigin,
+  needsComponentOrigin,
+  possibleComponentNames,
   readComponentName,
   type NameRecoveryStats,
 } from './component-origin';
 import { warmComponentNames } from './fiber-origin';
+import { applyProductionBreadcrumbs } from './production-breadcrumbs';
 import { replayComponentHooks } from '../debug-render/replay';
 import {
   DEFAULT_GREP_LIMITS,
@@ -337,8 +340,15 @@ export function evalFindFibers(
   helpers.walkAll((fiber) => {
     if (matches.length >= max) { truncated = true; return; }
     const info = helpers.fiberInfo(fiber);
-    if (!info?.name) return;
-    if (nameRe && !nameRe.test(info.name)) return;
+    // Production builds: a component's identical code can map to several
+    // authored names; keep it when one of them matches, marked as possible.
+    let possibleNames: string[] | null = null;
+    if (nameRe && !(info?.name && nameRe.test(info.name))) {
+      possibleNames = possibleComponentNames(fiber?.type).filter((name) => nameRe!.test(name));
+      if (possibleNames.length === 0) return;
+    } else if (!info?.name && !needsComponentOrigin(fiber)) {
+      return;
+    }
     if (fileRe && !fileRe.test(info.source?.fileName || '')) return;
     if (testIdRe && !testIdRe.test(info.domTestId || '')) return;
     if (textRe && !textRe.test(info.domText || '')) return;
@@ -367,15 +377,19 @@ export function evalFindFibers(
     matches.push({
       fiberId,
       ...info,
+      ...(possibleNames ? { match: 'possible', possibleNames } : {}),
       ...(hits ? { hits, hitsTruncated: hits.length >= limits.maxHits } : {}),
       ...(replayInfo && replayInfo.status !== 'complete' ? { replay: replayInfo } : {}),
     });
   }, { limit: 200000 });
 
-  if (!grepRe) return { count: matches.length, items: matches };
+  const possible = matches.filter((item) => item.match === 'possible').length;
+  const possibleMatches = possible ? { possibleMatches: possible } : {};
+  if (!grepRe) return { count: matches.length, items: matches, ...possibleMatches };
   return {
     count: matches.length,
     items: matches,
+    ...possibleMatches,
     truncated,
     grep: {
       pattern: String(filters?.grep),
@@ -409,6 +423,7 @@ export async function resolveFindFiberSources<S>(
       if (source) item.source = source;
     } catch {}
     applyRecoveredOrigin(item, fiber.type);
+    applyProductionBreadcrumbs(item, fiber);
   }));
 }
 

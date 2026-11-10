@@ -87,6 +87,21 @@ it, the component keeps its minified name.
 Recovery needs the page to be able to fetch the bundle and its map. It does not
 apply when the map is missing or unreachable.
 
+### Where to look
+
+A production build cannot prove which authored component a fiber came from.
+For production components, Chippy returns `breadcrumbs` that list every lead
+and how far to trust it:
+
+- With source maps, authored files and lines, ranked `exact`, `inferred`, or
+  `possible`. Identical minified code is listed as possible definitions
+  rather than hidden, and `find-fibers --name` returns such fibers marked as
+  possible matches.
+- Always, strings from the component's code to search for, the bundle and
+  position that hold it, the nearest test id, and the nearest error boundary.
+- `limits`, which states what the page could not provide, such as a missing
+  source map.
+
 ### Keeping names in the build
 
 Without source maps, keeping display names in production code helps the most.

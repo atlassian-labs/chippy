@@ -299,6 +299,7 @@
     const applyOrigin = getBridge()?.applyRecoveredOrigin;
     if (applyOrigin && marker.resolved.component) {
       applyOrigin(marker.resolved.component, componentFiber.type);
+      getBridge()?.applyProductionBreadcrumbs?.(marker.resolved.component, componentFiber);
       ownerFibers.forEach((fiber, index) => applyOrigin(marker.resolved.component.owners?.[index], fiber.type));
       parentFibers.forEach((fiber, index) => applyOrigin(marker.resolved.component.parents?.[index], fiber.type));
     }
@@ -744,8 +745,9 @@
       }
       case 'eval-probe-owners': {
         const requestId = command.requestId || null;
-        const result = evalProbeOwners(command.probeId);
-        send({ type: 'eval-probe-result', clientId, requestId, result });
+        Promise.resolve(evalProbeOwners(command.probeId))
+          .then((result) => send({ type: 'eval-probe-result', clientId, requestId, result }))
+          .catch((e) => send({ type: 'eval-probe-result', clientId, requestId, result: { ok: false, error: e?.message || String(e) } }));
         break;
       }
       case 'eval-probe-parents': {
@@ -1454,9 +1456,20 @@
     return { probeId: String(probeId), ...evalFiberParents(resolved.fiber, null, max) };
   }
 
-  function evalProbeOwners(probeId) {
+  async function evalProbeOwners(probeId) {
     const resolved = getProbeFiber(probeId);
     if (resolved?.error) return { ok: false, ...resolved };
+    // Production builds: recover the names and origins this result shows.
+    const b = getBridge();
+    if (b?.resolveFiberSource) {
+      const fibers = [resolved.fiber];
+      for (let i = 0; i < 50; i++) {
+        const owner = resolveOwnerFiber(resolved.fiber, i);
+        if (!owner) break;
+        fibers.push(owner);
+      }
+      await Promise.all(fibers.map((fiber) => Promise.resolve(b.resolveFiberSource(fiber)).catch(() => null)));
+    }
     const componentHooks = evalFiberHooks(resolved.fiber);
     const props = resolved.fiber?.memoizedProps || {};
     const propNames = props && typeof props === 'object'
@@ -1478,11 +1491,18 @@
         hookCountTruncated: componentHooks?.truncated ?? false,
         hookCountMax: componentHooks?.maxHooks ?? null,
       },
+      ...probeOwnersBreadcrumbs(resolved.fiber),
       // 'parents' when the build records no debug owners; ownerIndex values
       // then address the component parent chain.
       ownerStackKind: getBridge()?.getOwnerStackKind?.(resolved.fiber) ?? null,
       owners,
     };
+  }
+
+  function probeOwnersBreadcrumbs(fiber) {
+    const entry = {};
+    getBridge()?.applyProductionBreadcrumbs?.(entry, fiber);
+    return entry.breadcrumbs ? { breadcrumbs: entry.breadcrumbs } : {};
   }
 
   function evalProbeProps(probeId, ownerIndex) {
@@ -1705,6 +1725,7 @@
     // Production builds: the definition recovered from the bundle's source map.
     const origin = {};
     if (b?.applyRecoveredOrigin) b.applyRecoveredOrigin(origin, fiber.type);
+    b?.applyProductionBreadcrumbs?.(origin, fiber);
     const text = renderCompactComponentText(componentName, source || origin.definition || null, summary, records, warnings);
     return {
       ok: true,
@@ -1714,6 +1735,7 @@
       resolvedBy,
       source: source ? { fileName: source.fileName || null, lineNumber: source.lineNumber || null } : null,
       ...(origin.definition ? { definition: origin.definition } : {}),
+      ...(origin.breadcrumbs ? { breadcrumbs: origin.breadcrumbs } : {}),
       hookCount: summary.hookCount,
       liveHookCount: summary.liveHookCount,
       replayedHookCount: summary.replayedHookCount,

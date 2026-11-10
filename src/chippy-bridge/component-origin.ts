@@ -384,6 +384,18 @@ export function nameContextOf(type: unknown): ComponentOrigin['context'] | null 
   return pageResolver?.peek(type)?.context ?? null;
 }
 
+/**
+ * Authored names a type may have when its identical code maps to several
+ * components, once resolved; empty otherwise.
+ */
+export function possibleComponentNames(type: unknown): string[] {
+  const origin = pageResolver?.peek(type);
+  if (origin?.status !== 'ambiguous' || ownName(type)) return [];
+  const names = new Set<string>();
+  for (const candidate of origin.candidates ?? []) if (candidate.name) names.add(candidate.name);
+  return Array.from(names);
+}
+
 /** Resolve the origin of a component type through the page resolver. */
 export function resolveComponentOrigin(type: unknown): Promise<ComponentOrigin> {
   return pageComponentOrigins().resolve(type);

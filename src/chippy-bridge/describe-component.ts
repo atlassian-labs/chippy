@@ -11,6 +11,7 @@ import type { Source, TreeGroup } from './inspect-formatters';
 import { renderTreeText } from './inspect-formatters';
 import { getFiberSource } from './fiber-source';
 import { componentDefinitionOf, minifiedComponentName, type ComponentDefinition } from './component-origin';
+import { productionBreadcrumbs, type Breadcrumbs } from './production-breadcrumbs';
 
 // ─── Type definitions for injected dependencies ──────────────────────────
 
@@ -92,6 +93,8 @@ export type DescribeComponentResult = {
   source?: { fileName: string | null; lineNumber: number | null } | null;
   /** Authored definition recovered from the bundle's source map (production). */
   definition?: ComponentDefinition;
+  /** Production builds: where to look for the component in the repository. */
+  breadcrumbs?: Breadcrumbs;
   hookCount?: number;
   liveHookCount?: number;
   replayedHookCount?: number;
@@ -150,6 +153,7 @@ export function evalDescribeComponent(
   }));
   const definition = componentDefinitionOf(fiber.type);
   const minifiedName = minifiedComponentName(fiber.type);
+  const breadcrumbs = productionBreadcrumbs(fiber);
   const text = deps.renderTreeText(componentName, (source ?? definition) as Source | null, tree);
 
   return {
@@ -160,6 +164,7 @@ export function evalDescribeComponent(
     resolvedBy,
     source: source ? { fileName: (source as any)?.fileName || null, lineNumber: (source as any)?.lineNumber || null } : null,
     ...(definition ? { definition } : {}),
+    ...(breadcrumbs ? { breadcrumbs } : {}),
     hookCount,
     liveHookCount,
     replayedHookCount,

@@ -650,6 +650,13 @@ function nameContextOf(type) {
   if (ownName(type)) return null;
   return ((_a2 = pageResolver$1 == null ? void 0 : pageResolver$1.peek(type)) == null ? void 0 : _a2.context) ?? null;
 }
+function possibleComponentNames(type) {
+  const origin = pageResolver$1 == null ? void 0 : pageResolver$1.peek(type);
+  if ((origin == null ? void 0 : origin.status) !== "ambiguous" || ownName(type)) return [];
+  const names = /* @__PURE__ */ new Set();
+  for (const candidate of origin.candidates ?? []) if (candidate.name) names.add(candidate.name);
+  return Array.from(names);
+}
 function resolveComponentOrigin(type) {
   return pageComponentOrigins().resolve(type);
 }
@@ -2121,7 +2128,7 @@ function createInteractionCapture(options = {}) {
     }
     return null;
   }
-  function nearestTestId(node) {
+  function nearestTestId2(node) {
     let current = node instanceof Element ? node : null;
     while (current) {
       const value = current.getAttribute("data-testid");
@@ -2139,7 +2146,7 @@ function createInteractionCapture(options = {}) {
       dom: {
         tag: (describedTarget == null ? void 0 : describedTarget.domTag) || null,
         text: (describedTarget == null ? void 0 : describedTarget.domText) || "",
-        nearestTestId: nearestTestId(target)
+        nearestTestId: nearestTestId2(target)
       },
       targetFiber: describedComponent ? {
         name: describedComponent.name,
@@ -4870,6 +4877,337 @@ function renderCompactComponentText(componentName, source, summary, records, war
   if (warnings && warnings.length) out.push("warnings: " + warnings.join("; "));
   return out.join("\n");
 }
+const MAX_COMPONENT_STRINGS = 12;
+const MIN_LENGTH = 2;
+const MAX_LENGTH = 120;
+const NOISE = /* @__PURE__ */ new Set([
+  "a",
+  "abbr",
+  "article",
+  "aside",
+  "b",
+  "blockquote",
+  "body",
+  "br",
+  "button",
+  "canvas",
+  "caption",
+  "circle",
+  "code",
+  "col",
+  "dd",
+  "defs",
+  "details",
+  "dialog",
+  "div",
+  "dl",
+  "dt",
+  "em",
+  "fieldset",
+  "figure",
+  "footer",
+  "form",
+  "g",
+  "h1",
+  "h2",
+  "h3",
+  "h4",
+  "h5",
+  "h6",
+  "head",
+  "header",
+  "hr",
+  "html",
+  "i",
+  "iframe",
+  "img",
+  "input",
+  "label",
+  "legend",
+  "li",
+  "line",
+  "link",
+  "main",
+  "mask",
+  "meta",
+  "nav",
+  "ol",
+  "option",
+  "p",
+  "path",
+  "pre",
+  "polygon",
+  "polyline",
+  "rect",
+  "section",
+  "select",
+  "small",
+  "span",
+  "strong",
+  "sub",
+  "summary",
+  "sup",
+  "svg",
+  "table",
+  "tbody",
+  "td",
+  "textarea",
+  "tfoot",
+  "th",
+  "thead",
+  "tr",
+  "u",
+  "ul",
+  "use",
+  "video",
+  "function",
+  "object",
+  "string",
+  "number",
+  "boolean",
+  "undefined",
+  "symbol",
+  "bigint",
+  "use strict",
+  "default",
+  "children"
+]);
+function skipSpace(text, index) {
+  while (index < text.length && /\s/.test(text[index])) index += 1;
+  return index;
+}
+function previousSignificant(text, index) {
+  let at = index - 1;
+  while (at >= 0 && /\s/.test(text[at])) at -= 1;
+  return at >= 0 ? text[at] : "";
+}
+function quotedEnd(text, start, quote) {
+  for (let at = start + 1; at < text.length; at += 1) {
+    const char = text[at];
+    if (char === "\\") at += 1;
+    else if (char === quote) return at;
+    else if (char === "\n" && quote !== "`") return -1;
+  }
+  return -1;
+}
+function templateChunks(text, start) {
+  const chunks = [];
+  let chunk = "";
+  for (let at = start + 1; at < text.length; at += 1) {
+    const char = text[at];
+    if (char === "\\") {
+      chunk += text.slice(at, at + 2);
+      at += 1;
+    } else if (char === "`") {
+      chunks.push(chunk);
+      return { chunks, end: at };
+    } else if (char === "$" && text[at + 1] === "{") {
+      chunks.push(chunk);
+      chunk = "";
+      let depth = 1;
+      for (at += 2; at < text.length && depth > 0; at += 1) {
+        if (text[at] === "{") depth += 1;
+        else if (text[at] === "}") depth -= 1;
+      }
+      at -= 1;
+    } else {
+      chunk += char;
+    }
+  }
+  return { chunks, end: text.length };
+}
+const REGEX_KEYWORD = /(?:^|[^\w$])(?:return|typeof|case|void|delete|throw|in|of|new|yield|await)\s*$/;
+function startsRegex(text, index) {
+  const before = previousSignificant(text, index);
+  return before === "" || /[(,=:[!&|?{};+\-*%<>~^]/.test(before) || REGEX_KEYWORD.test(text.slice(Math.max(0, index - 12), index));
+}
+function regexEnd(text, start) {
+  let inClass = false;
+  for (let at = start + 1; at < text.length; at += 1) {
+    const char = text[at];
+    if (char === "\\") at += 1;
+    else if (char === "[") inClass = true;
+    else if (char === "]") inClass = false;
+    else if (char === "/" && !inClass) return at;
+    else if (char === "\n") return start;
+  }
+  return start;
+}
+function stringLiterals(text) {
+  const out = [];
+  for (let at = 0; at < text.length; at += 1) {
+    const char = text[at];
+    if (char === "/" && text[at + 1] === "/") {
+      const end = text.indexOf("\n", at);
+      at = end === -1 ? text.length : end;
+    } else if (char === "/" && text[at + 1] === "*") {
+      const end = text.indexOf("*/", at + 2);
+      at = end === -1 ? text.length : end + 1;
+    } else if (char === "/" && startsRegex(text, at)) {
+      at = regexEnd(text, at);
+    } else if (char === '"' || char === "'") {
+      const end = quotedEnd(text, at, char);
+      if (end === -1) continue;
+      const before = previousSignificant(text, at);
+      const key = (before === "{" || before === ",") && text[skipSpace(text, end + 1)] === ":";
+      out.push({ value: text.slice(at + 1, end), key, end });
+      at = end;
+    } else if (char === "`") {
+      const { chunks, end } = templateChunks(text, at);
+      for (const chunk of chunks) out.push({ value: chunk, key: false, end });
+      at = end;
+    }
+  }
+  return out;
+}
+function distinctive(value) {
+  const trimmed = value.trim();
+  if (trimmed.length < MIN_LENGTH || trimmed.length > MAX_LENGTH) return false;
+  if (!/[A-Za-z]/.test(trimmed) || NOISE.has(trimmed)) return false;
+  return !/^react\./.test(trimmed);
+}
+function componentStringsOf(text, max = MAX_COMPONENT_STRINGS) {
+  const literals = stringLiterals(text);
+  const seen = /* @__PURE__ */ new Set();
+  const strings = [];
+  for (let index = 0; index < literals.length; index += 1) {
+    const literal = literals[index];
+    let value = null;
+    if (literal.key) {
+      const next = literals[index + 1];
+      const colon = skipSpace(text, literal.end + 1);
+      const valueStart = skipSpace(text, colon + 1);
+      if (literal.value.includes("-") && next && !next.key && next.end > valueStart && /["']/.test(text[valueStart] ?? "")) {
+        if (distinctive(next.value)) value = `${literal.value}="${next.value}"`;
+        index += 1;
+      }
+    } else if (distinctive(literal.value)) {
+      value = literal.value.trim();
+    }
+    if (value === null || seen.has(value)) continue;
+    seen.add(value);
+    strings.push(value);
+  }
+  return { strings: strings.slice(0, max), omitted: Math.max(0, strings.length - max) };
+}
+function componentStrings(type, max = MAX_COMPONENT_STRINGS) {
+  const fn = componentFunctionOf(type);
+  if (!fn) return { strings: [], omitted: 0 };
+  try {
+    return componentStringsOf(Function.prototype.toString.call(fn), max);
+  } catch {
+    return { strings: [], omitted: 0 };
+  }
+}
+const MAX_WHERE_TO_LOOK = 8;
+const MAX_BOUNDARY_DISTANCE = 400;
+function lead(definition, name, why, confidence) {
+  return { file: definition.fileName, line: definition.lineNumber, column: definition.columnNumber, name, why, confidence };
+}
+function sameLocation(a, b) {
+  return a.file === b.file && a.line === b.line && a.column === b.column;
+}
+function whereToLookFor(origin) {
+  if (!origin) return [];
+  const out = [];
+  const add = (entry) => {
+    if (!out.some((existing) => sameLocation(existing, entry))) out.push(entry);
+  };
+  const candidates = origin.candidates ?? [];
+  const inferred = origin.nameEvidence === "ancestor-reference" && origin.context;
+  if (origin.status === "resolved" && origin.definition) {
+    add(lead(
+      origin.definition,
+      origin.name,
+      inferred ? `${origin.context.name || "an ancestor"}'s code references ${origin.name}` : "definition",
+      inferred ? "inferred" : "exact"
+    ));
+  }
+  for (const candidate of candidates) {
+    if (!candidate.definition) continue;
+    const sameName = origin.status === "resolved" && candidate.name === origin.name;
+    const why = sameName && !inferred ? `one of ${candidates.length} definitions named ${origin.name} with identical code` : sameName ? `${origin.context.name || "an ancestor"}'s code references ${origin.name}` : "identical minified code";
+    add(lead(candidate.definition, candidate.name, why, sameName && inferred ? "inferred" : "possible"));
+  }
+  if (inferred && origin.context.definition) {
+    add(lead(origin.context.definition, origin.context.name || null, "nearest ancestor whose code references it", "inferred"));
+  }
+  return out;
+}
+function limitsOf(origin, grepCount) {
+  var _a2, _b2;
+  const grep = grepCount > 0 ? "search for the grep strings" : "the component code has no distinctive strings";
+  if (!origin) return [`component origin not resolved: file unknown; ${grep}`];
+  const limits = [];
+  const count = ((_a2 = origin.candidates) == null ? void 0 : _a2.length) ?? 0;
+  switch (origin.status) {
+    case "resolved":
+      if (origin.nameEvidence === "ancestor-reference") {
+        limits.push(`name inferred from ${((_b2 = origin.context) == null ? void 0 : _b2.name) || "an ancestor"}'s code; identical code maps to ${count} components`);
+      } else if (!origin.definition && count > 1) {
+        limits.push(`${count} definitions share this name and code; each is listed as possible`);
+      }
+      break;
+    case "ambiguous":
+      limits.push(`identical minified code maps to ${count} components; name and file are one of the possible locations`);
+      break;
+    case "no-source-map":
+      limits.push(`no source map for ${origin.script}: file unknown; ${grep}`);
+      break;
+    case "unmapped":
+      limits.push(`the source map has no mapping for this component: file unknown; ${grep}`);
+      break;
+    case "not-found":
+      limits.push(`component code not found in the page's scripts: file unknown; ${grep}`);
+      break;
+    case "unsupported":
+      limits.push(`component code is not readable: file unknown`);
+      break;
+  }
+  if (origin.truncated) {
+    limits.push(`search stopped at ${MAX_OCCURRENCES} occurrences or ${MAX_CANDIDATES} candidates; the real definition may be missing`);
+  }
+  return limits;
+}
+function nearestTestId(fiber) {
+  var _a2, _b2;
+  if (typeof Element === "undefined") return null;
+  try {
+    return ((_b2 = (_a2 = getFiberDomNode(fiber)) == null ? void 0 : _a2.closest("[data-testid]")) == null ? void 0 : _b2.getAttribute("data-testid")) ?? null;
+  } catch {
+    return null;
+  }
+}
+function nearestErrorBoundary(fiber) {
+  let distance = 0;
+  for (let node = fiber.return ?? null; node && distance < MAX_BOUNDARY_DISTANCE; node = node.return ?? null) {
+    distance += 1;
+    const boundary = describeErrorBoundary(node);
+    if (boundary) return { name: boundary.componentName, distance };
+  }
+  return null;
+}
+function productionBreadcrumbs(fiber, resolver = pageComponentOrigins()) {
+  if (!fiber || !needsComponentOrigin(fiber)) return null;
+  const origin = resolver.peek(fiber.type);
+  const all = whereToLookFor(origin);
+  const { strings, omitted } = componentStrings(fiber.type);
+  return {
+    whereToLook: all.slice(0, MAX_WHERE_TO_LOOK),
+    ...all.length > MAX_WHERE_TO_LOOK ? { whereToLookOmitted: all.length - MAX_WHERE_TO_LOOK } : {},
+    grep: strings,
+    ...omitted ? { grepOmitted: omitted } : {},
+    script: (origin == null ? void 0 : origin.script) && origin.generated ? { url: origin.script, ...origin.generated } : null,
+    nearestTestId: nearestTestId(fiber),
+    errorBoundary: nearestErrorBoundary(fiber),
+    limits: limitsOf(origin, strings.length)
+  };
+}
+function applyProductionBreadcrumbs(entry, fiber) {
+  if (!entry) return;
+  const breadcrumbs = productionBreadcrumbs(fiber);
+  if (breadcrumbs) entry.breadcrumbs = breadcrumbs;
+}
 function evalDescribeComponent(fiberIdRaw, nameRaw, deps) {
   const target = deps.resolveFiberTarget(null, fiberIdRaw, nameRaw);
   if (target.error) return { ok: false, error: target.error };
@@ -4895,6 +5233,7 @@ function evalDescribeComponent(fiberIdRaw, nameRaw, deps) {
   }));
   const definition = componentDefinitionOf(fiber.type);
   const minifiedName = minifiedComponentName(fiber.type);
+  const breadcrumbs = productionBreadcrumbs(fiber);
   const text = deps.renderTreeText(componentName, source ?? definition, tree);
   return {
     ok: true,
@@ -4904,6 +5243,7 @@ function evalDescribeComponent(fiberIdRaw, nameRaw, deps) {
     resolvedBy,
     source: source ? { fileName: (source == null ? void 0 : source.fileName) || null, lineNumber: (source == null ? void 0 : source.lineNumber) || null } : null,
     ...definition ? { definition } : {},
+    ...breadcrumbs ? { breadcrumbs } : {},
     hookCount,
     liveHookCount,
     replayedHookCount,
@@ -5629,8 +5969,13 @@ function evalFindFibers(filters, helpers, rememberFiber, deps = {}) {
       return;
     }
     const info = helpers.fiberInfo(fiber);
-    if (!(info == null ? void 0 : info.name)) return;
-    if (nameRe && !nameRe.test(info.name)) return;
+    let possibleNames = null;
+    if (nameRe && !((info == null ? void 0 : info.name) && nameRe.test(info.name))) {
+      possibleNames = possibleComponentNames(fiber == null ? void 0 : fiber.type).filter((name) => nameRe.test(name));
+      if (possibleNames.length === 0) return;
+    } else if (!(info == null ? void 0 : info.name) && !needsComponentOrigin(fiber)) {
+      return;
+    }
     if (fileRe && !fileRe.test(((_a2 = info.source) == null ? void 0 : _a2.fileName) || "")) return;
     if (testIdRe && !testIdRe.test(info.domTestId || "")) return;
     if (textRe && !textRe.test(info.domText || "")) return;
@@ -5659,14 +6004,18 @@ function evalFindFibers(filters, helpers, rememberFiber, deps = {}) {
     matches.push({
       fiberId,
       ...info,
+      ...possibleNames ? { match: "possible", possibleNames } : {},
       ...hits ? { hits, hitsTruncated: hits.length >= limits.maxHits } : {},
       ...replayInfo && replayInfo.status !== "complete" ? { replay: replayInfo } : {}
     });
   }, { limit: 2e5 });
-  if (!grepRe) return { count: matches.length, items: matches };
+  const possible = matches.filter((item) => item.match === "possible").length;
+  const possibleMatches = possible ? { possibleMatches: possible } : {};
+  if (!grepRe) return { count: matches.length, items: matches, ...possibleMatches };
   return {
     count: matches.length,
     items: matches,
+    ...possibleMatches,
     truncated,
     grep: {
       pattern: String(filters == null ? void 0 : filters.grep),
@@ -5687,6 +6036,7 @@ async function resolveFindFiberSources(items, getFiber2, resolve) {
     } catch {
     }
     applyRecoveredOrigin(item, fiber.type);
+    applyProductionBreadcrumbs(item, fiber);
   }));
 }
 const NAME_RECOVERY_BUDGET_MS = 3e3;
@@ -6723,6 +7073,7 @@ const api = {
     readComponentName,
     resolveComponentOrigin,
     applyRecoveredOrigin,
+    applyProductionBreadcrumbs,
     safeJson,
     resolveOwnerFiber,
     getOwnerStackKind,
