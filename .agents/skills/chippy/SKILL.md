@@ -145,6 +145,8 @@ Each frame that loads Chippy, same-origin or cross-origin, connects as its own p
 - Console import: run it in the iframe's context (DevTools console context selector).
 - Proxy: only the document whose path matches `originalUrl` gets Chippy.
 
+An iframe connects without showing the Chippy panel, so the user sees one panel, on the top page. When the user asks for Chippy in an iframe, run `activate <clientId>` on that frame's client. The frame remembers the choice under its address and shows the panel again when it loads; `page.frame.panelRemembered` reports it. `deactivate <clientId>` hides the panel and forgets the choice. `ensure-probes` shows probes in a frame without remembering.
+
 An explicitly user-driven integration, such as the Storybook addon or a console import, takes precedence over the extension, which stands down while that owner is live. On a Storybook page, `pages` reports the `storybook` integration, not `extension`; read `integration.kind` instead of inferring the owner.
 
 For a user-controlled page without the extension, run this in the browser console:

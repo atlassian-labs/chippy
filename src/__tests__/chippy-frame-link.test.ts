@@ -19,6 +19,13 @@ type FrameLink = {
   };
 };
 
+class FakeStorage {
+  items = new Map<string, string>();
+  getItem(key: string) { return this.items.get(key) ?? null; }
+  setItem(key: string, value: string) { this.items.set(key, String(value)); }
+  removeItem(key: string) { this.items.delete(key); }
+}
+
 // A window model with only what the handshake uses. postMessage delivers
 // asynchronously with the browser-set origin and source of the sending window,
 // and drops a message whose targetOrigin does not match the receiver.
@@ -26,7 +33,8 @@ class FakeWindow {
   listeners: Listener[] = [];
   frames: FakeWindow[] = [];
   parent: FakeWindow = this;
-  location: { ancestorOrigins: string[] };
+  location: { ancestorOrigins: string[]; origin: string; pathname: string };
+  localStorage = new FakeStorage();
   __CHIPPY: Record<string, any> = {};
 
   constructor(public origin: string, private bus: { sender: FakeWindow | null }, parent?: FakeWindow) {
@@ -36,7 +44,7 @@ class FakeWindow {
     }
     const ancestors: string[] = [];
     for (let w: FakeWindow = this; w.parent !== w; w = w.parent) ancestors.push(w.parent.origin);
-    this.location = { ancestorOrigins: ancestors };
+    this.location = { ancestorOrigins: ancestors, origin, pathname: '/' };
   }
 
   addEventListener(type: string, listener: Listener) {
@@ -151,5 +159,60 @@ describe('frame link handshake', () => {
     await settle();
     expect(crossLink.describe().parentClientId).toBeNull();
     expect(topLink.describe().childClientIds).toEqual([]);
+  });
+});
+
+type FramePanel = {
+  isChild: boolean;
+  remembered(): boolean;
+  remember(shown: boolean): void;
+  gate(requested: boolean, current: boolean): boolean;
+};
+
+function panelFor(win: FakeWindow): FramePanel {
+  runInNewContext(frameLinkSource, { window: win });
+  return win.__CHIPPY.createFramePanelPreference();
+}
+
+describe('frame panel preference', () => {
+  it('keeps an integration-requested panel in the top frame', () => {
+    const { top } = tree();
+    const panel = panelFor(top);
+    expect(panel.isChild).toBe(false);
+    expect(panel.gate(true, false)).toBe(true);
+    expect(panel.gate(false, true)).toBe(false);
+  });
+
+  it('hides the panel in a child frame until the agent chooses it, and remembers the choice', () => {
+    const { cross } = tree();
+    cross.location.pathname = '/widget';
+    expect(panelFor(cross).gate(true, false)).toBe(false);
+
+    panelFor(cross).remember(true);
+    // A new document in the same frame address reads the saved choice.
+    const reloaded = panelFor(cross);
+    expect(reloaded.remembered()).toBe(true);
+    expect(reloaded.gate(true, false)).toBe(true);
+
+    cross.location.pathname = '/other';
+    expect(panelFor(cross).gate(true, false)).toBe(false);
+
+    cross.location.pathname = '/widget';
+    panelFor(cross).remember(false);
+    expect(panelFor(cross).gate(true, false)).toBe(false);
+    expect(cross.localStorage.items.size).toBe(0);
+  });
+
+  it('does not hide a panel the agent showed when the integration reapplies its config', () => {
+    const { cross } = tree();
+    expect(panelFor(cross).gate(true, true)).toBe(true);
+  });
+
+  it('falls back to hidden when storage is unavailable', () => {
+    const { cross } = tree();
+    (cross as any).localStorage = { getItem() { throw new Error('denied'); }, setItem() { throw new Error('denied'); } };
+    const panel = panelFor(cross);
+    expect(() => panel.remember(true)).not.toThrow();
+    expect(panel.gate(true, false)).toBe(false);
   });
 });

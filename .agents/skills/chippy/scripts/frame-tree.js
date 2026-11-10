@@ -79,6 +79,8 @@ function describeClientFrame(client, clients) {
     unconfirmedParentClientId: claimedParent && !parent ? claimedParent : null,
     topClientId,
     childClientIds,
+    // A child frame shows its panel only after the agent's `activate`.
+    panelRemembered: Boolean(frame.panelRemembered),
   };
 }
 

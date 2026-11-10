@@ -341,7 +341,7 @@
       title: global.document.title,
       storyId: getStoryId(),
       readyState: global.document.readyState,
-      frame: frameLink?.describe() || null,
+      frame: frameLink ? { ...frameLink.describe(), panelRemembered: framePanel?.remembered() || false } : null,
     };
   }
 
@@ -391,6 +391,11 @@
     return chippy.config || {};
   }
   const extensionConfig = readExtensionConfig();
+  // Child frames show no panel unless the agent chose them; see frame-link.js.
+  const framePanel = chippy.createFramePanelPreference?.() || null;
+  function gateActivation(requested, current) {
+    return framePanel ? framePanel.gate(requested, current) : Boolean(requested);
+  }
 
   /** @type {Record<string, any>} */
   let config = {
@@ -399,7 +404,7 @@
     helperBaseUrl: normalizeBaseUrl(
       extensionConfig.helperBaseUrl || DEFAULTS.helperBaseUrl,
     ),
-    activated: extensionConfig.activated ?? DEFAULTS.activated,
+    activated: gateActivation(extensionConfig.activated ?? DEFAULTS.activated, false),
   };
   chippy.config = { ...config };
 
@@ -655,9 +660,11 @@
   function handleCommand(command) {
     switch (command?.type) {
       case 'activate':
+        framePanel?.remember(true);
         activate();
         break;
       case 'deactivate':
+        framePanel?.remember(false);
         deactivate();
         break;
       case 'ensure-probes':
@@ -1796,7 +1803,7 @@
       ...config,
       ...nextConfig,
       helperBaseUrl: normalizeBaseUrl(nextConfig?.helperBaseUrl || config.helperBaseUrl),
-      activated: nextConfig?.activated ?? config.activated,
+      activated: gateActivation(nextConfig?.activated ?? config.activated, config.activated),
       ...(contextUi === undefined ? {} : { contextUiEnabled: contextUi !== false }),
     };
     chippy.config = { ...config };

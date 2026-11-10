@@ -29,7 +29,7 @@ Use recipe search when the operation or recovery route is not already obvious. I
 | `request-snapshot <clientId>` | Ask the connected page to emit a fresh snapshot. |
 | `wait <clientId> [timeoutSeconds] [afterSequence]` | Return the oldest user-attached probe annotation after the cursor, or wait for the next one. Pass the previous result's `cursor` so no event is missed between waits. Stop a wait loop after two consecutive empty timeouts. Default 300 seconds; valid range 1–1800. This is one cancellable long poll and never changes host hooks or configuration. |
 | `ack <clientId> <sequence>` | Mark an annotation event handled; the page clears those probes' intent and comment unless the user changed them since. |
-| `activate`, `deactivate` | Change Chippy activation state for one connected page. |
+| `activate`, `deactivate` | Change Chippy activation state for one connected page. In an iframe, the choice is remembered for that frame's address across loads. |
 | `context-ui <clientId> <on\|off>` | Show or hide context-provider enrichment (for example Jira ownership and error-boundary fields) in the active probe UI, including Storybook marker cards. It defaults to `on`; this command changes the current connected page at runtime. |
 | `ensure-probes`, `clear-probes` | Install or remove probe markers. Preserve probes while they remain evidence. |
 | `show-status`, `hide-status` | Accepted for compatibility; the page renders no status text, so `show-status` shows nothing to the user. Connection state appears in the Chippy panel. Report progress in chat. |

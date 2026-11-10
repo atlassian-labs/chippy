@@ -19,11 +19,18 @@ describe('helper frame tree', () => {
     expect(describeClientFrame(clients.get('cross'), clients)).toEqual({
       isTop: false, path: [0], ancestorOrigins: ['https://top.test'],
       parentClientId: 'top', parentOrigin: 'https://top.test', unconfirmedParentClientId: null,
-      topClientId: 'top', childClientIds: [],
+      topClientId: 'top', childClientIds: [], panelRemembered: false,
     });
     expect(describeClientFrame(clients.get('top'), clients)).toMatchObject({
       isTop: true, parentClientId: null, topClientId: 'top', childClientIds: ['cross'],
     });
+  });
+
+  it('passes through whether the agent chose to show the panel in a child frame', () => {
+    const shown = cross();
+    (shown.page.frame as Record<string, unknown>).panelRemembered = true;
+    const clients = byId(top(), shown);
+    expect(describeClientFrame(clients.get('cross'), clients)?.panelRemembered).toBe(true);
   });
 
   it('does not link a child the parent never confirmed', () => {

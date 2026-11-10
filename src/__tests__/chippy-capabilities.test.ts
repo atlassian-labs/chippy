@@ -185,7 +185,7 @@ describe('Chippy browser capabilities from scenario matrix', () => {
     expect(source).toContain('/__chippy/avalanche.es.js');
     expect(source).not.toContain('__installChippyImportUi');
     expect(source).not.toContain('__chippy-import-panel');
-    expect(source).toContain('if (__chippyBootConfig.activated)');
+    expect(source).toContain('if (__chippyBootConfig.activated && (globalThis.top === globalThis');
     expect(source).toContain('export { __chippyReady as ready };');
     expect(source).toContain('export default globalThis.__CHIPPY;');
   }, 30000);

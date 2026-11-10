@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Chippy Probe Bridge",
-  "version": "0.4.26",
+  "version": "0.4.27",
   "description": "Inspects connected React pages to trace components, boundaries, hooks, props, and render behavior.",
   "permissions": [
     "storage",

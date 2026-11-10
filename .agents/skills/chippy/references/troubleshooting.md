@@ -36,6 +36,7 @@
 - extension: enable the iframe's own origin; enabling the top page's origin does not cover a cross-origin iframe
 - an iframe with an opaque origin (`about:srcdoc`, sandboxed without `allow-same-origin`) cannot be enabled by origin
 - `page.frame.parentClientId` is `null` with `unconfirmedParentClientId` set: the parent frame has no Chippy client, or it has not confirmed the link yet; load Chippy in the parent frame too
+- an iframe client is connected but shows no Chippy panel: this is the default for child frames; run `activate <clientId>` on that frame to show the panel and remember it for that frame's address. The choice is stored in the frame's `localStorage`, so a fresh browser profile or a frame without storage starts hidden again
 
 ## Bundle failed to load
 - extension: the extension injects its packaged scripts, not `inject.js`; check the page console for `[chippy-ext]` injection errors, check the helper URL configured in the extension, then reload the page

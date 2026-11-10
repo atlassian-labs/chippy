@@ -11,6 +11,11 @@
 // child accepts an answer only from its own parent window. Each side reports
 // what it saw: the child its parent's id, the parent its children's ids. The
 // helper links two clients only when both reports agree.
+//
+// It also owns the panel policy for child frames: an iframe shows no Chippy
+// panel unless the agent turned it on there with the helper's `activate`
+// command. That choice is remembered in the frame's localStorage under the
+// frame's address, so the panel returns when the frame loads again.
 (function installFrameLink(global) {
   /** @type {ChippyPageRuntime} */
   const chippy = global.__CHIPPY = global.__CHIPPY || {};
@@ -143,5 +148,57 @@
     };
   }
 
+  const SHOWN_FRAMES_KEY = '__chippyShownFrames';
+  const MAX_SHOWN_FRAMES = 50;
+
+  function frameAddress() {
+    try { return global.location.origin + global.location.pathname; } catch { return null; }
+  }
+
+  function readShownFrames() {
+    try {
+      const list = JSON.parse(global.localStorage.getItem(SHOWN_FRAMES_KEY) || '[]');
+      return Array.isArray(list) ? list.filter((item) => typeof item === 'string') : [];
+    } catch {
+      return [];
+    }
+  }
+
+  function createFramePanelPreference() {
+    const child = !isTopFrame();
+
+    function remembered() {
+      if (!child) return false;
+      const address = frameAddress();
+      return Boolean(address) && readShownFrames().includes(address);
+    }
+
+    return {
+      isChild: child,
+      remembered,
+      // Saves whether the agent wants the panel in this frame. Storage can be
+      // unavailable, as in a sandboxed frame; the choice then lasts until reload.
+      remember(shown) {
+        if (!child) return;
+        const address = frameAddress();
+        if (!address) return;
+        try {
+          const list = readShownFrames().filter((item) => item !== address);
+          if (shown) list.push(address);
+          if (list.length) global.localStorage.setItem(SHOWN_FRAMES_KEY, JSON.stringify(list.slice(-MAX_SHOWN_FRAMES)));
+          else global.localStorage.removeItem(SHOWN_FRAMES_KEY);
+        } catch {}
+      },
+      // Whether an integration's request to show the panel applies. In a child
+      // frame it applies only when the agent chose this frame, and it never
+      // hides a panel the agent showed.
+      gate(requested, current) {
+        if (!child || !requested) return Boolean(requested);
+        return remembered() || Boolean(current);
+      },
+    };
+  }
+
   chippy.createFrameLink = createFrameLink;
+  chippy.createFramePanelPreference = createFramePanelPreference;
 })(window);
