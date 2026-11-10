@@ -95,16 +95,15 @@ describe('Chippy on a minified production React build', () => {
     } finally { await page.close(); }
   }, 30000);
 
-  it('names Avalanche report sources after warming recorded component types', async () => {
+  it('names only the Avalanche sources a result returns', async () => {
     const page = await openPage();
     try {
       await page.locator('#row-a').click();
       await expect.poll(() => page.locator('#row-a').textContent()).toBe('a (open)');
       const result = await page.evaluate(async () => {
         const av = (window as any).__AVALANCHE__;
-        const stats = await av.bridge.warmAvalancheNames(av);
-        const report = av.report(100, 'effect');
-        return { stats, sourceIds: report.sources.map((item: any) => item.sourceId) };
+        const named = await av.bridge.evalAvalancheWithNames({ action: 'hot-sources' }, av, null);
+        return { stats: named.nameRecovery, sourceIds: named.payload.items.map((item: any) => item.sourceId) };
       });
       expect(result.stats).toMatchObject({ types: 1, resolved: 1, named: 1 });
       expect(result.sourceIds).toEqual([expect.stringMatching(/^ProjectRow#/)]);

@@ -222,6 +222,8 @@ Read order:
 
 For locality: dev builds use `ownerStackKind: "owners"`; production/minified builds fall back to `ownerStackKind: "parents"`. Compact views keep the closest 10 names from the target-local side plus the full count. Full views may be large; inspect only when needed.
 
+On a production build, source ids use minified names until Chippy recovers authored names from the page's source maps. Each Avalanche command recovers names only for the components whose source ids appear in its result, then returns the result with those ids renamed and a `nameRecovery` summary (see [Production component names](command-output-formats.md#production-component-names)). Components that minified to the same name share a source id, so recovery resolves all of them, and the counts from before recovery may combine several components.
+
 ## Observability design principle
 
 When a capture cannot answer the question, improve observability deliberately:

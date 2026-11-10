@@ -416,18 +416,54 @@ export async function resolveFindFiberSources<S>(
 export const NAME_RECOVERY_BUDGET_MS = 3000;
 
 /**
+ * The cheap `find-fibers` filters other than `--name`, so name recovery runs
+ * only for fibers that can still match. `--grep` is left out: it runs after
+ * the name filter and can execute component code.
+ */
+function preNameFilter(filters: FindFibersFilters, fiberInfo: ScriptHelpers['fiberInfo'] | undefined) {
+  const fileRe = filterRegex(filters?.file, 'file');
+  const testIdRe = filterRegex(filters?.testid, 'testid');
+  const textRe = filterRegex(filters?.text, 'text');
+  const propName = filters?.prop ? String(filters.prop) : null;
+  const needsInfo = Boolean(fileRe || testIdRe || textRe);
+  return (fiber: Fiber): boolean => {
+    if (propName) {
+      const props = fiber?.memoizedProps;
+      if (!props || typeof props !== 'object' || !(propName in props)) return false;
+    }
+    if (!needsInfo || !fiberInfo) return true;
+    const info = fiberInfo(fiber);
+    if (fileRe && !fileRe.test(info?.source?.fileName || '')) return false;
+    if (testIdRe && !testIdRe.test(info?.domTestId || '')) return false;
+    if (textRe && !textRe.test(info?.domText || '')) return false;
+    return true;
+  };
+}
+
+/**
  * Before `find-fibers --name` on a production build, recover authored names
- * for the page's component types so the filter matches them. Returns null
- * when there is no name filter or every component has development metadata.
+ * so the filter matches them. Only component types of fibers that pass the
+ * other filters are resolved; a query with only `--name` resolves every
+ * production component type in the tree, within `budgetMs`. Returns null when
+ * there is no name filter, a filter is invalid, or every component has
+ * development metadata.
  */
 export function warmFindFiberNames(
   filters: FindFibersFilters,
-  helpers: Pick<ScriptHelpers, 'walkAll'>,
+  helpers: Pick<ScriptHelpers, 'walkAll'> & Partial<Pick<ScriptHelpers, 'fiberInfo'>>,
   budgetMs = NAME_RECOVERY_BUDGET_MS,
 ): Promise<NameRecoveryStats | null> {
   if (!filters?.name) return Promise.resolve(null);
+  let passes: (fiber: Fiber) => boolean;
+  try {
+    passes = preNameFilter(filters, helpers.fiberInfo);
+  } catch {
+    return Promise.resolve(null);
+  }
   return warmComponentNames(
-    (visit) => helpers.walkAll((fiber) => visit(fiber as Parameters<typeof visit>[0]), { limit: 200000 }),
+    (visit) => helpers.walkAll((fiber) => {
+      if (passes(fiber)) visit(fiber as Parameters<typeof visit>[0]);
+    }, { limit: 200000 }),
     budgetMs,
   );
 }

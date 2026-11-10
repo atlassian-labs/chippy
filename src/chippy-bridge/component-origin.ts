@@ -14,29 +14,17 @@
  * `resolveComponentOrigin` has finished for that type.
  */
 
-import { mappingAt, type GeneratedMapping } from './source-map';
+import { createModuleMapCache, fetchModuleFromPage, type ModuleMapCache } from './module-maps';
 import {
-  createModuleMapCache,
-  fetchModuleFromPage,
-  sourcePath,
-  type ModuleMapCache,
-  type ModuleMaps,
-} from './module-maps';
+  lineStartsOf,
+  nameOccurrence,
+  type ComponentDefinition,
+  type NameEvidence,
+  type Occurrence,
+  type OccurrenceOrigin,
+} from './component-occurrence';
 
-export type ComponentDefinition = {
-  fileName: string;
-  lineNumber: number;
-  columnNumber: number | null;
-};
-
-/**
- * How the name was recovered:
- * - `map-name`: the source map's `names` entry for the function's own identifier.
- * - `source-text`: the function's own name in the authored source.
- * - `binding-map-name`: the `names` entry for the variable or property that holds it.
- * - `binding-source-text`: that binding in the authored source.
- */
-export type NameEvidence = 'map-name' | 'source-text' | 'binding-map-name' | 'binding-source-text';
+export type { ComponentDefinition, NameEvidence } from './component-occurrence';
 
 export type OriginStatus =
   /** The definition was mapped to authored source. */
@@ -45,12 +33,22 @@ export type OriginStatus =
   | 'no-source-map'
   /** The source map has no segment for the function's position. */
   | 'unmapped'
-  /** The function text occurs more than once in the script that holds it. */
+  /**
+   * The function text occurs more than once, and the occurrences map to
+   * different authored names. `candidates` lists them.
+   */
   | 'ambiguous'
   /** No loaded script contains the function text. */
   | 'not-found'
   /** The type is not a function component, class, memo, or forwardRef. */
   | 'unsupported';
+
+/** One authored definition the function text maps to. */
+export type OriginCandidate = {
+  name: string | null;
+  definition: ComponentDefinition | null;
+  script: string;
+};
 
 export type ComponentOrigin = {
   status: OriginStatus;
@@ -59,12 +57,23 @@ export type ComponentOrigin = {
   nameEvidence: NameEvidence | null;
   /** The runtime (minified) function name, or null when anonymous. */
   generatedName: string | null;
-  /** Authored definition, or null unless `status` is `resolved`. */
+  /**
+   * Authored definition, or null unless `status` is `resolved` and every
+   * occurrence maps to the same definition.
+   */
   definition: ComponentDefinition | null;
   /** Script URL that defines the function, or null when it was not found. */
   script: string | null;
   /** Generated 1-based position of the function in `script`. */
   generated: { line: number; column: number } | null;
+  /**
+   * How many times the exact function text occurs across the loaded scripts,
+   * capped at `MAX_OCCURRENCES`. Minifiers mangle each scope independently,
+   * so small components in separate scopes can compile to identical text.
+   */
+  occurrences: number;
+  /** Distinct authored definitions when occurrences disagree on name or definition. */
+  candidates?: OriginCandidate[];
 };
 
 export type ScriptRef = {
@@ -90,21 +99,10 @@ export type ComponentOriginDeps = {
 
 type Fn = (...args: never[]) => unknown;
 
-const IDENTIFIER = '[A-Za-z_$][\\w$]*';
-const OWN_FUNCTION_NAME = new RegExp(`^(?:async\\s*)?function\\s*\\*?\\s*(${IDENTIFIER})\\s*\\(`);
-const OWN_CLASS_NAME = new RegExp(`^class\\s+(${IDENTIFIER})(?=[\\s{])`);
-const AUTHORED_OWN_NAME = new RegExp(
-  `^(?:export\\s+(?:default\\s+)?)?(?:async\\s+)?(?:function\\s*\\*?\\s*|class\\s+)(${IDENTIFIER})`,
-);
-// `name = ` or `name: ` followed by any wrapping calls, e.g. `x=(0,r.memo)(`.
-const CALLEE = `(?:\\(\\s*0\\s*,\\s*${IDENTIFIER}(?:\\.${IDENTIFIER})*\\s*\\)|${IDENTIFIER}(?:\\.${IDENTIFIER})*)`;
-const GENERATED_BINDING = new RegExp(`(${IDENTIFIER})\\s*[=:]\\s*(?:${CALLEE}\\s*\\(\\s*)*$`);
-const AUTHORED_BINDING = new RegExp(
-  `(?:^|[^\\w$.])(${IDENTIFIER})\\s*(?::[^=;{}()]*)?=\\s*(?:${CALLEE}\\s*(?:<[^()]*>)?\\s*\\(\\s*)*$`,
-);
-const GENERATED_LOOKBACK = 160;
-const AUTHORED_LOOKBACK = 240;
 const MIN_FUNCTION_TEXT = 12;
+/** Occurrences named per function; more are counted only up to this cap. */
+export const MAX_OCCURRENCES = 16;
+const MAX_CANDIDATES = 8;
 
 /** The function that React calls for a component type, unwrapping memo and forwardRef. */
 export function componentFunctionOf(type: unknown, depth = 0): Fn | null {
@@ -125,186 +123,124 @@ function functionText(fn: Fn): string | null {
   }
 }
 
-/** 1-based line and 0-based column of `offset`, using precomputed line starts. */
-function positionOf(lineStarts: readonly number[], offset: number): { line: number; column: number } {
-  let low = 0;
-  let high = lineStarts.length - 1;
-  while (low < high) {
-    const middle = (low + high + 1) >> 1;
-    if (lineStarts[middle]! <= offset) low = middle;
-    else high = middle - 1;
+function definitionKey(definition: ComponentDefinition | null): string {
+  return definition ? `${definition.fileName}:${definition.lineNumber}:${definition.columnNumber}` : '';
+}
+
+/**
+ * Combine the named occurrences of one function text. Identical text that
+ * maps to one authored name is that component, even when it was emitted more
+ * than once; text that maps to different names cannot be attributed.
+ */
+export function combineOccurrences(
+  named: readonly OccurrenceOrigin[],
+  base: Pick<ComponentOrigin, 'generatedName'>,
+  occurrences: number,
+): ComponentOrigin {
+  const first = named[0]!;
+  const origin: ComponentOrigin = { ...first, generatedName: base.generatedName, occurrences };
+  if (named.length === 1 || !named.some((item) => item.status === 'resolved')) return origin;
+
+  const distinct = new Map<string, OriginCandidate>();
+  for (const item of named) {
+    const key = `${item.name ?? ''}|${definitionKey(item.definition)}`;
+    if (!distinct.has(key)) distinct.set(key, { name: item.name, definition: item.definition, script: item.script });
   }
-  return { line: low + 1, column: offset - lineStarts[low]! };
-}
+  const candidates = Array.from(distinct.values()).slice(0, MAX_CANDIDATES);
+  const names = new Set(named.map((item) => item.name));
+  const definitions = new Set(named.map((item) => definitionKey(item.definition)));
+  const allResolved = named.every((item) => item.status === 'resolved');
 
-function lineStartsOf(text: string): number[] {
-  const starts = [0];
-  for (let index = text.indexOf('\n'); index !== -1; index = text.indexOf('\n', index + 1)) {
-    starts.push(index + 1);
+  if (allResolved && names.size === 1 && first.name !== null) {
+    return definitions.size === 1
+      ? origin
+      : { ...origin, definition: null, candidates };
   }
-  return starts;
+  return { ...origin, status: 'ambiguous', name: null, nameEvidence: null, definition: null, candidates };
 }
-
-function offsetOf(text: string, line: number, column: number): number | null {
-  let offset = 0;
-  for (let current = 1; current < line; current += 1) {
-    const next = text.indexOf('\n', offset);
-    if (next === -1) return null;
-    offset = next + 1;
-  }
-  return offset + column;
-}
-
-function identifierAt(text: string, offset: number): string | null {
-  const match = new RegExp(`^${IDENTIFIER}`).exec(text.slice(offset, offset + 200));
-  return match ? match[0] : null;
-}
-
-/** Authored own name, then authored binding, around a mapped definition. */
-function authoredNames(mapping: GeneratedMapping): { own: string | null; binding: string | null } {
-  const content = mapping.sourceContent;
-  if (content === null) return { own: null, binding: null };
-  const offset = offsetOf(content, mapping.line, mapping.column - 1);
-  if (offset === null) return { own: null, binding: null };
-  const own = AUTHORED_OWN_NAME.exec(content.slice(offset, offset + 300))?.[1] ?? null;
-  const before = content.slice(Math.max(0, offset - AUTHORED_LOOKBACK), offset);
-  const binding = AUTHORED_BINDING.exec(before)?.[1] ?? null;
-  return { own, binding };
-}
-
-type Located = {
-  script: ScriptRef;
-  module: ModuleMaps;
-  offset: number;
-  ambiguous: boolean;
-};
 
 export function createComponentOriginResolver(deps: ComponentOriginDeps): ComponentOriginResolver {
   const modules = deps.modules ?? createModuleMapCache(fetchModuleFromPage);
   const settled = new WeakMap<Fn, ComponentOrigin>();
   const pending = new WeakMap<Fn, Promise<ComponentOrigin>>();
   const lineStarts = new Map<string, number[]>();
-  // Components cluster in a few chunks; search recent hits first.
-  const recentScripts: string[] = [];
   const stats = { functions: 0, scripts: 0, resolved: 0 };
 
-  function moduleFor(script: ScriptRef): Promise<ModuleMaps | null> {
+  function codeOf(script: ScriptRef): Promise<string | null> {
+    return script.text === null ? modules.codeOf(script.url) : Promise.resolve(script.text);
+  }
+
+  async function mapsFor(script: ScriptRef) {
+    const module = script.text === null
+      ? await modules.forUrl(script.url)
+      : await modules.forCode(script.key, script.text, script.url);
     stats.scripts = modules.stats.modules;
-    return script.text === null
-      ? modules.forUrl(script.url)
-      : modules.forCode(script.key, script.text, script.url);
+    return module;
   }
 
-  function orderedScripts(): ScriptRef[] {
-    const scripts = deps.listScripts();
-    const rank = new Map(recentScripts.map((key, index) => [key, index]));
-    return scripts
-      .map((script, index) => ({ script, index }))
-      .sort((a, b) => (rank.get(a.script.key) ?? Infinity) - (rank.get(b.script.key) ?? Infinity) || a.index - b.index)
-      .map((entry) => entry.script);
-  }
-
-  async function locate(text: string): Promise<Located | null> {
-    for (const script of orderedScripts()) {
-      const module = await moduleFor(script);
-      if (!module) continue;
-      const offset = module.code.indexOf(text);
-      if (offset === -1) continue;
-      const ambiguous = module.code.indexOf(text, offset + 1) !== -1;
-      const at = recentScripts.indexOf(script.key);
-      if (at !== -1) recentScripts.splice(at, 1);
-      recentScripts.unshift(script.key);
-      if (recentScripts.length > 16) recentScripts.length = 16;
-      return { script, module, offset, ambiguous };
-    }
-    return null;
-  }
-
-  function startsOf(located: Located): number[] {
-    let starts = lineStarts.get(located.script.key);
+  function startsOf(key: string, code: string): number[] {
+    let starts = lineStarts.get(key);
     if (!starts) {
-      starts = lineStartsOf(located.module.code);
-      lineStarts.set(located.script.key, starts);
+      starts = lineStartsOf(code);
+      lineStarts.set(key, starts);
     }
     return starts;
   }
 
-  function mappedNameAt(located: Located, offset: number): string | null {
-    const { line, column } = positionOf(startsOf(located), offset);
-    const mapping = mappingAt(located.module.maps, line, column + 1);
-    if (!mapping || !mapping.exact) return null;
-    if (mapping.name) return mapping.name;
-    if (mapping.sourceContent === null) return null;
-    const authoredOffset = offsetOf(mapping.sourceContent, mapping.line, mapping.column - 1);
-    return authoredOffset === null ? null : identifierAt(mapping.sourceContent, authoredOffset);
+  /**
+   * Every occurrence of `text` across the loaded scripts, up to the cap. Only
+   * scripts that hold the text have their source maps fetched.
+   */
+  async function locateAll(text: string): Promise<{ found: Occurrence[]; count: number }> {
+    const found: Occurrence[] = [];
+    let count = 0;
+    for (const script of deps.listScripts()) {
+      const code = await codeOf(script);
+      if (!code) continue;
+      let offset = code.indexOf(text);
+      if (offset === -1) continue;
+      const module = await mapsFor(script);
+      if (!module) continue;
+      for (; offset !== -1 && count < MAX_OCCURRENCES; offset = code.indexOf(text, offset + text.length)) {
+        count += 1;
+        found.push({ script, module, offset });
+      }
+      if (count >= MAX_OCCURRENCES) break;
+    }
+    return { found, count };
   }
 
   async function compute(fn: Fn): Promise<ComponentOrigin> {
     const generatedName = typeof fn.name === 'string' && fn.name !== '' ? fn.name : null;
     const base: ComponentOrigin = {
       status: 'not-found', name: null, nameEvidence: null, generatedName,
-      definition: null, script: null, generated: null,
+      definition: null, script: null, generated: null, occurrences: 0,
     };
     const text = functionText(fn);
     if (text === null) return { ...base, status: 'unsupported' };
 
-    const located = await locate(text);
-    if (!located) return base;
-    const generated = positionOf(startsOf(located), located.offset);
-    const found: ComponentOrigin = {
-      ...base,
-      script: located.script.text === null ? located.script.url : located.script.key,
-      generated: { line: generated.line, column: generated.column + 1 },
+    const { found, count } = await locateAll(text);
+    if (found.length === 0) return base;
+    const named = found.map((occurrence) =>
+      nameOccurrence(text, occurrence, startsOf(occurrence.script.key, occurrence.module.code)));
+    return combineOccurrences(named, base, count);
+  }
+
+  function unsupported(generatedName: string | null, status: OriginStatus): ComponentOrigin {
+    return {
+      status, name: null, nameEvidence: null, generatedName,
+      definition: null, script: null, generated: null, occurrences: 0,
     };
-    if (located.ambiguous) return { ...found, status: 'ambiguous' };
-    if (located.module.maps.length === 0) return { ...found, status: 'no-source-map' };
-
-    const mapping = mappingAt(located.module.maps, generated.line, generated.column + 1);
-    if (!mapping) return { ...found, status: 'unmapped' };
-    const definition: ComponentDefinition = {
-      fileName: sourcePath(mapping.source, located.module.sourceBaseUrl),
-      lineNumber: mapping.line,
-      columnNumber: mapping.column,
-    };
-
-    const ownMatch = OWN_FUNCTION_NAME.exec(text) ?? OWN_CLASS_NAME.exec(text);
-    const ownOffset = ownMatch ? located.offset + ownMatch[0].lastIndexOf(ownMatch[1]!) : null;
-    const lookback = located.module.code.slice(Math.max(0, located.offset - GENERATED_LOOKBACK), located.offset);
-    const bindingMatch = GENERATED_BINDING.exec(lookback);
-    const bindingOffset = bindingMatch
-      ? located.offset - lookback.length + bindingMatch.index + bindingMatch[0].indexOf(bindingMatch[1]!)
-      : null;
-    const authored = authoredNames(mapping);
-
-    const candidates: Array<[NameEvidence, () => string | null]> = [
-      ['map-name', () => (ownOffset === null ? null : mappedNameAt(located, ownOffset))],
-      ['source-text', () => authored.own],
-      ['binding-map-name', () => (bindingOffset === null ? null : mappedNameAt(located, bindingOffset))],
-      ['binding-source-text', () => authored.binding],
-    ];
-    for (const [evidence, read] of candidates) {
-      const name = read();
-      if (name) return { ...found, status: 'resolved', name, nameEvidence: evidence, definition };
-    }
-    return { ...found, status: 'resolved', definition };
   }
 
   function resolve(type: unknown): Promise<ComponentOrigin> {
     const fn = componentFunctionOf(type);
-    if (!fn) {
-      return Promise.resolve({
-        status: 'unsupported', name: null, nameEvidence: null, generatedName: null,
-        definition: null, script: null, generated: null,
-      });
-    }
+    if (!fn) return Promise.resolve(unsupported(null, 'unsupported'));
     const cached = pending.get(fn);
     if (cached) return cached;
     stats.functions += 1;
     const answer = compute(fn)
-      .catch((): ComponentOrigin => ({
-        status: 'not-found', name: null, nameEvidence: null, generatedName: fn.name || null,
-        definition: null, script: null, generated: null,
-      }))
+      .catch(() => unsupported(fn.name || null, 'not-found'))
       .then((origin) => {
         if (origin.status === 'resolved') stats.resolved += 1;
         settled.set(fn, origin);
@@ -473,6 +409,8 @@ export function resolveFiberComponentOrigin(fiber: OriginFiber | null | undefine
 export type NameRecoveryStats = {
   /** Distinct component types without development metadata. */
   types: number;
+  /** Types resolved by an earlier call; not counted below. */
+  cached: number;
   resolved: number;
   named: number;
   /** Types left unresolved because the time budget ran out. */
@@ -512,9 +450,13 @@ export async function warmComponentTypes(
     if (fn && !ownName(candidate) && !(candidate as { _debugSource?: unknown })._debugSource) types.add(fn);
   }
   if (types.size === 0) return null;
-  const stats: NameRecoveryStats = { types: types.size, resolved: 0, named: 0, skipped: 0, statuses: {} };
+  const stats: NameRecoveryStats = { types: types.size, cached: 0, resolved: 0, named: 0, skipped: 0, statuses: {} };
   const deadline = Date.now() + budgetMs;
   for (const type of types) {
+    if (resolver.peek(type)) {
+      stats.cached += 1;
+      continue;
+    }
     if (Date.now() > deadline) {
       stats.skipped += 1;
       continue;

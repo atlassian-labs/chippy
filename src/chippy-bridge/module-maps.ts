@@ -20,6 +20,8 @@ export type ModuleMaps = {
 };
 
 export type ModuleMapCache = {
+  /** Fetch only the served text of `url`, without its map. */
+  codeOf(url: string): Promise<string | null>;
   /** Fetch `url`, then its map. Null when the module itself is unavailable. */
   forUrl(url: string): Promise<ModuleMaps | null>;
   /** Decode the map of text the page already holds, such as an inline script. */
@@ -53,6 +55,7 @@ export function sourcePath(source: string, moduleUrl: string): string {
 
 export function createModuleMapCache(fetchModule: FetchModule): ModuleMapCache {
   const byKey = new Map<string, Promise<ModuleMaps | null>>();
+  const codeByUrl = new Map<string, Promise<string | null>>();
   const stats = { modules: 0, maps: 0 };
 
   async function mapsOf(code: string, url: string): Promise<ModuleMaps> {
@@ -70,12 +73,20 @@ export function createModuleMapCache(fetchModule: FetchModule): ModuleMapCache {
     return { code, maps: parseSourceMap(text), sourceBaseUrl: mapUrl };
   }
 
+  function codeOf(url: string): Promise<string | null> {
+    const cached = codeByUrl.get(url);
+    if (cached) return cached;
+    stats.modules += 1;
+    const pending = fetchModule(url).catch(() => null);
+    codeByUrl.set(url, pending);
+    return pending;
+  }
+
   function forUrl(url: string): Promise<ModuleMaps | null> {
     const cached = byKey.get(url);
     if (cached) return cached;
     const pending = (async () => {
-      stats.modules += 1;
-      const code = await fetchModule(url);
+      const code = await codeOf(url);
       return code === null ? null : mapsOf(code, url);
     })().catch(() => null);
     byKey.set(url, pending);
@@ -90,7 +101,7 @@ export function createModuleMapCache(fetchModule: FetchModule): ModuleMapCache {
     return pending;
   }
 
-  return { forUrl, forCode, stats };
+  return { codeOf, forUrl, forCode, stats };
 }
 
 /** Fetch a module or map in the page realm with a short timeout. */

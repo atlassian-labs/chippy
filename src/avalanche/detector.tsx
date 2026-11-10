@@ -57,6 +57,7 @@ import {
   type SuspenseBoundaryEvent,
   type ThrashMode,
   type UnmountSample,
+  humanSourceId,
 } from './reporter';
 
 import { createDebugRender, type HookCallEvent, type StackFrame } from '../debug-render/core';
@@ -1795,20 +1796,29 @@ export function createAvalancheDetector(options: DetectorOptions = {}) {
     },
 
     /**
+     * Component types behind the given report source ids, such as the ids a
+     * command is about to return. Lets callers recover names for just those.
+     */
+    componentTypesFor(sourceIds: Iterable<string>): ComponentType[] {
+      const wanted = new Set(sourceIds);
+      const types = new Set<ComponentType>();
+      const collect = (entries: Iterable<[string, { type: ComponentType; depth: number }]>) => {
+        for (const [internalId, entry] of entries) {
+          if (wanted.has(humanSourceId(internalId, entry.type, entry.depth))) types.add(entry.type);
+        }
+      };
+      collect(state.sources.entries());
+      collect(state.amplifierSources.entries());
+      return Array.from(types);
+    },
+
+    /**
      * Generate a report of top update sources and thrashing components.
      * @param topN - Number of top sources to include (default: 10)
      * @param sortBy - Sort thrashers by 'effect', 'callback', 'memo', or 'total' (default: 'effect')
      * @param options - Report filtering options (e.g., minCollateral to hide low-impact sources)
      * @returns Report containing sources, blast radius, and optional thrashing data
      */
-    /** Distinct component types behind recorded sources and amplifiers. */
-    componentTypes(): ComponentType[] {
-      const types = new Set<ComponentType>();
-      for (const source of state.sources.values()) types.add(source.type);
-      for (const amplifier of state.amplifierSources.values()) types.add(amplifier.type);
-      return Array.from(types);
-    },
-
     report(topN: number = 10, sortBy: SortBy = 'effect', reportOptions?: ReportOptions): Report {
       return buildReport(state, thrashMode, topN, sortBy, reportOptions, {
         effectThrashMode,

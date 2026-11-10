@@ -6,7 +6,8 @@ import { buildMinifiedBundle, type MinifiedBundle } from '../test/minified-compo
 import { listPageScripts, needsComponentOrigin, readComponentName } from './component-origin';
 import { evalFindFibers, resolveFindFiberSources, warmFindFiberNames, type Fiber } from './eval-helpers';
 import { captureFiberState } from './fiber-state';
-import { warmAvalancheNames } from './avalanche-commands';
+import { evalAvalancheWithNames, sourceIdsIn } from './avalanche-commands';
+import { humanSourceId } from '../avalanche/reporter';
 
 type TestFiber = Fiber & {
   tag: number;
@@ -89,7 +90,8 @@ describe('production names through the page realm', () => {
   it('warms names before a find-fibers name filter and patches item origins', async () => {
     const walkAll = (visit: (node: Fiber) => void) => walkFrom(root)(visit);
     const stats = await warmFindFiberNames({ name: 'ProjectRow' }, { walkAll });
-    expect(stats).toMatchObject({ types: 2, named: 2, skipped: 0 });
+    // ProjectList was resolved by the previous test.
+    expect(stats).toMatchObject({ types: 2, cached: 1, named: 1, skipped: 0 });
 
     const fibers = new Map<string, Fiber>();
     const result = evalFindFibers({ name: '^ProjectRow$' }, {
@@ -112,6 +114,12 @@ describe('production names through the page realm', () => {
     });
   });
 
+  it('warms only fibers that pass the other find-fibers filters', async () => {
+    const stats = await warmFindFiberNames({ name: 'Row', prop: 'label' }, { walkAll: walkFrom(root) });
+    expect(stats).toMatchObject({ types: 1 });
+    expect(await warmFindFiberNames({ name: 'Row', prop: 'missing' }, { walkAll: walkFrom(root) })).toBeNull();
+  });
+
   it('skips warming without a name filter', async () => {
     expect(await warmFindFiberNames({ text: 'a' }, { walkAll: walkFrom(root) })).toBeNull();
   });
@@ -125,13 +133,42 @@ describe('production names through the page realm', () => {
     expect(entry.token).toContain(`|${(bundle.exports.ProjectRow as { name: string }).name}|`);
   });
 
-  it('recovers names for the component types Avalanche recorded', async () => {
-    const fancy = bundle.exports.Fancy;
-    expect(getComponentName({ type: fancy } as never)).not.toBe('Fancy');
-    const stats = await warmAvalancheNames({ componentTypes: () => [fancy, 'div'] });
-    expect(stats).toMatchObject({ types: 1, named: 1 });
-    expect(getComponentName({ type: fancy } as never)).toBe('Fancy');
-    expect(await warmAvalancheNames({})).toBeNull();
+  it('recovers names only for the components an Avalanche result names', async () => {
+    const { Boundary: boundary, Fancy: fancy, MemoCard: card } = bundle.exports;
+    expect(getComponentName({ type: boundary } as never)).not.toBe('Boundary');
+    let sources: unknown[] = [boundary];
+    const recorded = [boundary, fancy, card];
+    const idOf = (type: unknown) => humanSourceId('x#1@2', type as never, 2);
+    const api = {
+      report: () => ({ sources: sources.map((type) => ({ sourceId: idOf(type), depth: 2 })) }),
+      componentTypesFor: (ids: Iterable<string>) => {
+        const wanted = new Set(ids);
+        return recorded.filter((type) => wanted.has(idOf(type)));
+      },
+    };
+    // Only Boundary is a source; Fancy and MemoCard were recorded but stay minified.
+    const result = await evalAvalancheWithNames({ action: 'hot-sources' }, api as never, null);
+    expect(result.nameRecovery).toMatchObject({ types: 1, named: 1 });
+    expect(sourceIdsIn(result)).toEqual(['Boundary#1@2']);
+    expect(getComponentName({ type: fancy } as never)).toBe('Anonymous');
+
+    const again = await evalAvalancheWithNames({ action: 'hot-sources' }, api as never, null);
+    expect(again.nameRecovery).toMatchObject({ types: 1, cached: 1, named: 0 });
+
+    // Fancy and MemoCard share the minified id `Anonymous#1@2`, so both resolve.
+    sources = [fancy];
+    const shared = await evalAvalancheWithNames({ action: 'hot-sources' }, api as never, null);
+    expect(shared.nameRecovery).toMatchObject({ types: 2, named: 2 });
+    expect(sourceIdsIn(shared)).toEqual(['Fancy#1@2']);
+
+    const reset = await evalAvalancheWithNames({ action: 'reset' }, { ...api, reset: () => {} } as never, null);
+    expect(reset.nameRecovery).toBeUndefined();
+  });
+
+  it('collects report source ids from keys and values', () => {
+    expect(sourceIdsIn({ a: ['cp#1@3', 'not an id'], 'eu#2@-1': { nested: 'x#1@0' } }).sort())
+      .toEqual(['cp#1@3', 'eu#2@-1', 'x#1@0']);
+    expect(sourceIdsIn(['a#1@1', 'b#1@1', 'c#1@1'], 2)).toHaveLength(2);
   });
 
   it('treats nameless production components as user components', () => {

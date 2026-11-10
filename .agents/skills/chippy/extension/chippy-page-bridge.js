@@ -902,11 +902,14 @@
       }
       case 'eval-avalanche': {
         const requestId = command.requestId || null;
-        // Production builds: recover authored names for recorded component
-        // types first, so report source ids are readable.
-        const warm = resolveBuildMode() !== 'dev' ? getBridge()?.warmAvalancheNames?.(getAvalancheApi()) : null;
-        Promise.resolve(warm).catch(() => null).then(() => {
-          send({ type: 'eval-avalanche-result', clientId, requestId, result: evalAvalanche(command) });
+        // Production builds: recover authored names for the components this
+        // result names, so its source ids are readable.
+        const b = getBridge();
+        const named = resolveBuildMode() !== 'dev' && b?.evalAvalancheWithNames
+          ? b.evalAvalancheWithNames(command, getAvalancheApi(), getAvalancheModule())
+          : null;
+        Promise.resolve(named).catch(() => null).then((result) => {
+          send({ type: 'eval-avalanche-result', clientId, requestId, result: result || evalAvalanche(command) });
         });
         break;
       }

@@ -205,6 +205,7 @@ this.__AVALANCHE__ = (function() {
   }
   function createModuleMapCache(fetchModule) {
     const byKey = /* @__PURE__ */ new Map();
+    const codeByUrl = /* @__PURE__ */ new Map();
     const stats = { modules: 0, maps: 0 };
     async function mapsOf(code, url) {
       var _a2;
@@ -221,12 +222,19 @@ this.__AVALANCHE__ = (function() {
       stats.maps += 1;
       return { code, maps: parseSourceMap(text), sourceBaseUrl: mapUrl };
     }
+    function codeOf(url) {
+      const cached = codeByUrl.get(url);
+      if (cached) return cached;
+      stats.modules += 1;
+      const pending = fetchModule(url).catch(() => null);
+      codeByUrl.set(url, pending);
+      return pending;
+    }
     function forUrl(url) {
       const cached = byKey.get(url);
       if (cached) return cached;
       const pending = (async () => {
-        stats.modules += 1;
-        const code = await fetchModule(url);
+        const code = await codeOf(url);
         return code === null ? null : mapsOf(code, url);
       })().catch(() => null);
       byKey.set(url, pending);
@@ -239,7 +247,7 @@ this.__AVALANCHE__ = (function() {
       byKey.set(key, pending);
       return pending;
     }
-    return { forUrl, forCode, stats };
+    return { codeOf, forUrl, forCode, stats };
   }
   async function fetchModuleFromPage(url) {
     const fetchFn = globalThis.fetch;
@@ -269,9 +277,97 @@ this.__AVALANCHE__ = (function() {
   const AUTHORED_BINDING = new RegExp(
     `(?:^|[^\\w$.])(${IDENTIFIER})\\s*(?::[^=;{}()]*)?=\\s*(?:${CALLEE}\\s*(?:<[^()]*>)?\\s*\\(\\s*)*$`
   );
+  const LEADING_IDENTIFIER = new RegExp(`^${IDENTIFIER}`);
   const GENERATED_LOOKBACK = 160;
   const AUTHORED_LOOKBACK = 240;
+  function lineStartsOf(text) {
+    const starts = [0];
+    for (let index = text.indexOf("\n"); index !== -1; index = text.indexOf("\n", index + 1)) {
+      starts.push(index + 1);
+    }
+    return starts;
+  }
+  function positionOf(lineStarts, offset) {
+    let low = 0;
+    let high = lineStarts.length - 1;
+    while (low < high) {
+      const middle = low + high + 1 >> 1;
+      if (lineStarts[middle] <= offset) low = middle;
+      else high = middle - 1;
+    }
+    return { line: low + 1, column: offset - lineStarts[low] };
+  }
+  function offsetOf(text, line, column) {
+    let offset = 0;
+    for (let current = 1; current < line; current += 1) {
+      const next = text.indexOf("\n", offset);
+      if (next === -1) return null;
+      offset = next + 1;
+    }
+    return offset + column;
+  }
+  function authoredNames(mapping) {
+    var _a2, _b2;
+    const content = mapping.sourceContent;
+    if (content === null) return { own: null, binding: null };
+    const offset = offsetOf(content, mapping.line, mapping.column - 1);
+    if (offset === null) return { own: null, binding: null };
+    const own = ((_a2 = AUTHORED_OWN_NAME.exec(content.slice(offset, offset + 300))) == null ? void 0 : _a2[1]) ?? null;
+    const before = content.slice(Math.max(0, offset - AUTHORED_LOOKBACK), offset);
+    const binding = ((_b2 = AUTHORED_BINDING.exec(before)) == null ? void 0 : _b2[1]) ?? null;
+    return { own, binding };
+  }
+  function mappedNameAt(maps, lineStarts, offset) {
+    var _a2;
+    const { line, column } = positionOf(lineStarts, offset);
+    const mapping = mappingAt(maps, line, column + 1);
+    if (!mapping || !mapping.exact) return null;
+    if (mapping.name) return mapping.name;
+    if (mapping.sourceContent === null) return null;
+    const authoredOffset = offsetOf(mapping.sourceContent, mapping.line, mapping.column - 1);
+    if (authoredOffset === null) return null;
+    return ((_a2 = LEADING_IDENTIFIER.exec(mapping.sourceContent.slice(authoredOffset, authoredOffset + 200))) == null ? void 0 : _a2[0]) ?? null;
+  }
+  function nameOccurrence(text, occurrence, lineStarts) {
+    const { script, module, offset } = occurrence;
+    const generated = positionOf(lineStarts, offset);
+    const found = {
+      status: "resolved",
+      name: null,
+      nameEvidence: null,
+      definition: null,
+      script: script.text === null ? script.url : script.key,
+      generated: { line: generated.line, column: generated.column + 1 }
+    };
+    if (module.maps.length === 0) return { ...found, status: "no-source-map" };
+    const mapping = mappingAt(module.maps, generated.line, generated.column + 1);
+    if (!mapping) return { ...found, status: "unmapped" };
+    const definition = {
+      fileName: sourcePath(mapping.source, module.sourceBaseUrl),
+      lineNumber: mapping.line,
+      columnNumber: mapping.column
+    };
+    const ownMatch = OWN_FUNCTION_NAME.exec(text) ?? OWN_CLASS_NAME.exec(text);
+    const ownOffset = ownMatch ? offset + ownMatch[0].lastIndexOf(ownMatch[1]) : null;
+    const lookback = module.code.slice(Math.max(0, offset - GENERATED_LOOKBACK), offset);
+    const bindingMatch = GENERATED_BINDING.exec(lookback);
+    const bindingOffset = bindingMatch ? offset - lookback.length + bindingMatch.index + bindingMatch[0].indexOf(bindingMatch[1]) : null;
+    const authored = authoredNames(mapping);
+    const candidates = [
+      ["map-name", () => ownOffset === null ? null : mappedNameAt(module.maps, lineStarts, ownOffset)],
+      ["source-text", () => authored.own],
+      ["binding-map-name", () => bindingOffset === null ? null : mappedNameAt(module.maps, lineStarts, bindingOffset)],
+      ["binding-source-text", () => authored.binding]
+    ];
+    for (const [evidence, read] of candidates) {
+      const name = read();
+      if (name) return { ...found, name, nameEvidence: evidence, definition };
+    }
+    return { ...found, definition };
+  }
   const MIN_FUNCTION_TEXT = 12;
+  const MAX_OCCURRENCES = 16;
+  const MAX_CANDIDATES = 8;
   function componentFunctionOf(type, depth = 0) {
     if (typeof type === "function") return type;
     if (!type || typeof type !== "object" || depth > 4) return null;
@@ -288,94 +384,66 @@ this.__AVALANCHE__ = (function() {
       return null;
     }
   }
-  function positionOf(lineStarts, offset) {
-    let low = 0;
-    let high = lineStarts.length - 1;
-    while (low < high) {
-      const middle = low + high + 1 >> 1;
-      if (lineStarts[middle] <= offset) low = middle;
-      else high = middle - 1;
+  function definitionKey(definition) {
+    return definition ? `${definition.fileName}:${definition.lineNumber}:${definition.columnNumber}` : "";
+  }
+  function combineOccurrences(named, base, occurrences) {
+    const first = named[0];
+    const origin = { ...first, generatedName: base.generatedName, occurrences };
+    if (named.length === 1 || !named.some((item) => item.status === "resolved")) return origin;
+    const distinct = /* @__PURE__ */ new Map();
+    for (const item of named) {
+      const key = `${item.name ?? ""}|${definitionKey(item.definition)}`;
+      if (!distinct.has(key)) distinct.set(key, { name: item.name, definition: item.definition, script: item.script });
     }
-    return { line: low + 1, column: offset - lineStarts[low] };
-  }
-  function lineStartsOf(text) {
-    const starts = [0];
-    for (let index = text.indexOf("\n"); index !== -1; index = text.indexOf("\n", index + 1)) {
-      starts.push(index + 1);
+    const candidates = Array.from(distinct.values()).slice(0, MAX_CANDIDATES);
+    const names = new Set(named.map((item) => item.name));
+    const definitions = new Set(named.map((item) => definitionKey(item.definition)));
+    const allResolved = named.every((item) => item.status === "resolved");
+    if (allResolved && names.size === 1 && first.name !== null) {
+      return definitions.size === 1 ? origin : { ...origin, definition: null, candidates };
     }
-    return starts;
-  }
-  function offsetOf(text, line, column) {
-    let offset = 0;
-    for (let current = 1; current < line; current += 1) {
-      const next = text.indexOf("\n", offset);
-      if (next === -1) return null;
-      offset = next + 1;
-    }
-    return offset + column;
-  }
-  function identifierAt(text, offset) {
-    const match = new RegExp(`^${IDENTIFIER}`).exec(text.slice(offset, offset + 200));
-    return match ? match[0] : null;
-  }
-  function authoredNames(mapping) {
-    var _a2, _b2;
-    const content = mapping.sourceContent;
-    if (content === null) return { own: null, binding: null };
-    const offset = offsetOf(content, mapping.line, mapping.column - 1);
-    if (offset === null) return { own: null, binding: null };
-    const own = ((_a2 = AUTHORED_OWN_NAME.exec(content.slice(offset, offset + 300))) == null ? void 0 : _a2[1]) ?? null;
-    const before = content.slice(Math.max(0, offset - AUTHORED_LOOKBACK), offset);
-    const binding = ((_b2 = AUTHORED_BINDING.exec(before)) == null ? void 0 : _b2[1]) ?? null;
-    return { own, binding };
+    return { ...origin, status: "ambiguous", name: null, nameEvidence: null, definition: null, candidates };
   }
   function createComponentOriginResolver(deps) {
     const modules = deps.modules ?? createModuleMapCache(fetchModuleFromPage);
     const settled = /* @__PURE__ */ new WeakMap();
     const pending = /* @__PURE__ */ new WeakMap();
     const lineStarts = /* @__PURE__ */ new Map();
-    const recentScripts = [];
     const stats = { functions: 0, scripts: 0, resolved: 0 };
-    function moduleFor(script) {
+    function codeOf(script) {
+      return script.text === null ? modules.codeOf(script.url) : Promise.resolve(script.text);
+    }
+    async function mapsFor(script) {
+      const module = script.text === null ? await modules.forUrl(script.url) : await modules.forCode(script.key, script.text, script.url);
       stats.scripts = modules.stats.modules;
-      return script.text === null ? modules.forUrl(script.url) : modules.forCode(script.key, script.text, script.url);
+      return module;
     }
-    function orderedScripts() {
-      const scripts = deps.listScripts();
-      const rank = new Map(recentScripts.map((key, index) => [key, index]));
-      return scripts.map((script, index) => ({ script, index })).sort((a, b) => (rank.get(a.script.key) ?? Infinity) - (rank.get(b.script.key) ?? Infinity) || a.index - b.index).map((entry) => entry.script);
-    }
-    async function locate(text) {
-      for (const script of orderedScripts()) {
-        const module = await moduleFor(script);
-        if (!module) continue;
-        const offset = module.code.indexOf(text);
-        if (offset === -1) continue;
-        const ambiguous = module.code.indexOf(text, offset + 1) !== -1;
-        const at = recentScripts.indexOf(script.key);
-        if (at !== -1) recentScripts.splice(at, 1);
-        recentScripts.unshift(script.key);
-        if (recentScripts.length > 16) recentScripts.length = 16;
-        return { script, module, offset, ambiguous };
-      }
-      return null;
-    }
-    function startsOf(located) {
-      let starts = lineStarts.get(located.script.key);
+    function startsOf(key, code) {
+      let starts = lineStarts.get(key);
       if (!starts) {
-        starts = lineStartsOf(located.module.code);
-        lineStarts.set(located.script.key, starts);
+        starts = lineStartsOf(code);
+        lineStarts.set(key, starts);
       }
       return starts;
     }
-    function mappedNameAt(located, offset) {
-      const { line, column } = positionOf(startsOf(located), offset);
-      const mapping = mappingAt(located.module.maps, line, column + 1);
-      if (!mapping || !mapping.exact) return null;
-      if (mapping.name) return mapping.name;
-      if (mapping.sourceContent === null) return null;
-      const authoredOffset = offsetOf(mapping.sourceContent, mapping.line, mapping.column - 1);
-      return authoredOffset === null ? null : identifierAt(mapping.sourceContent, authoredOffset);
+    async function locateAll(text) {
+      const found = [];
+      let count = 0;
+      for (const script of deps.listScripts()) {
+        const code = await codeOf(script);
+        if (!code) continue;
+        let offset = code.indexOf(text);
+        if (offset === -1) continue;
+        const module = await mapsFor(script);
+        if (!module) continue;
+        for (; offset !== -1 && count < MAX_OCCURRENCES; offset = code.indexOf(text, offset + text.length)) {
+          count += 1;
+          found.push({ script, module, offset });
+        }
+        if (count >= MAX_OCCURRENCES) break;
+      }
+      return { found, count };
     }
     async function compute(fn) {
       const generatedName = typeof fn.name === "string" && fn.name !== "" ? fn.name : null;
@@ -386,70 +454,35 @@ this.__AVALANCHE__ = (function() {
         generatedName,
         definition: null,
         script: null,
-        generated: null
+        generated: null,
+        occurrences: 0
       };
       const text = functionText(fn);
       if (text === null) return { ...base, status: "unsupported" };
-      const located = await locate(text);
-      if (!located) return base;
-      const generated = positionOf(startsOf(located), located.offset);
-      const found = {
-        ...base,
-        script: located.script.text === null ? located.script.url : located.script.key,
-        generated: { line: generated.line, column: generated.column + 1 }
+      const { found, count } = await locateAll(text);
+      if (found.length === 0) return base;
+      const named = found.map((occurrence) => nameOccurrence(text, occurrence, startsOf(occurrence.script.key, occurrence.module.code)));
+      return combineOccurrences(named, base, count);
+    }
+    function unsupported(generatedName, status) {
+      return {
+        status,
+        name: null,
+        nameEvidence: null,
+        generatedName,
+        definition: null,
+        script: null,
+        generated: null,
+        occurrences: 0
       };
-      if (located.ambiguous) return { ...found, status: "ambiguous" };
-      if (located.module.maps.length === 0) return { ...found, status: "no-source-map" };
-      const mapping = mappingAt(located.module.maps, generated.line, generated.column + 1);
-      if (!mapping) return { ...found, status: "unmapped" };
-      const definition = {
-        fileName: sourcePath(mapping.source, located.module.sourceBaseUrl),
-        lineNumber: mapping.line,
-        columnNumber: mapping.column
-      };
-      const ownMatch = OWN_FUNCTION_NAME.exec(text) ?? OWN_CLASS_NAME.exec(text);
-      const ownOffset = ownMatch ? located.offset + ownMatch[0].lastIndexOf(ownMatch[1]) : null;
-      const lookback = located.module.code.slice(Math.max(0, located.offset - GENERATED_LOOKBACK), located.offset);
-      const bindingMatch = GENERATED_BINDING.exec(lookback);
-      const bindingOffset = bindingMatch ? located.offset - lookback.length + bindingMatch.index + bindingMatch[0].indexOf(bindingMatch[1]) : null;
-      const authored = authoredNames(mapping);
-      const candidates = [
-        ["map-name", () => ownOffset === null ? null : mappedNameAt(located, ownOffset)],
-        ["source-text", () => authored.own],
-        ["binding-map-name", () => bindingOffset === null ? null : mappedNameAt(located, bindingOffset)],
-        ["binding-source-text", () => authored.binding]
-      ];
-      for (const [evidence, read] of candidates) {
-        const name = read();
-        if (name) return { ...found, status: "resolved", name, nameEvidence: evidence, definition };
-      }
-      return { ...found, status: "resolved", definition };
     }
     function resolve(type) {
       const fn = componentFunctionOf(type);
-      if (!fn) {
-        return Promise.resolve({
-          status: "unsupported",
-          name: null,
-          nameEvidence: null,
-          generatedName: null,
-          definition: null,
-          script: null,
-          generated: null
-        });
-      }
+      if (!fn) return Promise.resolve(unsupported(null, "unsupported"));
       const cached = pending.get(fn);
       if (cached) return cached;
       stats.functions += 1;
-      const answer = compute(fn).catch(() => ({
-        status: "not-found",
-        name: null,
-        nameEvidence: null,
-        generatedName: fn.name || null,
-        definition: null,
-        script: null,
-        generated: null
-      })).then((origin) => {
+      const answer = compute(fn).catch(() => unsupported(fn.name || null, "not-found")).then((origin) => {
         if (origin.status === "resolved") stats.resolved += 1;
         settled.set(fn, origin);
         return origin;
@@ -574,9 +607,13 @@ this.__AVALANCHE__ = (function() {
       if (fn && !ownName(candidate) && !candidate._debugSource) types.add(fn);
     }
     if (types.size === 0) return null;
-    const stats = { types: types.size, resolved: 0, named: 0, skipped: 0, statuses: {} };
+    const stats = { types: types.size, cached: 0, resolved: 0, named: 0, skipped: 0, statuses: {} };
     const deadline = Date.now() + budgetMs;
     for (const type of types) {
+      if (resolver.peek(type)) {
+        stats.cached += 1;
+        continue;
+      }
       if (Date.now() > deadline) {
         stats.skipped += 1;
         continue;
@@ -1132,14 +1169,15 @@ this.__AVALANCHE__ = (function() {
     }
     return false;
   }
+  function humanSourceId(internalId, type, depth) {
+    const componentName = getComponentName({ type });
+    const match = internalId.match(/#(\d+)@/);
+    const instanceNum = match ? match[1] : "1";
+    return `${componentName}#${instanceNum}@${depth}`;
+  }
   function buildReport(state, thrashMode, topN, sortBy, options = {}, detectorConfig) {
     const { minCollateral = 1 } = options;
-    const toHumanReadableId = (internalId, type, depth) => {
-      const componentName = getComponentName({ type });
-      const match = internalId.match(/#(\d+)@/);
-      const instanceNum = match ? match[1] : "1";
-      return `${componentName}#${instanceNum}@${depth}`;
-    };
+    const toHumanReadableId = humanSourceId;
     const idMapping = /* @__PURE__ */ new Map();
     const allSources = Array.from(state.sources.entries()).map(([internalId, s]) => {
       const humanId = toHumanReadableId(internalId, s.type, s.depth);
@@ -3344,19 +3382,28 @@ this.__AVALANCHE__ = (function() {
         debugRender.reset();
       },
       /**
+       * Component types behind the given report source ids, such as the ids a
+       * command is about to return. Lets callers recover names for just those.
+       */
+      componentTypesFor(sourceIds) {
+        const wanted = new Set(sourceIds);
+        const types = /* @__PURE__ */ new Set();
+        const collect = (entries) => {
+          for (const [internalId, entry] of entries) {
+            if (wanted.has(humanSourceId(internalId, entry.type, entry.depth))) types.add(entry.type);
+          }
+        };
+        collect(state.sources.entries());
+        collect(state.amplifierSources.entries());
+        return Array.from(types);
+      },
+      /**
        * Generate a report of top update sources and thrashing components.
        * @param topN - Number of top sources to include (default: 10)
        * @param sortBy - Sort thrashers by 'effect', 'callback', 'memo', or 'total' (default: 'effect')
        * @param options - Report filtering options (e.g., minCollateral to hide low-impact sources)
        * @returns Report containing sources, blast radius, and optional thrashing data
        */
-      /** Distinct component types behind recorded sources and amplifiers. */
-      componentTypes() {
-        const types = /* @__PURE__ */ new Set();
-        for (const source of state.sources.values()) types.add(source.type);
-        for (const amplifier of state.amplifierSources.values()) types.add(amplifier.type);
-        return Array.from(types);
-      },
       report(topN = 10, sortBy = "effect", reportOptions) {
         return buildReport(state, thrashMode, topN, sortBy, reportOptions, {
           effectThrashMode,
@@ -5004,15 +5051,48 @@ this.__AVALANCHE__ = (function() {
     }
   }
   const AVALANCHE_NAME_BUDGET_MS = 3e3;
-  function warmAvalancheNames(api2, budgetMs = AVALANCHE_NAME_BUDGET_MS) {
-    var _a2;
-    let types = [];
+  const NAME_FREE_ACTIONS = /* @__PURE__ */ new Set(["install", "uninstall", "reset", "clear", "status", "debug-hook"]);
+  const SOURCE_ID = /^[^\s#@]+#\d+@-?\d+$/;
+  const MAX_SOURCE_IDS = 2e3;
+  function sourceIdsIn(value, limit = MAX_SOURCE_IDS) {
+    const found = /* @__PURE__ */ new Set();
+    const seen = /* @__PURE__ */ new Set();
+    const visit = (node, depth) => {
+      if (found.size >= limit) return;
+      if (typeof node === "string") {
+        if (SOURCE_ID.test(node)) found.add(node);
+        return;
+      }
+      if (!node || typeof node !== "object" || depth > 10 || seen.has(node)) return;
+      seen.add(node);
+      if (Array.isArray(node)) {
+        for (const item of node) visit(item, depth + 1);
+        return;
+      }
+      for (const [key, item] of Object.entries(node)) {
+        if (SOURCE_ID.test(key)) found.add(key);
+        visit(item, depth + 1);
+      }
+    };
+    visit(value, 0);
+    return Array.from(found);
+  }
+  async function evalAvalancheWithNames(command, api2, mod, budgetMs = AVALANCHE_NAME_BUDGET_MS) {
+    const first = evalAvalanche(command, api2, mod);
+    const action = String((command == null ? void 0 : command.action) || "status");
+    if (!first.ok || NAME_FREE_ACTIONS.has(action) || typeof (api2 == null ? void 0 : api2.componentTypesFor) !== "function") return first;
+    const ids = sourceIdsIn(first);
+    if (ids.length === 0) return first;
+    let types;
     try {
-      types = ((_a2 = api2 == null ? void 0 : api2.componentTypes) == null ? void 0 : _a2.call(api2)) ?? [];
+      types = api2.componentTypesFor(ids);
     } catch {
-      types = [];
+      return first;
     }
-    return types.length ? warmComponentTypes(types, budgetMs) : Promise.resolve(null);
+    const stats = await warmComponentTypes(types, budgetMs);
+    if (!stats) return first;
+    const again = stats.named > 0 ? evalAvalanche(command, api2, mod) : first;
+    return { ...again, nameRecovery: stats };
   }
   const GREP_SCOPES = ["props", "state", "debug"];
   const DEFAULT_GREP_SCOPES = ["props", "state"];
@@ -5441,10 +5521,38 @@ this.__AVALANCHE__ = (function() {
     }));
   }
   const NAME_RECOVERY_BUDGET_MS = 3e3;
+  function preNameFilter(filters, fiberInfo) {
+    const fileRe = filterRegex(filters == null ? void 0 : filters.file, "file");
+    const testIdRe = filterRegex(filters == null ? void 0 : filters.testid, "testid");
+    const textRe = filterRegex(filters == null ? void 0 : filters.text, "text");
+    const propName = (filters == null ? void 0 : filters.prop) ? String(filters.prop) : null;
+    const needsInfo = Boolean(fileRe || testIdRe || textRe);
+    return (fiber) => {
+      var _a2;
+      if (propName) {
+        const props = fiber == null ? void 0 : fiber.memoizedProps;
+        if (!props || typeof props !== "object" || !(propName in props)) return false;
+      }
+      if (!needsInfo || !fiberInfo) return true;
+      const info = fiberInfo(fiber);
+      if (fileRe && !fileRe.test(((_a2 = info == null ? void 0 : info.source) == null ? void 0 : _a2.fileName) || "")) return false;
+      if (testIdRe && !testIdRe.test((info == null ? void 0 : info.domTestId) || "")) return false;
+      if (textRe && !textRe.test((info == null ? void 0 : info.domText) || "")) return false;
+      return true;
+    };
+  }
   function warmFindFiberNames(filters, helpers, budgetMs = NAME_RECOVERY_BUDGET_MS) {
     if (!(filters == null ? void 0 : filters.name)) return Promise.resolve(null);
+    let passes;
+    try {
+      passes = preNameFilter(filters, helpers.fiberInfo);
+    } catch {
+      return Promise.resolve(null);
+    }
     return warmComponentNames(
-      (visit) => helpers.walkAll((fiber) => visit(fiber), { limit: 2e5 }),
+      (visit) => helpers.walkAll((fiber) => {
+        if (passes(fiber)) visit(fiber);
+      }, { limit: 2e5 }),
       budgetMs
     );
   }
@@ -6343,8 +6451,8 @@ this.__AVALANCHE__ = (function() {
       }
       return r;
     },
-    componentTypes() {
-      return detector ? detector.componentTypes() : [];
+    componentTypesFor(sourceIds) {
+      return detector ? detector.componentTypesFor(sourceIds) : [];
     },
     debugHook(sourceId, hookIndex, windowSize) {
       if (!detector) return { ok: false, error: "not installed" };
@@ -6436,7 +6544,7 @@ this.__AVALANCHE__ = (function() {
       evalDescribeComponent,
       readAvalancheStatus,
       evalAvalanche,
-      warmAvalancheNames,
+      evalAvalancheWithNames,
       evalElementDom,
       evalFiberProps,
       evalFiberPropValue,

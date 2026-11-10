@@ -11,7 +11,7 @@ for (let index = 0; index < DIGITS.length; index += 1) {
   VALUE_OF[DIGITS.charCodeAt(index)] = index;
 }
 
-// src/chippy-bridge/component-origin.ts
+// src/chippy-bridge/component-occurrence.ts
 var IDENTIFIER = "[A-Za-z_$][\\w$]*";
 var OWN_FUNCTION_NAME = new RegExp(`^(?:async\\s*)?function\\s*\\*?\\s*(${IDENTIFIER})\\s*\\(`);
 var OWN_CLASS_NAME = new RegExp(`^class\\s+(${IDENTIFIER})(?=[\\s{])`);
@@ -23,6 +23,7 @@ var GENERATED_BINDING = new RegExp(`(${IDENTIFIER})\\s*[=:]\\s*(?:${CALLEE}\\s*\
 var AUTHORED_BINDING = new RegExp(
   `(?:^|[^\\w$.])(${IDENTIFIER})\\s*(?::[^=;{}()]*)?=\\s*(?:${CALLEE}\\s*(?:<[^()]*>)?\\s*\\(\\s*)*$`
 );
+var LEADING_IDENTIFIER = new RegExp(`^${IDENTIFIER}`);
 
 // src/chippy-bridge/avalanche-commands.ts
 var UPSTREAM_COMMIT_STAT_KEYS = [

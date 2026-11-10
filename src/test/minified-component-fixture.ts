@@ -31,6 +31,22 @@ export const AnonymousMemo = memo(({ value }) => <b>{value * 2}</b>);
 export { ProjectRow };
 `;
 
+/**
+ * Components in separate scopes that the minifier mangles to identical text.
+ * `StarIcon` and `HeartIcon` share text but not a name; the two `Badge`
+ * definitions share both.
+ */
+export const DUPLICATE_TEXT_SOURCE = `
+function starScope() { function StarIcon(props) { return <i {...props} />; } return StarIcon; }
+function heartScope() { function HeartIcon(props) { return <i {...props} />; } return HeartIcon; }
+function badgeScope() { function Badge(props) { return <b {...props} />; } return Badge; }
+function badgeCopy() { function Badge(props) { return <b {...props} />; } return Badge; }
+export const StarIcon = starScope();
+export const HeartIcon = heartScope();
+export const Badge = badgeScope();
+export const BadgeCopy = badgeCopy();
+`;
+
 const fakeReact: Plugin = {
   name: 'fake-react',
   setup(pluginBuild) {
@@ -47,10 +63,14 @@ export type MinifiedBundle = {
   exports: Record<string, unknown>;
 };
 
-/** Build `MINIFIED_APP_SOURCE` minified, with a linked or inline source map. Requires a Node test environment. */
-export async function buildMinifiedBundle(sourcemap: 'linked' | 'inline' = 'linked', outfile = 'index-3f9a.js'): Promise<MinifiedBundle> {
+/** Build `source` minified, with a linked or inline source map. Requires a Node test environment. */
+export async function buildMinifiedBundle(
+  sourcemap: 'linked' | 'inline' = 'linked',
+  outfile = 'index-3f9a.js',
+  source = MINIFIED_APP_SOURCE,
+): Promise<MinifiedBundle> {
   const result = await build({
-    stdin: { contents: MINIFIED_APP_SOURCE, sourcefile: 'src/app.jsx', loader: 'jsx', resolveDir: process.cwd() },
+    stdin: { contents: source, sourcefile: 'src/app.jsx', loader: 'jsx', resolveDir: process.cwd() },
     bundle: true,
     minify: true,
     format: 'iife',

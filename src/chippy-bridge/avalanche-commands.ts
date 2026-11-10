@@ -53,7 +53,8 @@ export type AvalancheApi = {
   exportLast?: (n?: number) => unknown;
   report?: () => Reportish;
   /** Component types the detector recorded; used to recover production names. */
-  componentTypes?: () => unknown[];
+  /** Component types behind the given report source ids. */
+  componentTypesFor?: (sourceIds: Iterable<string>) => unknown[];
   debugHook?: (sourceId: string, hookIndex: number, windowSize?: number) => unknown;
   [key: string]: unknown;
 };
@@ -62,6 +63,8 @@ export type AvalancheModule = Record<string, unknown>;
 
 export type EvalAvalancheResult = {
   ok: boolean;
+  /** Production builds: names recovered for the components this result names. */
+  nameRecovery?: NameRecoveryStats;
   available: boolean;
   action: string;
   status?: AvalancheApiStatus;
@@ -433,20 +436,61 @@ export function evalAvalanche(
 /** Default time budget for recovering production names before a report. */
 export const AVALANCHE_NAME_BUDGET_MS = 3000;
 
+/** Actions whose results carry no component source ids, or that change state. */
+const NAME_FREE_ACTIONS = new Set(['install', 'uninstall', 'reset', 'clear', 'status', 'debug-hook']);
+const SOURCE_ID = /^[^\s#@]+#\d+@-?\d+$/;
+const MAX_SOURCE_IDS = 2000;
+
+/** Report source ids (`Name#instance@depth`) that appear anywhere in `value`. */
+export function sourceIdsIn(value: unknown, limit = MAX_SOURCE_IDS): string[] {
+  const found = new Set<string>();
+  const seen = new Set<object>();
+  const visit = (node: unknown, depth: number): void => {
+    if (found.size >= limit) return;
+    if (typeof node === 'string') {
+      if (SOURCE_ID.test(node)) found.add(node);
+      return;
+    }
+    if (!node || typeof node !== 'object' || depth > 10 || seen.has(node)) return;
+    seen.add(node);
+    if (Array.isArray(node)) {
+      for (const item of node) visit(item, depth + 1);
+      return;
+    }
+    for (const [key, item] of Object.entries(node)) {
+      if (SOURCE_ID.test(key)) found.add(key);
+      visit(item, depth + 1);
+    }
+  };
+  visit(value, 0);
+  return Array.from(found);
+}
+
 /**
- * Recover authored names for the component types Avalanche recorded, so
- * report source ids read `ProjectList#1@3` rather than a minified name on
- * production builds. Call before `evalAvalanche` on production pages only.
+ * Production builds: run the command, recover authored names for only the
+ * components whose source ids it returned, and run it again when that
+ * changed a name, so ids read `ProjectList#1@3` instead of `cp#1@3`.
+ * Development pages and state-changing actions run once.
  */
-export function warmAvalancheNames(
+export async function evalAvalancheWithNames(
+  command: AvalancheCommand | null | undefined,
   api: AvalancheApi | null | undefined,
+  mod: AvalancheModule | null | undefined,
   budgetMs = AVALANCHE_NAME_BUDGET_MS,
-): Promise<NameRecoveryStats | null> {
-  let types: unknown[] = [];
+): Promise<EvalAvalancheResult> {
+  const first = evalAvalanche(command, api, mod);
+  const action = String(command?.action || 'status');
+  if (!first.ok || NAME_FREE_ACTIONS.has(action) || typeof api?.componentTypesFor !== 'function') return first;
+  const ids = sourceIdsIn(first);
+  if (ids.length === 0) return first;
+  let types: unknown[];
   try {
-    types = api?.componentTypes?.() ?? [];
+    types = api.componentTypesFor(ids);
   } catch {
-    types = [];
+    return first;
   }
-  return types.length ? warmComponentTypes(types, budgetMs) : Promise.resolve(null);
+  const stats = await warmComponentTypes(types, budgetMs);
+  if (!stats) return first;
+  const again = stats.named > 0 ? evalAvalanche(command, api, mod) : first;
+  return { ...again, nameRecovery: stats };
 }

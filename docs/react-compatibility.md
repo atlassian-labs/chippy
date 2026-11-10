@@ -74,9 +74,16 @@ position through the source map, and reads the authored name from the map's
 defined. This covers probes, `find-fibers --name`, `describe-component`,
 `explain-component`, and Avalanche reports.
 
+Recovery is on demand. Each command resolves only the components it returns or
+filters on, and fetches maps only for the scripts that contain them.
+
+A minifier can turn components from separate scopes into identical text.
+Chippy maps every occurrence of the text and uses the authored name only when
+all occurrences agree on it. When they map to different names, the component
+keeps its minified name.
+
 Recovery needs the page to be able to fetch the bundle and its map. It does not
-apply when the map is missing or unreachable, or when the same function text
-appears twice in one script.
+apply when the map is missing or unreachable.
 
 ### Keeping names in the build
 

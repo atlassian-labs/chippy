@@ -72,7 +72,7 @@ import { evalDescribeComponent as evalDescribeComponentImpl } from './chippy-bri
 import {
   readAvalancheStatus as readAvalancheStatusImpl,
   evalAvalanche as evalAvalancheImpl,
-  warmAvalancheNames as warmAvalancheNamesImpl,
+  evalAvalancheWithNames as evalAvalancheWithNamesImpl,
 } from './chippy-bridge/avalanche-commands';
 import {
   evalElementDom as evalElementDomImpl,
@@ -209,7 +209,7 @@ type AvalancheApi = {
   reset: () => { ok: true };
   report: (topN?: number, sortBy?: 'effect' | 'callback' | 'memo' | 'total', options?: Record<string, unknown>) => unknown;
   exportLast: (n?: number) => unknown;
-  componentTypes: () => unknown[];
+  componentTypesFor: (sourceIds: Iterable<string>) => unknown[];
   debugHook: (sourceId: string, hookIndex: number, windowSize?: number) => unknown;
   _debugRawHookEvents: (componentName: string) => unknown;
   status: () => {
@@ -279,7 +279,7 @@ type AvalancheApi = {
     evalDescribeComponent: (fiberIdRaw: unknown, nameRaw: unknown, deps: DescribeComponentDeps) => unknown;
     readAvalancheStatus: (api: unknown, mod: unknown) => unknown;
     evalAvalanche: (command: unknown, api: unknown, mod: unknown) => unknown;
-    warmAvalancheNames: (api: unknown) => Promise<unknown>;
+    evalAvalancheWithNames: (command: unknown, api: unknown, mod: unknown) => Promise<unknown>;
     evalElementDom: typeof evalElementDomImpl;
     evalFiberProps: typeof evalFiberPropsImpl;
     evalFiberPropValue: typeof evalFiberPropValueImpl;
@@ -344,8 +344,8 @@ const api: AvalancheApi = {
     }
     return r;
   },
-  componentTypes() {
-    return detector ? detector.componentTypes() : [];
+  componentTypesFor(sourceIds: Iterable<string>) {
+    return detector ? detector.componentTypesFor(sourceIds) : [];
   },
   debugHook(sourceId, hookIndex, windowSize) {
     if (!detector) return { ok: false, error: 'not installed' };
@@ -436,7 +436,7 @@ const api: AvalancheApi = {
     evalDescribeComponent: evalDescribeComponentImpl,
     readAvalancheStatus: readAvalancheStatusImpl,
     evalAvalanche: evalAvalancheImpl,
-    warmAvalancheNames: warmAvalancheNamesImpl as (api: unknown) => Promise<unknown>,
+    evalAvalancheWithNames: evalAvalancheWithNamesImpl as (command: unknown, api: unknown, mod: unknown) => Promise<unknown>,
     evalElementDom: evalElementDomImpl,
     evalFiberProps: evalFiberPropsImpl,
     evalFiberPropValue: evalFiberPropValueImpl,

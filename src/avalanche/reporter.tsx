@@ -697,6 +697,18 @@ export interface ReportOptions {
   minCollateral?: number;
 }
 
+/**
+ * Report source id for an internal id, e.g. `T1#2@3` -> `Counter#2@3`. The
+ * name is read when the report is built, so recovered production names apply.
+ */
+export function humanSourceId(internalId: string, type: ComponentType, depth: number): string {
+  // eslint-disable-next-line @typescript-eslint/consistent-type-assertions
+  const componentName = getComponentName({ type } as Fiber);
+  const match = internalId.match(/#(\d+)@/);
+  const instanceNum = match ? match[1] : '1';
+  return `${componentName}#${instanceNum}@${depth}`;
+}
+
 export function buildReport(
   state: ProfilerState,
   thrashMode: ThrashMode,
@@ -719,15 +731,7 @@ export function buildReport(
 ): Report {
   const { minCollateral = 1 } = options;
 
-  // Helper to generate human-readable sourceId from internal ID (e.g., "T1#2@3" -> "Counter#2@3")
-  const toHumanReadableId = (internalId: string, type: ComponentType, depth: number): string => {
-    // eslint-disable-next-line @typescript-eslint/consistent-type-assertions
-    const componentName = getComponentName({ type } as Fiber);
-    // Extract instance number from internal ID (e.g., "T1#2@3" -> "2")
-    const match = internalId.match(/#(\d+)@/);
-    const instanceNum = match ? match[1] : '1';
-    return `${componentName}#${instanceNum}@${depth}`;
-  };
+  const toHumanReadableId = humanSourceId;
 
   // Map internal IDs to human-readable IDs for the report
   const idMapping = new Map<string, string>(); // internalId -> humanId
