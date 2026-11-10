@@ -2,7 +2,7 @@
 import { beforeAll, describe, expect, it } from 'vitest';
 import { getComponentName } from '../avalanche/internals';
 import { describeComponent, getDisplayName, isUserComponent, resolveFiberSource } from '../layout-lab/fiber-walk';
-import { buildMinifiedBundle, type MinifiedBundle } from '../test/minified-component-fixture';
+import { buildMinifiedBundle, DUPLICATE_TEXT_SOURCE, type MinifiedBundle } from '../test/minified-component-fixture';
 import { listPageScripts, needsComponentOrigin, readComponentName } from './component-origin';
 import { evalFindFibers, resolveFindFiberSources, warmFindFiberNames, type Fiber } from './eval-helpers';
 import { captureFiberState } from './fiber-state';
@@ -49,16 +49,18 @@ function walkFrom(root: TestFiber) {
 
 describe('production names through the page realm', () => {
   let bundle: MinifiedBundle;
+  let dup: MinifiedBundle;
   let root: TestFiber;
   let list: TestFiber;
   let row: TestFiber;
 
   beforeAll(async () => {
     bundle = await buildMinifiedBundle('inline');
-    // The page holds the minified bundle as an inline script with an inline map.
+    dup = await buildMinifiedBundle('inline', 'dup.js', DUPLICATE_TEXT_SOURCE);
+    // The page holds the minified bundles as inline scripts with inline maps.
     Object.assign(globalThis, {
       location: { href: PAGE_URL },
-      document: { scripts: [{ src: '', text: bundle.code }] },
+      document: { scripts: [{ src: '', text: bundle.code }, { src: '', text: dup.code }] },
       Element: globalThis.Element ?? class Element {},
     });
     root = fiber(null, null, { tag: 3 });
@@ -68,7 +70,10 @@ describe('production names through the page realm', () => {
   });
 
   it('lists inline page scripts', () => {
-    expect(listPageScripts()).toEqual([{ key: 'inline:0', url: PAGE_URL, text: bundle.code }]);
+    expect(listPageScripts()).toEqual([
+      { key: 'inline:0', url: PAGE_URL, text: bundle.code },
+      { key: 'inline:1', url: PAGE_URL, text: dup.code },
+    ]);
   });
 
   it('shows minified names until the fiber is resolved, then the authored name and definition', async () => {
@@ -169,6 +174,18 @@ describe('production names through the page realm', () => {
     expect(sourceIdsIn({ a: ['cp#1@3', 'not an id'], 'eu#2@-1': { nested: 'x#1@0' } }).sort())
       .toEqual(['cp#1@3', 'eu#2@-1', 'x#1@0']);
     expect(sourceIdsIn(['a#1@1', 'b#1@1', 'c#1@1'], 2)).toHaveLength(2);
+  });
+
+  it('describes a component named from its ancestor with nameInferredFrom', async () => {
+    const toolbar = fiber(dup.exports.Toolbar, root);
+    const nav = fiber('nav', toolbar, { tag: 5 });
+    const star = fiber(dup.exports.StarIcon, nav);
+    await resolveFiberSource(star);
+    expect(describeComponent(star as never)).toMatchObject({
+      name: 'StarIcon',
+      definition: { fileName: 'src/app.jsx', lineNumber: 2 },
+      nameInferredFrom: { name: 'Toolbar', distance: 1, definition: { lineNumber: 11 } },
+    });
   });
 
   it('treats nameless production components as user components', () => {

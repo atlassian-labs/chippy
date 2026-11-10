@@ -675,10 +675,13 @@ Production React keeps no source metadata, and minifiers rename components (`Pro
 
 Recovery is on demand: each command resolves only the components it returns or filters on, and a resolved component stays resolved for the rest of the page's life. Source maps are fetched only for scripts that contain a component being resolved.
 
-A minifier can turn components from separate scopes into identical text, so the same text may occur several times across the page's scripts. Chippy maps every occurrence, up to 16:
+A minifier can turn components from separate scopes into identical text, so the same text may occur several times across the page's scripts. Chippy maps every occurrence, up to 4096:
 
 - When all occurrences map to the same authored name, Chippy uses that name. If they map to different definitions, `definition` is omitted, because the text alone cannot tell which definition the component came from.
-- When the occurrences map to different names, the component keeps its minified name and is counted as `ambiguous` in `nameRecovery.statuses`.
+- When the occurrences map to different names, Chippy reads the fiber's ancestors. The component that rendered the fiber is one of them, and its code references the authored name. Chippy walks up to 16 component ancestors to the nearest one whose code references any of the candidate names, skipping components such as wrappers that only pass `children` through. If that ancestor references exactly one candidate, Chippy uses that name and adds `nameInferredFrom: { name, definition, distance }`, where `distance` counts component ancestors. Treat this name as an inference, and check `nameInferredFrom` when the name matters.
+- Otherwise the component keeps its minified name and is counted as `ambiguous` in `nameRecovery.statuses`. This happens when the nearest referencing ancestor references several candidates, when no ancestor references any, or when the text occurs more than 4096 times, so the candidate list is incomplete.
+
+A name inferred for one fiber applies to every fiber of that component type, because one function object comes from one definition. `find-fibers --name` tries this for up to three fibers of each ambiguous type and counts the successes in `nameRecovery.byContext`.
 
 Nothing is recovered when the bundle has no source map or the map cannot be fetched. The component then keeps its minified name, or has no name if the minifier dropped it.
 
@@ -798,7 +801,7 @@ Searches the live fiber tree without probe placement. Returns remembered `fiberI
 
 Only named fibers are returned. `--name`, `--file`, `--testid` and `--text` are case-insensitive regexes. `--text` and `--testid` match the fiber's nearest DOM text and `data-testid`. `--prop` is an exact prop name and matches when the prop is present, whatever its value. All given filters must match. `--max` defaults to 50.
 
-On a production build, `--name` matches the authored names Chippy recovers from the page's source maps (see [Production builds](#production-component-names)). Before matching, Chippy resolves the component types of fibers that pass the other filters (`--prop`, `--file`, `--testid`, `--text`), within a 3-second budget. With `--name` alone, that is every component type in the tree, so combine it with another filter on large pages. The result carries `nameRecovery`: `types` (component types without development metadata), `cached` (already resolved by an earlier command), `resolved`, `named`, `skipped` (types left when the budget ran out), and `statuses` (count per resolution status, including `ambiguous`). Each recovered item adds `minifiedName` and `definition`.
+On a production build, `--name` matches the authored names Chippy recovers from the page's source maps (see [Production builds](#production-component-names)). Before matching, Chippy resolves the component types of fibers that pass the other filters (`--prop`, `--file`, `--testid`, `--text`), within a 3-second budget. With `--name` alone, that is every component type in the tree, so combine it with another filter on large pages. The result carries `nameRecovery`: `types` (component types without development metadata), `cached` (already resolved by an earlier command), `resolved`, `named`, `skipped` (types left when the budget ran out), `byContext` (ambiguous types named from an ancestor's code, also counted in `named`), and `statuses` (count per text resolution status, including `ambiguous`). Each recovered item adds `minifiedName` and `definition`, and `nameInferredFrom` when its name came from an ancestor.
 
 An invalid regex in any filter, or an unknown `--in` scope, fails the command: the helper answers HTTP 422 with `error` naming the flag (for example `Invalid --grep regex: …`), and `chippy.sh` exits non-zero. An empty `items` list therefore always means the pattern was valid and nothing matched.
 

@@ -10,6 +10,7 @@ import {
 import {
   componentDefinitionOf,
   minifiedComponentName,
+  nameContextOf,
   needsComponentOrigin,
   readComponentName,
   type ComponentDefinition,
@@ -60,6 +61,8 @@ export type HookSummary = {
 export type RecoveredOrigin = {
   definition?: ComponentDefinition;
   minifiedName?: string;
+  /** The ancestor whose code named an ambiguous component. */
+  nameInferredFrom?: NonNullable<ReturnType<typeof nameContextOf>>;
 };
 
 export type OwnerEntry = {
@@ -123,9 +126,11 @@ export function getDisplayName(type: unknown): string | null {
 export function describeRecoveredOrigin(type: unknown): RecoveredOrigin {
   const definition = componentDefinitionOf(type);
   const minifiedName = minifiedComponentName(type);
+  const nameInferredFrom = nameContextOf(type);
   return {
     ...(definition ? { definition } : {}),
     ...(minifiedName ? { minifiedName } : {}),
+    ...(nameInferredFrom ? { nameInferredFrom } : {}),
   };
 }
 

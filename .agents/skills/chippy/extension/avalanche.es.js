@@ -182,6 +182,33 @@ function inlineSourceMapOf(url) {
     return null;
   }
 }
+function mappingsInRange(maps, start, end) {
+  const out = [];
+  const before = (line, column, other) => line < other.line || line === other.line && column < other.column;
+  for (const map of maps) {
+    for (let localLine = 1; localLine <= map.lines.length; localLine += 1) {
+      const line = localLine + map.offset.line;
+      if (line < start.line) continue;
+      if (line > end.line) break;
+      for (const segment of map.lines[localLine - 1]) {
+        const column = segment.generatedColumn + 1 + (localLine === 1 ? map.offset.column : 0);
+        if (before(line, column, start)) continue;
+        if (!before(line, column, end)) break;
+        if (segment.sourceIndex === null || segment.originalLine === null || segment.originalColumn === null) continue;
+        const source = map.sources[segment.sourceIndex];
+        if (source === void 0 || source === "") continue;
+        out.push({
+          source,
+          line: segment.originalLine + 1,
+          column: segment.originalColumn + 1,
+          name: segment.nameIndex === null ? null : map.names[segment.nameIndex] || null,
+          sourceContent: map.sourcesContent[segment.sourceIndex] ?? null
+        });
+      }
+    }
+  }
+  return out;
+}
 function parseUrl(url, base) {
   try {
     return new URL(url, base);
@@ -295,14 +322,15 @@ function positionOf(lineStarts, offset) {
   }
   return { line: low + 1, column: offset - lineStarts[low] };
 }
+const contentLineStarts = /* @__PURE__ */ new Map();
 function offsetOf(text, line, column) {
-  let offset = 0;
-  for (let current = 1; current < line; current += 1) {
-    const next = text.indexOf("\n", offset);
-    if (next === -1) return null;
-    offset = next + 1;
+  let starts = contentLineStarts.get(text);
+  if (!starts) {
+    starts = lineStartsOf(text);
+    contentLineStarts.set(text, starts);
   }
-  return offset + column;
+  const start = starts[line - 1];
+  return start === void 0 ? null : start + column;
 }
 function authoredNames(mapping) {
   var _a2, _b2;
@@ -363,9 +391,42 @@ function nameOccurrence(text, occurrence, lineStarts) {
   }
   return { ...found, definition };
 }
+const IDENTIFIERS = /[A-Za-z_$][\w$]*/g;
+const LAST_TOKEN = /^[A-Za-z_$][\w$]*/;
+const MAX_AUTHORED_SPAN = 2e5;
+function referencedNames(text, occurrence, lineStarts) {
+  var _a2;
+  const names = /* @__PURE__ */ new Set();
+  const { module, offset } = occurrence;
+  if (module.maps.length === 0) return names;
+  const toPosition = (at) => {
+    const { line, column } = positionOf(lineStarts, at);
+    return { line, column: column + 1 };
+  };
+  const mappings = mappingsInRange(module.maps, toPosition(offset), toPosition(offset + text.length));
+  for (const mapping of mappings) {
+    if (mapping.name) names.add(mapping.name);
+  }
+  const first = mappings[0];
+  if (!(first == null ? void 0 : first.sourceContent)) return names;
+  let low = first;
+  let high = first;
+  for (const mapping of mappings) {
+    if (mapping.source !== first.source) continue;
+    if (mapping.line < low.line || mapping.line === low.line && mapping.column < low.column) low = mapping;
+    if (mapping.line > high.line || mapping.line === high.line && mapping.column > high.column) high = mapping;
+  }
+  const start = offsetOf(first.sourceContent, low.line, low.column - 1);
+  const end = offsetOf(first.sourceContent, high.line, high.column - 1);
+  if (start === null || end === null || end - start > MAX_AUTHORED_SPAN) return names;
+  const last = ((_a2 = LAST_TOKEN.exec(first.sourceContent.slice(end, end + 200))) == null ? void 0 : _a2[0]) ?? "";
+  const span = first.sourceContent.slice(start, end) + last;
+  for (const match of span.matchAll(IDENTIFIERS)) names.add(match[0]);
+  return names;
+}
 const MIN_FUNCTION_TEXT = 12;
-const MAX_OCCURRENCES = 16;
-const MAX_CANDIDATES = 8;
+const MAX_OCCURRENCES = 4096;
+const MAX_CANDIDATES = 256;
 function componentFunctionOf(type, depth = 0) {
   if (typeof type === "function") return type;
   if (!type || typeof type !== "object" || depth > 4) return null;
@@ -382,7 +443,7 @@ function functionText(fn) {
     return null;
   }
 }
-function definitionKey(definition) {
+function definitionKey$1(definition) {
   return definition ? `${definition.fileName}:${definition.lineNumber}:${definition.columnNumber}` : "";
 }
 function combineOccurrences(named, base, occurrences) {
@@ -391,23 +452,34 @@ function combineOccurrences(named, base, occurrences) {
   if (named.length === 1 || !named.some((item) => item.status === "resolved")) return origin;
   const distinct = /* @__PURE__ */ new Map();
   for (const item of named) {
-    const key = `${item.name ?? ""}|${definitionKey(item.definition)}`;
+    const key = `${item.name ?? ""}|${definitionKey$1(item.definition)}`;
     if (!distinct.has(key)) distinct.set(key, { name: item.name, definition: item.definition, script: item.script });
   }
+  const truncated = occurrences >= MAX_OCCURRENCES || distinct.size > MAX_CANDIDATES;
   const candidates = Array.from(distinct.values()).slice(0, MAX_CANDIDATES);
   const names = new Set(named.map((item) => item.name));
-  const definitions = new Set(named.map((item) => definitionKey(item.definition)));
+  const definitions = new Set(named.map((item) => definitionKey$1(item.definition)));
   const allResolved = named.every((item) => item.status === "resolved");
   if (allResolved && names.size === 1 && first.name !== null) {
     return definitions.size === 1 ? origin : { ...origin, definition: null, candidates };
   }
-  return { ...origin, status: "ambiguous", name: null, nameEvidence: null, definition: null, candidates };
+  return {
+    ...origin,
+    status: "ambiguous",
+    name: null,
+    nameEvidence: null,
+    definition: null,
+    candidates,
+    ...truncated ? { truncated: true } : {}
+  };
 }
 function createComponentOriginResolver(deps) {
   const modules = deps.modules ?? createModuleMapCache(fetchModuleFromPage);
   const settled = /* @__PURE__ */ new WeakMap();
   const pending = /* @__PURE__ */ new WeakMap();
   const lineStarts = /* @__PURE__ */ new Map();
+  const located = /* @__PURE__ */ new WeakMap();
+  const referenced = /* @__PURE__ */ new WeakMap();
   const stats = { functions: 0, scripts: 0, resolved: 0 };
   function codeOf(script) {
     return script.text === null ? modules.codeOf(script.url) : Promise.resolve(script.text);
@@ -459,6 +531,7 @@ function createComponentOriginResolver(deps) {
     if (text === null) return { ...base, status: "unsupported" };
     const { found, count } = await locateAll(text);
     if (found.length === 0) return base;
+    located.set(fn, { text, found });
     const named = found.map((occurrence) => nameOccurrence(text, occurrence, startsOf(occurrence.script.key, occurrence.module.code)));
     return combineOccurrences(named, base, count);
   }
@@ -492,7 +565,32 @@ function createComponentOriginResolver(deps) {
     const fn = componentFunctionOf(type);
     return fn ? settled.get(fn) ?? null : null;
   }
-  return { resolve, peek, stats };
+  function references(type) {
+    const fn = componentFunctionOf(type);
+    if (!fn) return Promise.resolve(null);
+    let answer = referenced.get(fn);
+    if (!answer) {
+      answer = resolve(fn).then((origin) => {
+        const where = located.get(fn);
+        if (origin.status !== "resolved" || !origin.name || !where) return null;
+        const names = /* @__PURE__ */ new Set();
+        for (const occurrence of where.found) {
+          const starts = startsOf(occurrence.script.key, occurrence.module.code);
+          for (const name of referencedNames(where.text, occurrence, starts)) names.add(name);
+        }
+        return names;
+      }).catch(() => null);
+      referenced.set(fn, answer);
+    }
+    return answer;
+  }
+  function settle(type, origin) {
+    const fn = componentFunctionOf(type);
+    if (!fn) return;
+    settled.set(fn, origin);
+    pending.set(fn, Promise.resolve(origin));
+  }
+  return { resolve, peek, references, settle, stats };
 }
 const SCRIPT_PATH = /\.(?:m?js|cjs|jsx|tsx?)$/i;
 function isChippyAsset(url) {
@@ -547,6 +645,11 @@ function componentDefinitionOf(type) {
   var _a2;
   return ((_a2 = pageResolver$1 == null ? void 0 : pageResolver$1.peek(type)) == null ? void 0 : _a2.definition) ?? null;
 }
+function nameContextOf(type) {
+  var _a2;
+  if (ownName(type)) return null;
+  return ((_a2 = pageResolver$1 == null ? void 0 : pageResolver$1.peek(type)) == null ? void 0 : _a2.context) ?? null;
+}
 function resolveComponentOrigin(type) {
   return pageComponentOrigins().resolve(type);
 }
@@ -581,22 +684,14 @@ function applyRecoveredOrigin(entry, type) {
     entry.minifiedName = minifiedName;
   }
   if (definition) entry.definition = definition;
+  const context = nameContextOf(type);
+  if (context) entry.nameInferredFrom = context;
 }
 function needsComponentOrigin(fiber) {
   if (!fiber || !componentFunctionOf(fiber.type)) return false;
   if (fiber._debugSource || fiber._debugStack || fiber._debugOwner) return false;
   const type = fiber.type;
   return !type._debugSource && !ownName(fiber.type);
-}
-function resolveFiberComponentOrigin(fiber) {
-  return needsComponentOrigin(fiber) ? resolveComponentOrigin(fiber.type).catch(() => null) : Promise.resolve(null);
-}
-async function warmComponentNames(walk2, budgetMs = 3e3, resolver = pageComponentOrigins()) {
-  const types = /* @__PURE__ */ new Set();
-  walk2((fiber) => {
-    if (needsComponentOrigin(fiber)) types.add(componentFunctionOf(fiber.type));
-  });
-  return warmComponentTypes(types, budgetMs, resolver);
 }
 async function warmComponentTypes(candidates, budgetMs = 3e3, resolver = pageComponentOrigins()) {
   const types = /* @__PURE__ */ new Set();
@@ -605,7 +700,7 @@ async function warmComponentTypes(candidates, budgetMs = 3e3, resolver = pageCom
     if (fn && !ownName(candidate) && !candidate._debugSource) types.add(fn);
   }
   if (types.size === 0) return null;
-  const stats = { types: types.size, cached: 0, resolved: 0, named: 0, skipped: 0, statuses: {} };
+  const stats = { types: types.size, cached: 0, resolved: 0, named: 0, skipped: 0, byContext: 0, statuses: {} };
   const deadline = Date.now() + budgetMs;
   for (const type of types) {
     if (resolver.peek(type)) {
@@ -620,6 +715,80 @@ async function warmComponentTypes(candidates, budgetMs = 3e3, resolver = pageCom
     stats.statuses[origin.status] = (stats.statuses[origin.status] ?? 0) + 1;
     if (origin.status === "resolved") stats.resolved += 1;
     if (origin.name) stats.named += 1;
+  }
+  return stats;
+}
+const MAX_CONTEXT_ANCESTORS = 16;
+const SAMPLE_FIBERS = 3;
+function definitionKey(definition) {
+  return definition ? `${definition.fileName}:${definition.lineNumber}:${definition.columnNumber}` : "";
+}
+async function nameFromAncestors(fiber, origin, resolver, maxAncestors = MAX_CONTEXT_ANCESTORS) {
+  if (origin.status !== "ambiguous" || origin.truncated) return null;
+  const candidates = (origin.candidates ?? []).filter((candidate) => candidate.name);
+  const wanted = new Set(candidates.map((candidate) => candidate.name));
+  if (wanted.size === 0) return null;
+  let distance = 0;
+  for (let node = fiber.return; node && distance < maxAncestors; node = node.return) {
+    if (!componentFunctionOf(node.type)) continue;
+    distance += 1;
+    const references = await resolver.references(node.type);
+    if (!references) continue;
+    const hits = Array.from(wanted).filter((name2) => references.has(name2));
+    if (hits.length === 0) continue;
+    if (hits.length > 1) return null;
+    const name = hits[0];
+    const matching = candidates.filter((candidate) => candidate.name === name);
+    const sameDefinition = new Set(matching.map((candidate) => definitionKey(candidate.definition))).size === 1;
+    const ancestor = resolver.peek(node.type);
+    return {
+      ...origin,
+      status: "resolved",
+      name,
+      nameEvidence: "ancestor-reference",
+      definition: sameDefinition ? matching[0].definition : null,
+      script: matching[0].script,
+      context: { name: (ancestor == null ? void 0 : ancestor.name) ?? "", definition: (ancestor == null ? void 0 : ancestor.definition) ?? null, distance }
+    };
+  }
+  return null;
+}
+async function resolveFiberComponentOrigin(fiber, resolver = pageComponentOrigins()) {
+  if (!fiber || !needsComponentOrigin(fiber)) return null;
+  try {
+    const origin = await resolver.resolve(fiber.type);
+    const named = await nameFromAncestors(fiber, origin, resolver);
+    if (!named) return origin;
+    resolver.settle(fiber.type, named);
+    return named;
+  } catch {
+    return null;
+  }
+}
+async function warmComponentNames(walk2, budgetMs = 3e3, resolver = pageComponentOrigins()) {
+  const deadline = Date.now() + budgetMs;
+  const samples = /* @__PURE__ */ new Map();
+  walk2((fiber) => {
+    if (!needsComponentOrigin(fiber)) return;
+    const fn = componentFunctionOf(fiber.type);
+    const list = samples.get(fn);
+    if (!list) samples.set(fn, [fiber]);
+    else if (list.length < SAMPLE_FIBERS) list.push(fiber);
+  });
+  const stats = await warmComponentTypes(samples.keys(), budgetMs, resolver);
+  if (!stats) return null;
+  for (const [type, fibers] of samples) {
+    const origin = resolver.peek(type);
+    if ((origin == null ? void 0 : origin.status) !== "ambiguous") continue;
+    for (const fiber of fibers) {
+      if (Date.now() > deadline) return stats;
+      const named = await nameFromAncestors(fiber, origin, resolver);
+      if (!named) continue;
+      resolver.settle(type, named);
+      stats.byContext += 1;
+      stats.named += 1;
+      break;
+    }
   }
   return stats;
 }
@@ -1766,9 +1935,11 @@ function getDisplayName(type) {
 function describeRecoveredOrigin(type) {
   const definition = componentDefinitionOf(type);
   const minifiedName = minifiedComponentName(type);
+  const nameInferredFrom = nameContextOf(type);
   return {
     ...definition ? { definition } : {},
-    ...minifiedName ? { minifiedName } : {}
+    ...minifiedName ? { minifiedName } : {},
+    ...nameInferredFrom ? { nameInferredFrom } : {}
   };
 }
 function isUserComponent(fiber) {

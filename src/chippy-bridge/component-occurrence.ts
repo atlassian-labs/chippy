@@ -24,8 +24,16 @@ export type ComponentDefinition = {
  * - `source-text`: the function's own name in the authored source.
  * - `binding-map-name`: the `names` entry for the variable or property that holds it.
  * - `binding-source-text`: that binding in the authored source.
+ * - `ancestor-reference`: the identical text maps to several names, and the
+ *   nearest ancestor component whose code references one of them references
+ *   only this one.
  */
-export type NameEvidence = 'map-name' | 'source-text' | 'binding-map-name' | 'binding-source-text';
+export type NameEvidence =
+  | 'map-name'
+  | 'source-text'
+  | 'binding-map-name'
+  | 'binding-source-text'
+  | 'ancestor-reference';
 
 /** Where a function's text was found. */
 export type Occurrence = {
@@ -71,7 +79,7 @@ export function lineStartsOf(text: string): number[] {
 }
 
 /** 1-based line and 0-based column of `offset`, using precomputed line starts. */
-function positionOf(lineStarts: readonly number[], offset: number): { line: number; column: number } {
+export function positionOf(lineStarts: readonly number[], offset: number): { line: number; column: number } {
   let low = 0;
   let high = lineStarts.length - 1;
   while (low < high) {
@@ -82,14 +90,17 @@ function positionOf(lineStarts: readonly number[], offset: number): { line: numb
   return { line: low + 1, column: offset - lineStarts[low]! };
 }
 
-function offsetOf(text: string, line: number, column: number): number | null {
-  let offset = 0;
-  for (let current = 1; current < line; current += 1) {
-    const next = text.indexOf('\n', offset);
-    if (next === -1) return null;
-    offset = next + 1;
+const contentLineStarts = new Map<string, number[]>();
+
+/** Offset of a 1-based line and 0-based column in `text`; line starts are cached per text. */
+export function offsetOf(text: string, line: number, column: number): number | null {
+  let starts = contentLineStarts.get(text);
+  if (!starts) {
+    starts = lineStartsOf(text);
+    contentLineStarts.set(text, starts);
   }
-  return offset + column;
+  const start = starts[line - 1];
+  return start === undefined ? null : start + column;
 }
 
 /** Authored own name, then authored binding, around a mapped definition. */

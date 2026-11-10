@@ -1,6 +1,6 @@
 import { originalPositionFor, type OriginalPosition } from './source-map';
 import { createModuleMapCache, fetchModuleFromPage, sourcePath, type FetchModule } from './module-maps';
-import { resolveFiberComponentOrigin } from './component-origin';
+import { resolveFiberComponentOrigin } from './fiber-origin';
 import { baseName, pageModuleUrls, recordedLiteralPosition } from './recorded-source';
 
 export type FiberSourceLocation = {

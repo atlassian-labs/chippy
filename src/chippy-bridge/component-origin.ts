@@ -15,6 +15,7 @@
  */
 
 import { createModuleMapCache, fetchModuleFromPage, type ModuleMapCache } from './module-maps';
+import { referencedNames } from './component-references';
 import {
   lineStartsOf,
   nameOccurrence,
@@ -74,6 +75,16 @@ export type ComponentOrigin = {
   occurrences: number;
   /** Distinct authored definitions when occurrences disagree on name or definition. */
   candidates?: OriginCandidate[];
+  /**
+   * True when `MAX_OCCURRENCES` or `MAX_CANDIDATES` cut the search short, so
+   * `candidates` may miss the component's real definition.
+   */
+  truncated?: true;
+  /**
+   * Set when `nameEvidence` is `ancestor-reference`: the ancestor component
+   * whose code references this name, and how many fibers up it is.
+   */
+  context?: { name: string; definition: ComponentDefinition | null; distance: number };
 };
 
 export type ScriptRef = {
@@ -89,6 +100,13 @@ export type ComponentOriginResolver = {
   resolve(type: unknown): Promise<ComponentOrigin>;
   /** Cached result for `type`, or null when it has not been resolved. */
   peek(type: unknown): ComponentOrigin | null;
+  /**
+   * Authored identifiers the component's code references, or null when its
+   * origin is not resolved to one authored name.
+   */
+  references(type: unknown): Promise<ReadonlySet<string> | null>;
+  /** Replace the cached origin of `type`, for example after reading fiber context. */
+  settle(type: unknown, origin: ComponentOrigin): void;
   readonly stats: { functions: number; scripts: number; resolved: number };
 };
 
@@ -100,9 +118,10 @@ export type ComponentOriginDeps = {
 type Fn = (...args: never[]) => unknown;
 
 const MIN_FUNCTION_TEXT = 12;
-/** Occurrences named per function; more are counted only up to this cap. */
-export const MAX_OCCURRENCES = 16;
-const MAX_CANDIDATES = 8;
+/** Occurrences named per function; the search stops at this cap. */
+export const MAX_OCCURRENCES = 4096;
+/** Distinct name and definition pairs kept per function. */
+export const MAX_CANDIDATES = 256;
 
 /** The function that React calls for a component type, unwrapping memo and forwardRef. */
 export function componentFunctionOf(type: unknown, depth = 0): Fn | null {
@@ -146,6 +165,7 @@ export function combineOccurrences(
     const key = `${item.name ?? ''}|${definitionKey(item.definition)}`;
     if (!distinct.has(key)) distinct.set(key, { name: item.name, definition: item.definition, script: item.script });
   }
+  const truncated = occurrences >= MAX_OCCURRENCES || distinct.size > MAX_CANDIDATES;
   const candidates = Array.from(distinct.values()).slice(0, MAX_CANDIDATES);
   const names = new Set(named.map((item) => item.name));
   const definitions = new Set(named.map((item) => definitionKey(item.definition)));
@@ -156,7 +176,10 @@ export function combineOccurrences(
       ? origin
       : { ...origin, definition: null, candidates };
   }
-  return { ...origin, status: 'ambiguous', name: null, nameEvidence: null, definition: null, candidates };
+  return {
+    ...origin, status: 'ambiguous', name: null, nameEvidence: null, definition: null, candidates,
+    ...(truncated ? { truncated: true as const } : {}),
+  };
 }
 
 export function createComponentOriginResolver(deps: ComponentOriginDeps): ComponentOriginResolver {
@@ -164,6 +187,8 @@ export function createComponentOriginResolver(deps: ComponentOriginDeps): Compon
   const settled = new WeakMap<Fn, ComponentOrigin>();
   const pending = new WeakMap<Fn, Promise<ComponentOrigin>>();
   const lineStarts = new Map<string, number[]>();
+  const located = new WeakMap<Fn, { text: string; found: Occurrence[] }>();
+  const referenced = new WeakMap<Fn, Promise<ReadonlySet<string> | null>>();
   const stats = { functions: 0, scripts: 0, resolved: 0 };
 
   function codeOf(script: ScriptRef): Promise<string | null> {
@@ -221,6 +246,7 @@ export function createComponentOriginResolver(deps: ComponentOriginDeps): Compon
 
     const { found, count } = await locateAll(text);
     if (found.length === 0) return base;
+    located.set(fn, { text, found });
     const named = found.map((occurrence) =>
       nameOccurrence(text, occurrence, startsOf(occurrence.script.key, occurrence.module.code)));
     return combineOccurrences(named, base, count);
@@ -255,7 +281,34 @@ export function createComponentOriginResolver(deps: ComponentOriginDeps): Compon
     return fn ? settled.get(fn) ?? null : null;
   }
 
-  return { resolve, peek, stats };
+  function references(type: unknown): Promise<ReadonlySet<string> | null> {
+    const fn = componentFunctionOf(type);
+    if (!fn) return Promise.resolve(null);
+    let answer = referenced.get(fn);
+    if (!answer) {
+      answer = resolve(fn).then((origin) => {
+        const where = located.get(fn);
+        if (origin.status !== 'resolved' || !origin.name || !where) return null;
+        const names = new Set<string>();
+        for (const occurrence of where.found) {
+          const starts = startsOf(occurrence.script.key, occurrence.module.code);
+          for (const name of referencedNames(where.text, occurrence, starts)) names.add(name);
+        }
+        return names;
+      }).catch(() => null);
+      referenced.set(fn, answer);
+    }
+    return answer;
+  }
+
+  function settle(type: unknown, origin: ComponentOrigin): void {
+    const fn = componentFunctionOf(type);
+    if (!fn) return;
+    settled.set(fn, origin);
+    pending.set(fn, Promise.resolve(origin));
+  }
+
+  return { resolve, peek, references, settle, stats };
 }
 
 // ─── Page scripts ────────────────────────────────────────────────────────────
@@ -325,6 +378,12 @@ export function componentDefinitionOf(type: unknown): ComponentDefinition | null
   return pageResolver?.peek(type)?.definition ?? null;
 }
 
+/** The ancestor a recovered name was read from, when it came from fiber context. */
+export function nameContextOf(type: unknown): ComponentOrigin['context'] | null {
+  if (ownName(type)) return null;
+  return pageResolver?.peek(type)?.context ?? null;
+}
+
 /** Resolve the origin of a component type through the page resolver. */
 export function resolveComponentOrigin(type: unknown): Promise<ComponentOrigin> {
   return pageComponentOrigins().resolve(type);
@@ -368,7 +427,8 @@ export function minifiedComponentName(type: unknown): string | null {
 /**
  * Production builds: replace a described entry's minified `name` with the
  * recovered one, keeping the runtime name as `minifiedName`, and attach the
- * authored `definition`. Leaves entries without recovered data unchanged.
+ * authored `definition`. A name read from an ancestor's code adds
+ * `nameInferredFrom`. Leaves entries without recovered data unchanged.
  */
 export function applyRecoveredOrigin(entry: Record<string, unknown> | null | undefined, type: unknown): void {
   if (!entry) return;
@@ -379,6 +439,8 @@ export function applyRecoveredOrigin(entry: Record<string, unknown> | null | und
     entry.minifiedName = minifiedName;
   }
   if (definition) entry.definition = definition;
+  const context = nameContextOf(type);
+  if (context) entry.nameInferredFrom = context;
 }
 
 // ─── Production fibers ───────────────────────────────────────────────────────
@@ -401,11 +463,6 @@ export function needsComponentOrigin(fiber: OriginFiber | null | undefined): boo
   return !type._debugSource && !ownName(fiber.type);
 }
 
-/** Resolve the fiber's component origin when the build recorded no metadata. */
-export function resolveFiberComponentOrigin(fiber: OriginFiber | null | undefined): Promise<ComponentOrigin | null> {
-  return needsComponentOrigin(fiber) ? resolveComponentOrigin(fiber!.type).catch(() => null) : Promise.resolve(null);
-}
-
 export type NameRecoveryStats = {
   /** Distinct component types without development metadata. */
   types: number;
@@ -415,24 +472,10 @@ export type NameRecoveryStats = {
   named: number;
   /** Types left unresolved because the time budget ran out. */
   skipped: number;
+  /** Ambiguous types named from an ancestor's code; included in `named`. */
+  byContext: number;
   statuses: Partial<Record<OriginStatus, number>>;
 };
-
-/**
- * Resolve origins for every production component type the walk visits, within
- * `budgetMs`. Used before name filters so they match authored names.
- */
-export async function warmComponentNames(
-  walk: (visit: (fiber: OriginFiber) => void) => void,
-  budgetMs = 3000,
-  resolver: ComponentOriginResolver = pageComponentOrigins(),
-): Promise<NameRecoveryStats | null> {
-  const types = new Set<unknown>();
-  walk((fiber) => {
-    if (needsComponentOrigin(fiber)) types.add(componentFunctionOf(fiber.type));
-  });
-  return warmComponentTypes(types, budgetMs, resolver);
-}
 
 /**
  * Resolve origins for component types a caller already holds, such as the
@@ -450,7 +493,7 @@ export async function warmComponentTypes(
     if (fn && !ownName(candidate) && !(candidate as { _debugSource?: unknown })._debugSource) types.add(fn);
   }
   if (types.size === 0) return null;
-  const stats: NameRecoveryStats = { types: types.size, cached: 0, resolved: 0, named: 0, skipped: 0, statuses: {} };
+  const stats: NameRecoveryStats = { types: types.size, cached: 0, resolved: 0, named: 0, skipped: 0, byContext: 0, statuses: {} };
   const deadline = Date.now() + budgetMs;
   for (const type of types) {
     if (resolver.peek(type)) {

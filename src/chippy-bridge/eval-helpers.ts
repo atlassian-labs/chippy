@@ -26,9 +26,9 @@ import { collectOwnerFibers, isComponentFiber } from './owner-chain';
 import {
   applyRecoveredOrigin,
   readComponentName,
-  warmComponentNames,
   type NameRecoveryStats,
 } from './component-origin';
+import { warmComponentNames } from './fiber-origin';
 import { replayComponentHooks } from '../debug-render/replay';
 import {
   DEFAULT_GREP_LIMITS,

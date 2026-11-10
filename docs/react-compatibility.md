@@ -78,9 +78,11 @@ Recovery is on demand. Each command resolves only the components it returns or
 filters on, and fetches maps only for the scripts that contain them.
 
 A minifier can turn components from separate scopes into identical text.
-Chippy maps every occurrence of the text and uses the authored name only when
-all occurrences agree on it. When they map to different names, the component
-keeps its minified name.
+Chippy maps every occurrence of the text and uses the authored name when all
+occurrences agree on it. When they map to different names, Chippy looks for
+the nearest ancestor component whose code references exactly one of those
+names, and reports that ancestor in `nameInferredFrom`. If no ancestor settles
+it, the component keeps its minified name.
 
 Recovery needs the page to be able to fetch the bundle and its map. It does not
 apply when the map is missing or unreachable.

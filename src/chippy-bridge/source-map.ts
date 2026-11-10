@@ -286,3 +286,46 @@ export function inlineSourceMapOf(url: string): string | null {
     return null;
   }
 }
+
+/** One mapped segment inside a generated range. */
+export type RangeMapping = OriginalPosition & {
+  name: string | null;
+  sourceContent: string | null;
+};
+
+/**
+ * Every mapped segment whose generated position lies in `[start, end)`.
+ * Positions are 1-based lines and 1-based columns, as in `mappingAt`.
+ */
+export function mappingsInRange(
+  maps: readonly SourceMap[],
+  start: { line: number; column: number },
+  end: { line: number; column: number },
+): RangeMapping[] {
+  const out: RangeMapping[] = [];
+  const before = (line: number, column: number, other: { line: number; column: number }) =>
+    line < other.line || (line === other.line && column < other.column);
+  for (const map of maps) {
+    for (let localLine = 1; localLine <= map.lines.length; localLine += 1) {
+      const line = localLine + map.offset.line;
+      if (line < start.line) continue;
+      if (line > end.line) break;
+      for (const segment of map.lines[localLine - 1]!) {
+        const column = segment.generatedColumn + 1 + (localLine === 1 ? map.offset.column : 0);
+        if (before(line, column, start)) continue;
+        if (!before(line, column, end)) break;
+        if (segment.sourceIndex === null || segment.originalLine === null || segment.originalColumn === null) continue;
+        const source = map.sources[segment.sourceIndex];
+        if (source === undefined || source === '') continue;
+        out.push({
+          source,
+          line: segment.originalLine + 1,
+          column: segment.originalColumn + 1,
+          name: segment.nameIndex === null ? null : map.names[segment.nameIndex] || null,
+          sourceContent: map.sourcesContent[segment.sourceIndex] ?? null,
+        });
+      }
+    }
+  }
+  return out;
+}

@@ -34,7 +34,8 @@ export { ProjectRow };
 /**
  * Components in separate scopes that the minifier mangles to identical text.
  * `StarIcon` and `HeartIcon` share text but not a name; the two `Badge`
- * definitions share both.
+ * definitions share both. `Toolbar` renders `StarIcon`, `Favorites` renders
+ * `HeartIcon` through `Wrapper`'s children, and `Both` renders both.
  */
 export const DUPLICATE_TEXT_SOURCE = `
 function starScope() { function StarIcon(props) { return <i {...props} />; } return StarIcon; }
@@ -45,6 +46,11 @@ export const StarIcon = starScope();
 export const HeartIcon = heartScope();
 export const Badge = badgeScope();
 export const BadgeCopy = badgeCopy();
+function Wrapper({ children }) { return <div className="wrap">{children}</div>; }
+export function Toolbar() { return <nav data-testid="toolbar"><StarIcon /></nav>; }
+export function Favorites() { return <section><Wrapper><HeartIcon /></Wrapper></section>; }
+export function Both() { return <p><StarIcon /><HeartIcon /></p>; }
+export { Wrapper };
 `;
 
 const fakeReact: Plugin = {
