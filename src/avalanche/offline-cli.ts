@@ -15,7 +15,7 @@ Commands:
   network       [top] [by] [match] [initiators] [windowMs]
                 (--top N --by start|end|duration --match regex --initiators csv --window ms)
   timeline      [fromCommit] [toCommit] [minRequestMs] [exclude]
-                (--fromCommit N --toCommit N --minRequestMs ms --top N --exclude regex --format full)
+                (--fromCommit N --toCommit N --minRequestMs ms --top N --exclude regex --format summary|map|full)
   source-search --name <regex> [--top N]
 
 commit-list sort keys: collateral sources restarts performedWork effects memos

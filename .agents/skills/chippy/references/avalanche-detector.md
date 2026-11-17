@@ -196,16 +196,20 @@ Commits are classified by what the user can see:
 
 Lock, unlock, and swap commits are always kept. Updates are ranked by rendered components (`maxCommits` 25), and the rest are counted in `omitted`.
 
-Output: `payload: {origin, window, perceived, omitted, mermaid, text}`. `format full` adds `lanes`.
+Output: `payload: {origin, window, perceived, screen, boundaries, omitted, mermaid, text}`. `format map` adds `settleMapSvg`; `format full` adds `settleMapSvg` and `lanes`.
+- `screen`: Visually Complete times from the recorded screen changes (null when the capture recorded none). `vc50`, `vc90`, `vc100` are the times by which 50%, 90%, and 100% of the viewport reached its final state; VC90 is when the page looks mostly finished, and lower is better. Areas that never changed count as complete from the origin. `changedShare` is the share of the viewport that changed at all, `changedVc90` is VC90 over that changed area only, and `late[]` lists the regions (`label`, `at`, `commitId`, `share`) that kept changing after it.
+- `boundaries[]`: one entry per Suspense boundary with `boundary` (key `b<id>`), `depth`, `label`, and `location`. Waits carry the same `boundary` key, and `perceived.stillWaiting` lists these keys. `location.chain` lists five component parents, then up to five owners not already listed (`via: parent | owner | both`), each with `name`, `source` when known, and identifying string props such as `name`, `team`, `packageName`, or `testId`. `label` is the boundary's own `name` prop or key when set, else the first chain entry the other boundaries do not share, so a common wrapper is skipped. Waits, commits, and the chart use the label instead of `@depth`. Owners exist only in development builds.
+- `settleMapSvg` (`format map` or `full`): an SVG of the viewport with each area colored by when it last changed, grey where nothing changed, and the last three regions labelled. Save it to a `.svg` file to view it.
 - `perceived.waits[]`, longest first: `depth`, `from`, `until` (null while still shown), `waitedMs`, `lockedBy`, `unlockedBy`, `lastRequests` (up to three requests that overlapped the wait and finished before it cleared, latest first, with `gapMs` before the unlock), and `updatesDuring` (`{commits, rendered}` of update commits while the fallback was on screen).
 - `perceived.firstLockAt`, `settledAt`, `stillWaiting`, `updatesAfterSettled`: waits that start after the next input belong to that input, so `settledAt` is the last unlock of the opening interaction, or null while one of its fallbacks is still shown.
-- `mermaid`: a gantt chart with sections Input, Network (the three longest are `crit`), User waits, Screen (lock and unlock milestones), and Updates (the three heaviest are `crit`). Render it in a ```` ```mermaid ```` block.
+- `mermaid`: a gantt chart with sections Input, Network (the three longest are `crit`), User waits, Screen (lock and unlock milestones), Screen changed (one milestone per commit that changed at least 1% of the viewport, with its share and region, plus a `VC90` milestone), and Updates (the three heaviest are `crit`; each shows its screen share). Render it in a ```` ```mermaid ```` block.
 - `text`: the `perceived` summary followed by one aligned row per event.
 - `lanes` (`format full`): `input`, `network`, `suspense`, `commits`. Commit rows have `commitId`, `t`, `renderStart`, `rendered`, `kind`, `suspense`, and `sources` (top two source names).
 
 Limits:
-- Waits are paired by boundary depth from enter and leave events, so a boundary that remounts at the same depth reads as one wait.
+- Waits are paired by the detector's boundary id, so sibling boundaries at one depth stay apart and a boundary that remounts reads as a new boundary. Reports saved before boundary ids existed pair by depth, and their keys read `@<depth>`.
 - A request that ends just before an unlock is a candidate gate, not proof. Confirm it from the code that suspends, or from the unlock commit's sources.
+- Screen changes are recorded from React's committed host nodes and their boxes, not from pixels. CSS animations, images that finish decoding later, and DOM writes outside React are not seen, a removed node counts only if Chippy measured it earlier, and a subtree React moved without remounting is not seen (React clears the insertion flag before the commit hook). Measuring boxes reads layout during the commit. Turn it off with the detector option `screenCapture: false`.
 - Commit `endTime - startTime` is the detector's own overhead, so a commit has a duration only when the report records render start. Otherwise commits are drawn as points, and `rendered` stands in for work.
 
 ### `avalanche-export <clientId> [lastN] [outFile]`
@@ -304,6 +308,8 @@ Start with these fields:
 - `meta.timeOrigin` — the page's `performance.timeOrigin` (Unix epoch ms)
 - `networkRequests[]` — requests that finished during the capture, oldest first (`avalanche-network` row fields without the links)
 - `meta.network` — `{supported, enabled, windowStart, requests, dropped, ignoredOwn}`: whether the browser delivers resource entries, whether capture is on, when the capture window opened (`performance.now()`, at install or clear), how many requests are kept, how many of the oldest were dropped past the 500-request limit, and how many of Chippy's own requests were excluded
+- `screenByCommit[N]` — screen area commit `N` changed: `viewport`, `area`, `removedArea`, `share`, `rects` (`[left, top, right, bottom]`), `regions` (top five by area, labelled by test id or component), `nodes`, `truncated`, `ms`; present only for commits that changed a box
+- suspense events carry `boundary` (a stable id per boundary within the capture) and `location` (the parent and owner chain described under `avalanche-timeline`)
 - `meta.version` — report format; 8 adds `networkRequests` and `meta.network`
 
 ### Render ticks

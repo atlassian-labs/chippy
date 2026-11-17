@@ -1424,8 +1424,10 @@ this.__AVALANCHE__ = (function() {
       for (const [k, evts] of Object.entries(report.suspenseByCommit)) {
         suspenseByCommit[Number(k)] = evts.map((e) => ({
           depth: e.depth,
+          ...typeof e.boundary === "number" && { boundary: e.boundary },
           entered: e.entered,
-          left: e.left
+          left: e.left,
+          ...e.location && { location: e.location }
         }));
       }
     }
@@ -1442,7 +1444,8 @@ this.__AVALANCHE__ = (function() {
         atlByCommit: report.metricsByCommit || report.atlByCommit
       },
       ...report.commitTimings && { commitTimings: report.commitTimings },
-      ...report.networkRequests && { networkRequests: report.networkRequests.map((request) => ({ ...request })) }
+      ...report.networkRequests && { networkRequests: report.networkRequests.map((request) => ({ ...request })) },
+      ...report.screenByCommit && { screenByCommit: report.screenByCommit }
     };
   }
   let active$1 = null;
@@ -1684,6 +1687,7 @@ this.__AVALANCHE__ = (function() {
       interactionsByCommit: state2.interactionsByCommit,
       renderedByCommit: state2.renderedByCommit,
       networkRequests: state2.networkRequests.slice(),
+      ...state2.screenByCommit && Object.keys(state2.screenByCommit).length > 0 && { screenByCommit: { ...state2.screenByCommit } },
       ...hasMetricsData && { metricsByCommit: state2.metricsByCommit, atlByCommit: state2.metricsByCommit },
       toSerializable() {
         return serializeReport(this);
@@ -2363,7 +2367,7 @@ this.__AVALANCHE__ = (function() {
   }
   const DEFAULT_MAX_NETWORK_REQUESTS = 500;
   const MAX_URL_LENGTH = 300;
-  const round$4 = (value) => Math.round(value * 10) / 10;
+  const round$5 = (value) => Math.round(value * 10) / 10;
   function cacheUse(entry) {
     if (entry.deliveryType === "cache") return true;
     const transfer = entry.transferSize ?? 0;
@@ -2400,9 +2404,9 @@ this.__AVALANCHE__ = (function() {
         id: nextId++,
         url: entry.name.length > MAX_URL_LENGTH ? entry.name.slice(0, MAX_URL_LENGTH) : entry.name,
         initiatorType: entry.initiatorType || "other",
-        startTime: round$4(entry.startTime),
-        endTime: round$4(endTime),
-        duration: round$4(endTime - entry.startTime),
+        startTime: round$5(entry.startTime),
+        endTime: round$5(endTime),
+        duration: round$5(endTime - entry.startTime),
         status: typeof entry.responseStatus === "number" && entry.responseStatus > 0 ? entry.responseStatus : null,
         cached: cacheUse(entry),
         startedBeforeCapture: entry.startTime < windowStart
@@ -2457,13 +2461,398 @@ this.__AVALANCHE__ = (function() {
         return {
           supported: observerConstructor() !== null,
           enabled,
-          windowStart: round$4(windowStart),
+          windowStart: round$5(windowStart),
           requests: requests.length,
           dropped,
           ignoredOwn
         };
       }
     };
+  }
+  const MAX_CELLS = 25e4;
+  function rectArea(rect) {
+    return Math.max(0, rect.right - rect.left) * Math.max(0, rect.bottom - rect.top);
+  }
+  function intersectRect(a, b) {
+    const left = Math.max(a.left, b.left);
+    const top = Math.max(a.top, b.top);
+    const right = Math.min(a.right, b.right);
+    const bottom = Math.min(a.bottom, b.bottom);
+    return right > left && bottom > top ? { left, top, right, bottom } : null;
+  }
+  function cellSizeFor(clip) {
+    const area = rectArea(clip);
+    return Math.max(1, Math.ceil(Math.sqrt(area / MAX_CELLS)));
+  }
+  function createAreaGrid(clip, cell = cellSizeFor(clip)) {
+    const cols = Math.max(0, Math.ceil((clip.right - clip.left) / cell));
+    const rows = Math.max(0, Math.ceil((clip.bottom - clip.top) / cell));
+    const bits = new Uint8Array(cols * rows);
+    let covered = 0;
+    function add(rect) {
+      const r = intersectRect(rect, clip);
+      if (!r) return;
+      const c0 = Math.max(0, Math.round((r.left - clip.left) / cell));
+      const c1 = Math.min(cols, Math.round((r.right - clip.left) / cell));
+      const r0 = Math.max(0, Math.round((r.top - clip.top) / cell));
+      const r1 = Math.min(rows, Math.round((r.bottom - clip.top) / cell));
+      for (let y = r0; y < r1; y++) {
+        const row = y * cols;
+        for (let x = c0; x < c1; x++) {
+          if (bits[row + x] === 0) {
+            bits[row + x] = 1;
+            covered++;
+          }
+        }
+      }
+    }
+    function area() {
+      const full = rectArea(clip);
+      return Math.min(full, covered * cell * cell);
+    }
+    return { clip, cell, add, area };
+  }
+  const Visibility = 8192;
+  const MUTATION_MASK = Placement | Update | ChildDeletion | Visibility;
+  const HOST_COMPONENT = 5;
+  const HOST_TEXT = 6;
+  const HOST_HOISTABLE = 26;
+  const HOST_SINGLETON = 27;
+  const OFFSCREEN = 22;
+  const MAX_NODES_PER_COMMIT = 400;
+  const MAX_RECTS_PER_COMMIT = 48;
+  const MAX_REGIONS = 5;
+  const domScreenGeometry = {
+    viewport: () => ({ left: 0, top: 0, right: window.innerWidth, bottom: window.innerHeight }),
+    rect: (node) => {
+      if (node.nodeType === 1) return node.getBoundingClientRect();
+      if (node.nodeType === 3) {
+        const range = document.createRange();
+        range.selectNodeContents(node);
+        return range.getBoundingClientRect();
+      }
+      return null;
+    },
+    now: () => performance.now()
+  };
+  function isHost(tag) {
+    return tag === HOST_COMPONENT || tag === HOST_TEXT || tag === HOST_HOISTABLE || tag === HOST_SINGLETON;
+  }
+  function isNode(value) {
+    return !!value && typeof value === "object" && typeof value.nodeType === "number";
+  }
+  function visiblePropsChanged(prev, next) {
+    if (prev === next) return false;
+    if (!prev || !next || typeof prev !== "object" || typeof next !== "object") return true;
+    const a = prev;
+    const b = next;
+    for (const key of /* @__PURE__ */ new Set([...Object.keys(a), ...Object.keys(b)])) {
+      if (key === "ref" || key === "key") continue;
+      const x = a[key];
+      const y = b[key];
+      if (Object.is(x, y)) continue;
+      if (typeof x === "function" || typeof y === "function") continue;
+      if (key === "children") {
+        const textual = (v) => typeof v === "string" || typeof v === "number";
+        if (textual(x) || textual(y)) return true;
+        continue;
+      }
+      if (key === "style" || key === "dangerouslySetInnerHTML") {
+        if (shallowDiffers(x, y)) return true;
+        continue;
+      }
+      return true;
+    }
+    return false;
+  }
+  function shallowDiffers(x, y) {
+    if (!x || !y || typeof x !== "object" || typeof y !== "object") return !Object.is(x, y);
+    const a = x;
+    const b = y;
+    const keys = /* @__PURE__ */ new Set([...Object.keys(a), ...Object.keys(b)]);
+    for (const key of keys) if (!Object.is(a[key], b[key])) return true;
+    return false;
+  }
+  function findChangedHosts(root, limit = MAX_NODES_PER_COMMIT) {
+    const found = [];
+    let truncated = false;
+    const push = (fiber, removed) => {
+      if (found.length >= limit) {
+        truncated = true;
+        return;
+      }
+      const node = fiber.stateNode;
+      if (isNode(node)) found.push({ node, fiber, removed });
+    };
+    const collectTop = (start, removed) => {
+      const stack2 = [start];
+      while (stack2.length) {
+        const fiber = stack2.pop();
+        if (isHost(fiber.tag)) {
+          push(fiber, removed);
+          continue;
+        }
+        for (let child = fiber.child; child; child = child.sibling) stack2.push(child);
+      }
+    };
+    const stack = root.child ? [root.child] : [];
+    while (stack.length && !truncated) {
+      const fiber = stack.pop();
+      if (fiber.sibling) stack.push(fiber.sibling);
+      if (fiber.alternate === null) {
+        const hiddenMount = fiber.tag === OFFSCREEN && !!fiber.memoizedState;
+        if (!hiddenMount) collectTop(fiber, false);
+        continue;
+      }
+      if (((fiber.flags | fiber.subtreeFlags) & MUTATION_MASK) === 0) continue;
+      if ((fiber.flags & ChildDeletion) !== 0 && fiber.deletions) {
+        for (const deleted of fiber.deletions) collectTop(deleted, true);
+      }
+      if ((fiber.flags & Placement) !== 0) {
+        collectTop(fiber, false);
+        continue;
+      }
+      if (fiber.tag === OFFSCREEN && (fiber.flags & Visibility) !== 0) {
+        const hidden = !!fiber.memoizedState;
+        for (let child = fiber.child; child; child = child.sibling) collectTop(child, hidden);
+        continue;
+      }
+      if (isHost(fiber.tag) && (fiber.flags & Update) !== 0 && fiber.alternate) {
+        const changed = fiber.tag === HOST_TEXT ? fiber.memoizedProps !== fiber.alternate.memoizedProps : visiblePropsChanged(fiber.alternate.memoizedProps, fiber.memoizedProps);
+        if (changed) {
+          push(fiber, false);
+          continue;
+        }
+      }
+      if (fiber.child) stack.push(fiber.child);
+    }
+    return { found, truncated };
+  }
+  function regionLabel(node, fiber) {
+    var _a2, _b2, _c2;
+    const element = node.nodeType === 1 ? node : node.parentElement;
+    const testId = (_b2 = (_a2 = element == null ? void 0 : element.closest) == null ? void 0 : _a2.call(element, "[data-testid]")) == null ? void 0 : _b2.getAttribute("data-testid");
+    if (testId) return testId;
+    for (let f = fiber.return; f; f = f.return) {
+      if (isComponentFiber$1(f.tag)) return getComponentName(f);
+    }
+    return ((_c2 = element == null ? void 0 : element.tagName) == null ? void 0 : _c2.toLowerCase()) || "unknown";
+  }
+  const round$4 = (n) => Math.round(n);
+  function createScreenCapture(options = {}, geometry = domScreenGeometry) {
+    const enabled = options.screenCapture !== false && typeof document !== "undefined" && typeof window !== "undefined";
+    const byCommit = {};
+    let lastRects = /* @__PURE__ */ new WeakMap();
+    function record(commitId, root) {
+      if (!enabled) return;
+      const started = geometry.now();
+      const { found, truncated } = findChangedHosts(root);
+      if (found.length === 0) return;
+      const viewport = geometry.viewport();
+      const cell = Math.max(4, Math.ceil(Math.sqrt(rectArea(viewport) / 4e4)));
+      const changed = createAreaGrid(viewport, cell);
+      const removed = createAreaGrid(viewport, cell);
+      const rects = [];
+      const regions = /* @__PURE__ */ new Map();
+      for (const { node, fiber, removed: isRemoved } of found) {
+        const box = isRemoved ? lastRects.get(node) ?? null : geometry.rect(node);
+        if (!box) continue;
+        if (!isRemoved) lastRects.set(node, { left: box.left, top: box.top, right: box.right, bottom: box.bottom });
+        const clipped = intersectRect(box, viewport);
+        if (!clipped) continue;
+        const area2 = rectArea(clipped);
+        (isRemoved ? removed : changed).add(clipped);
+        rects.push({ rect: clipped, area: area2 });
+        const label = regionLabel(node, fiber);
+        regions.set(label, (regions.get(label) || 0) + area2);
+      }
+      if (rects.length === 0) return;
+      const full = Math.max(1, rectArea(viewport));
+      const area = round$4(changed.area());
+      const removedArea = round$4(removed.area());
+      rects.sort((a, b) => b.area - a.area);
+      byCommit[commitId] = {
+        viewport: [round$4(viewport.right - viewport.left), round$4(viewport.bottom - viewport.top)],
+        area,
+        removedArea,
+        share: Math.min(1, Math.round((area + removedArea) / full * 1e3) / 1e3),
+        rects: rects.slice(0, MAX_RECTS_PER_COMMIT).map(({ rect }) => [round$4(rect.left), round$4(rect.top), round$4(rect.right), round$4(rect.bottom)]),
+        regions: [...regions.entries()].sort((a, b) => b[1] - a[1]).slice(0, MAX_REGIONS).map(([label, regionArea]) => ({ label, area: round$4(Math.min(regionArea, full)) })),
+        nodes: found.length,
+        ...truncated && { truncated: true },
+        ms: Math.round((geometry.now() - started) * 100) / 100
+      };
+    }
+    function reset() {
+      for (const key of Object.keys(byCommit)) delete byCommit[Number(key)];
+      lastRects = /* @__PURE__ */ new WeakMap();
+    }
+    return { enabled, byCommit, record, reset };
+  }
+  const LOCATION_PARENTS = 5;
+  const LOCATION_OWNERS = 5;
+  const MAX_PROPS = 8;
+  const MAX_VALUE = 80;
+  const EXACT_PROP_NAMES = /* @__PURE__ */ new Set([
+    "name",
+    "id",
+    "testid",
+    "data-testid",
+    "datatestid",
+    "team",
+    "owner",
+    "package",
+    "pkg",
+    "module",
+    "entrypoint",
+    "component",
+    "feature",
+    "featureflag",
+    "experience",
+    "metric",
+    "metrickey",
+    "interaction",
+    "area",
+    "section",
+    "region",
+    "slot",
+    "location",
+    "placement",
+    "view",
+    "page",
+    "route",
+    "screen",
+    "product",
+    "app",
+    "source",
+    "context",
+    "scope",
+    "label",
+    "title",
+    "type",
+    "kind",
+    "variant",
+    "mode",
+    "boundary",
+    "fallback",
+    "loader",
+    "chunk",
+    "query",
+    "operation",
+    "resource",
+    "segment",
+    "attribution",
+    "actionsubject",
+    "actionsubjectid",
+    "analyticsid"
+  ]);
+  const PROP_NAME_SUFFIX = /(name|id|key|team|package|module|feature|experience|segment|source|location|area|slot|region|boundary|entrypoint)$/i;
+  const IGNORED_PROPS = /* @__PURE__ */ new Set(["children", "className", "style", "ref", "key"]);
+  function isLocationProp(name) {
+    if (IGNORED_PROPS.has(name)) return false;
+    return EXACT_PROP_NAMES.has(name.toLowerCase()) || PROP_NAME_SUFFIX.test(name);
+  }
+  function pickLocationProps(props) {
+    if (!props || typeof props !== "object") return void 0;
+    const picked = {};
+    let count = 0;
+    for (const [key, value] of Object.entries(props)) {
+      if (count >= MAX_PROPS) break;
+      if (typeof value !== "string" && typeof value !== "number" || value === "" || !isLocationProp(key)) continue;
+      picked[key] = String(value).slice(0, MAX_VALUE);
+      count++;
+    }
+    return count ? picked : void 0;
+  }
+  function nameOfType(type) {
+    if (typeof type === "function") return type.displayName || type.name || null;
+    if (type && typeof type === "object") {
+      const t = type;
+      return t.displayName || nameOfType(t.render) || nameOfType(t.type);
+    }
+    return null;
+  }
+  function entryFor(owner, via) {
+    if (!owner || typeof owner !== "object") return null;
+    const fiber = owner;
+    if (typeof fiber.tag === "number") {
+      const source = getFiberSourceCandidate(fiber);
+      const props2 = pickLocationProps(fiber.memoizedProps);
+      return {
+        via,
+        name: getComponentName(fiber),
+        ...source && { source: { fileName: source.fileName, lineNumber: source.lineNumber } },
+        ...props2 && { props: props2 }
+      };
+    }
+    const info = owner;
+    if (typeof info.name !== "string") return null;
+    const props = pickLocationProps(info.props);
+    return { via, name: info.name, ...props && { props } };
+  }
+  function nextOwner(owner) {
+    if (!owner || typeof owner !== "object") return null;
+    const value = owner;
+    return typeof value.tag === "number" ? value._debugOwner ?? null : value.owner ?? null;
+  }
+  function describeSuspenseLocation(boundary, parents = LOCATION_PARENTS, owners = LOCATION_OWNERS) {
+    const fiber = boundary;
+    const chain = [];
+    const listed = /* @__PURE__ */ new Map();
+    const remember = (f, entry) => {
+      listed.set(f, entry);
+      const alternate = f.alternate;
+      if (alternate) listed.set(alternate, entry);
+    };
+    for (let f = fiber.return, n = 0; f && n < parents; f = f.return) {
+      if (!isComponentFiber$1(f.tag)) continue;
+      const entry = entryFor(f, "parent");
+      if (!entry) continue;
+      chain.push(entry);
+      remember(f, entry);
+      n++;
+    }
+    for (let o = fiber._debugOwner, n = 0; o && n < owners; o = nextOwner(o)) {
+      const seen = listed.get(o);
+      if (seen) {
+        seen.via = "both";
+        n++;
+        continue;
+      }
+      const entry = entryFor(o, "owner");
+      if (!entry) continue;
+      chain.push(entry);
+      remember(o, entry);
+      n++;
+    }
+    const props = fiber.memoizedProps || {};
+    const name = typeof props.name === "string" ? props.name : typeof fiber.key === "string" ? fiber.key : void 0;
+    const fallback = props.fallback && typeof props.fallback === "object" ? nameOfType(props.fallback.type) : null;
+    return { ...name && { name }, ...fallback && { fallback }, chain };
+  }
+  function entryKey(entry) {
+    return entry.name + (entry.props ? JSON.stringify(entry.props) : "") + (entry.source ? `@${entry.source.fileName}:${entry.source.lineNumber}` : "");
+  }
+  function entryLabel(entry) {
+    const props = entry.props ? Object.entries(entry.props).slice(0, 2).map(([k, v]) => `${k}=${v}`).join(" ") : "";
+    return props ? `${entry.name} ${props}` : entry.name;
+  }
+  function distinguishingLabels(locations) {
+    const counts = /* @__PURE__ */ new Map();
+    for (const location of locations) {
+      if (!location) continue;
+      for (const key of new Set(location.chain.map(entryKey))) counts.set(key, (counts.get(key) || 0) + 1);
+    }
+    const total = locations.filter(Boolean).length;
+    return locations.map((location) => {
+      if (!location) return null;
+      if (location.name) return location.name;
+      const chain = location.chain;
+      if (chain.length === 0) return location.fallback ? `fallback ${location.fallback}` : null;
+      const unique = total > 1 ? chain.filter((e) => (counts.get(entryKey(e)) || 0) < total) : chain;
+      const pick = unique.find((e) => e.props) || unique[0] || chain.find((e) => e.props) || chain[0];
+      return entryLabel(pick);
+    });
   }
   const SLICE_END_HOOKS = ["markRenderYielded", "markRenderStopped"];
   function createRenderTickTracker(options = {}) {
@@ -2779,6 +3168,16 @@ this.__AVALANCHE__ = (function() {
     const debugRender = createDebugRender();
     const interactionCapture = createInteractionCapture(options);
     const networkCapture = createNetworkCapture(options);
+    const screenCapture = createScreenCapture(options);
+    let boundaryIds = /* @__PURE__ */ new WeakMap();
+    let nextBoundaryId = 1;
+    const boundaryId = (fiber) => {
+      let id = boundaryIds.get(fiber) ?? (fiber.alternate ? boundaryIds.get(fiber.alternate) : void 0);
+      if (id === void 0) id = nextBoundaryId++;
+      boundaryIds.set(fiber, id);
+      if (fiber.alternate) boundaryIds.set(fiber.alternate, id);
+      return id;
+    };
     function getComponentDisplayName(type) {
       if (!type) return "Unknown";
       return type.displayName || type.name || String(type);
@@ -2844,6 +3243,7 @@ this.__AVALANCHE__ = (function() {
       interactionActions: interactionCapture.state.actions,
       interactionsByCommit: interactionCapture.state.byCommit,
       networkRequests: networkCapture.requests,
+      screenByCommit: screenCapture.byCommit,
       renderedByCommit: {}
     };
     function trimHistoryToSize(updHistory, limit) {
@@ -3075,8 +3475,10 @@ this.__AVALANCHE__ = (function() {
             }
             const event = {
               depth,
+              boundary: boundaryId(fiber),
               entered: suspenseChange.entered,
               left: suspenseChange.left,
+              location: describeSuspenseLocation(fiber),
               ...captureFibers && { fiber }
             };
             perCommit.suspenseEvents.push(event);
@@ -3459,6 +3861,9 @@ this.__AVALANCHE__ = (function() {
       }
       interactionCapture.reset();
       networkCapture.reset();
+      screenCapture.reset();
+      boundaryIds = /* @__PURE__ */ new WeakMap();
+      nextBoundaryId = 1;
       state2.lastMetricsSnapshot = captureMetricsSnapshot();
       state2.lastCommitEndTime = performance.now();
       renderTicks.reset();
@@ -3548,6 +3953,7 @@ this.__AVALANCHE__ = (function() {
       const metricsBefore = state2.lastMetricsSnapshot || captureMetricsSnapshot();
       const memoizedUpdaters = root.memoizedUpdaters;
       const committedComponents = recordTree(root.current, memoizedUpdaters || null);
+      screenCapture.record(state2.commits, root.current);
       const currentStats = state2.commitStats[state2.commits];
       if (currentStats && (pendingDevtoolsUnmounts.components > 0 || pendingDevtoolsUnmounts.subtrees > 0)) {
         const recordTreeSawDeletions = (currentStats[CS_UNMOUNTED_COMPONENTS] || 0) > 0;
@@ -5659,6 +6065,110 @@ this.__AVALANCHE__ = (function() {
     }
     return out;
   }
+  const GRID_COLUMNS = 48;
+  function grid(frames) {
+    const [width, height] = frames[frames.length - 1].change.viewport;
+    const cols = GRID_COLUMNS;
+    const rows = Math.max(1, Math.round(cols * height / Math.max(1, width)));
+    const cw = width / cols;
+    const ch = height / rows;
+    const last = new Float64Array(cols * rows).fill(Number.NaN);
+    for (const frame of frames) {
+      for (const [l, t, r, b] of frame.change.rects) {
+        const c0 = Math.max(0, Math.round(l / cw));
+        const c1 = Math.min(cols, Math.round(r / cw));
+        const r0 = Math.max(0, Math.round(t / ch));
+        const r1 = Math.min(rows, Math.round(b / ch));
+        for (let y = r0; y < r1; y++) for (let x = c0; x < c1; x++) last[y * cols + x] = frame.t;
+      }
+    }
+    return { width, height, cols, rows, cw, ch, last };
+  }
+  function timeAtShare(times, total, share, floor) {
+    if (total === 0) return null;
+    const sorted = times.slice().sort((a, b) => a - b);
+    const needed = Math.ceil(total * share);
+    const missing = total - sorted.length;
+    if (needed <= missing) return floor;
+    return sorted[Math.min(sorted.length - 1, needed - missing - 1)];
+  }
+  function screenStability(frames) {
+    const sorted = frames.filter((f) => f.change.rects.length > 0).sort((a, b) => a.t - b.t);
+    if (sorted.length === 0) return null;
+    const g = grid(sorted);
+    const changedTimes = [];
+    for (const value of g.last) if (!Number.isNaN(value)) changedTimes.push(value);
+    const total = g.last.length;
+    const vc = (share) => timeAtShare(changedTimes, total, share, 0) ?? 0;
+    const changedVc90 = timeAtShare(changedTimes, changedTimes.length, 0.9, 0);
+    const late = changedVc90 === null ? [] : sorted.filter((f) => f.t > changedVc90 && f.change.regions.length).reverse().slice(0, 5).map((f) => ({ label: f.change.regions[0].label, at: f.t, commitId: f.commitId, share: f.change.share }));
+    return {
+      viewport: [g.width, g.height],
+      changedShare: Math.round(changedTimes.length / total * 1e3) / 1e3,
+      vc50: vc(0.5),
+      vc90: vc(0.9),
+      vc100: changedTimes.length ? Math.max(...changedTimes) : 0,
+      changedVc90,
+      late,
+      visibleCommits: sorted.filter((f) => f.change.share >= 0.01).length
+    };
+  }
+  const RAMP = ["#fde9a9", "#fbcf7d", "#f7b35a", "#f0953f", "#e5762e", "#d45726", "#bd3b22", "#9f2420", "#7d121c", "#590616"];
+  const UNCHANGED = "#e6e6e6";
+  function escapeXml(text) {
+    return text.replace(/[<>&"']/g, (c) => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;", '"': "&quot;", "'": "&apos;" })[c]);
+  }
+  function settleMapSvg(frames, title = "When each part of the screen last changed") {
+    var _a2;
+    const sorted = frames.filter((f) => f.change.rects.length > 0).sort((a, b) => a.t - b.t);
+    if (sorted.length === 0) return null;
+    const g = grid(sorted);
+    const times = Array.from(g.last).filter((v) => !Number.isNaN(v));
+    const min = Math.min(...times);
+    const max = Math.max(...times);
+    const bucket = (t) => max === min ? RAMP.length - 1 : Math.min(RAMP.length - 1, Math.floor((t - min) / (max - min) * RAMP.length));
+    const scale = Math.min(1, 640 / g.width);
+    const w = Math.round(g.width * scale);
+    const h = Math.round(g.height * scale);
+    const cw = g.cw * scale;
+    const ch = g.ch * scale;
+    const legendH = 34;
+    const parts = [
+      `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h + legendH}" width="${w}" height="${h + legendH}" font-family="system-ui, sans-serif" font-size="11" shape-rendering="crispEdges">`,
+      `<title>${escapeXml(title)}</title>`,
+      `<rect x="0" y="0" width="${w}" height="${h}" fill="${UNCHANGED}"/>`
+    ];
+    for (let y = 0; y < g.rows; y++) {
+      let x = 0;
+      while (x < g.cols) {
+        const value = g.last[y * g.cols + x];
+        if (Number.isNaN(value)) {
+          x++;
+          continue;
+        }
+        const color = bucket(value);
+        let end = x + 1;
+        while (end < g.cols && !Number.isNaN(g.last[y * g.cols + end]) && bucket(g.last[y * g.cols + end]) === color) end++;
+        parts.push(`<rect x="${(x * cw).toFixed(1)}" y="${(y * ch).toFixed(1)}" width="${((end - x) * cw).toFixed(1)}" height="${ch.toFixed(1)}" fill="${RAMP[color]}"/>`);
+        x = end;
+      }
+    }
+    for (const frame of sorted.slice(-3)) {
+      const [l, t, r, b] = frame.change.rects[0];
+      const label = (_a2 = frame.change.regions[0]) == null ? void 0 : _a2.label;
+      if (!label) continue;
+      const cx = (l + r) / 2 * scale;
+      const cy = (t + b) / 2 * scale;
+      parts.push(`<text x="${cx.toFixed(0)}" y="${cy.toFixed(0)}" text-anchor="middle" fill="#fff" stroke="#000" stroke-width="2.5" paint-order="stroke">${escapeXml(`${label} +${frame.t}`)}</text>`);
+    }
+    const sw = Math.max(18, Math.floor((w - 120) / RAMP.length));
+    parts.push(`<rect x="0" y="${h + 8}" width="14" height="12" fill="${UNCHANGED}"/><text x="18" y="${h + 18}" fill="#444">unchanged</text>`);
+    RAMP.forEach((color, i) => parts.push(`<rect x="${90 + i * sw}" y="${h + 8}" width="${sw}" height="12" fill="${color}"/>`));
+    parts.push(`<text x="90" y="${h + 31}" fill="#444">+${min} ms</text>`);
+    parts.push(`<text x="${90 + RAMP.length * sw}" y="${h + 31}" text-anchor="end" fill="#444">+${max} ms</text>`);
+    parts.push("</svg>");
+    return parts.join("");
+  }
   const round$2 = (n) => Math.round(n);
   function requestLabel(url) {
     try {
@@ -5684,6 +6194,13 @@ this.__AVALANCHE__ = (function() {
     const list = (_c2 = report.renderedByCommit) == null ? void 0 : _c2[String(id)];
     return Array.isArray(list) ? list.length : 0;
   }
+  function screenOf(report, id) {
+    var _a2, _b2, _c2;
+    const change = (_a2 = report.screenByCommit) == null ? void 0 : _a2[String(id)];
+    if (!change || typeof change.share !== "number") return null;
+    return { share: change.share, region: ((_c2 = (_b2 = change.regions) == null ? void 0 : _b2[0]) == null ? void 0 : _c2.label) ?? null };
+  }
+  const percent = (share) => `${Math.round(share * 100)}%`;
   function kindOf(events) {
     const enters = events.some((e) => e.entered);
     const leaves = events.some((e) => e.left);
@@ -5737,28 +6254,60 @@ this.__AVALANCHE__ = (function() {
     const drawable = inWindow.filter((r) => r.duration >= minRequestMs);
     const kept = [...drawable].sort((a, b) => b.duration - a.duration).slice(0, options.maxRequests ?? 30).sort((a, b) => a.startTime - b.startTime);
     const network = kept.map(toRequest);
+    const boundaryKey = (event) => typeof event.boundary === "number" ? "b" + event.boundary : "@" + Number(event.depth);
     const open = /* @__PURE__ */ new Map();
     const suspense = [];
+    const boundaryInfo = /* @__PURE__ */ new Map();
     for (const id of ids.filter((commit) => commit <= windowIds[windowIds.length - 1])) {
       for (const event of ((_b2 = report.suspenseByCommit) == null ? void 0 : _b2[String(id)]) ?? []) {
         const depth = Number(event.depth);
         if (!Number.isFinite(depth)) continue;
-        if (event.entered) open.set(depth, [...open.get(depth) || [], id]);
+        const boundary = boundaryKey(event);
+        const info = boundaryInfo.get(boundary);
+        if (!info) boundaryInfo.set(boundary, { depth, location: event.location ?? null });
+        else if (!info.location && event.location) info.location = event.location;
+        if (event.entered) open.set(boundary, [...open.get(boundary) || [], id]);
         if (event.left) {
-          const enteredId = (_c2 = open.get(depth)) == null ? void 0 : _c2.shift();
-          if (enteredId === void 0) continue;
-          if (startOf(id) >= windowStart && startOf(enteredId) <= windowEnd) {
-            suspense.push({ depth, start: rel(startOf(enteredId)), end: rel(startOf(id)), enteredAt: enteredId, leftAt: id });
+          const entered = (_c2 = open.get(boundary)) == null ? void 0 : _c2.shift();
+          if (entered === void 0) continue;
+          if (startOf(id) >= windowStart && startOf(entered) <= windowEnd) {
+            suspense.push({
+              boundary,
+              depth,
+              label: null,
+              start: rel(startOf(entered)),
+              end: rel(startOf(id)),
+              enteredAt: entered,
+              leftAt: id
+            });
           }
         }
       }
     }
-    for (const [depth, stack] of open) {
-      for (const enteredId of stack) {
-        if (startOf(enteredId) <= windowEnd) suspense.push({ depth, start: rel(startOf(enteredId)), end: null, enteredAt: enteredId, leftAt: null });
+    for (const [boundary, stack] of open) {
+      for (const entered of stack) {
+        if (startOf(entered) <= windowEnd) {
+          const { depth } = boundaryInfo.get(boundary);
+          suspense.push({ boundary, depth, label: null, start: rel(startOf(entered)), end: null, enteredAt: entered, leftAt: null });
+        }
       }
     }
     suspense.sort((a, b) => a.start - b.start || a.depth - b.depth);
+    const boundaryKeys = Array.from(new Set(suspense.map((s) => s.boundary)));
+    const labels = distinguishingLabels(boundaryKeys.map((key) => {
+      var _a3;
+      return (_a3 = boundaryInfo.get(key)) == null ? void 0 : _a3.location;
+    }));
+    const labelByKey = new Map(boundaryKeys.map((key, i) => [key, labels[i]]));
+    for (const s of suspense) s.label = labelByKey.get(s.boundary) ?? null;
+    const boundaryName = (event) => {
+      const key = boundaryKey(event);
+      return labelByKey.get(key) || "@" + Number(event.depth);
+    };
+    const frames = windowIds.map((id) => {
+      var _a3;
+      return { commitId: id, t: rel(startOf(id)), change: (_a3 = report.screenByCommit) == null ? void 0 : _a3[String(id)] };
+    }).filter((f) => !!f.change && Array.isArray(f.change.rects));
     const allCommits = windowIds.map((id) => {
       var _a3, _b3, _c3, _d2, _e;
       const events = ((_a3 = report.suspenseByCommit) == null ? void 0 : _a3[String(id)]) ?? [];
@@ -5770,8 +6319,9 @@ this.__AVALANCHE__ = (function() {
         renderStart: Number.isFinite(renderStart) && renderStart <= startOf(id) ? rel(renderStart) : null,
         rendered: renderedCount(report, id),
         kind: kindOf(events),
-        suspense: events.map((e) => (e.entered ? "enter" : "leave") + "@" + e.depth),
-        sources: Array.from(new Set(sources)).slice(0, 2)
+        suspense: events.map((e) => (e.entered ? "enter " : "leave ") + boundaryName(e)),
+        sources: Array.from(new Set(sources)).slice(0, 2),
+        screen: screenOf(report, id)
       };
     });
     const updates = allCommits.filter((c) => c.kind === "update");
@@ -5783,7 +6333,9 @@ this.__AVALANCHE__ = (function() {
       const until = s.end ?? rel(windowEnd);
       const lastRequests = allRequests.filter((r) => r.end <= until && r.end >= s.start).sort((a, b) => b.end - a.end).slice(0, 3).map((r) => ({ label: r.label, end: r.end, gapMs: until - r.end }));
       return {
+        boundary: s.boundary,
         depth: s.depth,
+        label: s.label,
         from: s.start,
         until: s.end,
         waitedMs: until - s.start,
@@ -5795,7 +6347,7 @@ this.__AVALANCHE__ = (function() {
     }).sort((a, b) => b.waitedMs - a.waitedMs);
     const nextInput = input.find((i) => i.t > 0);
     const ownWaits = suspense.filter((s) => !nextInput || s.start < nextInput.t);
-    const stillWaiting = ownWaits.filter((s) => s.end === null).map((s) => s.depth);
+    const stillWaiting = ownWaits.filter((s) => s.end === null).map((s) => s.boundary);
     const unlocks = ownWaits.filter((s) => s.end !== null).map((s) => s.end);
     const settledAt = stillWaiting.length === 0 && unlocks.length ? Math.max(...unlocks) : null;
     const result = {
@@ -5809,6 +6361,9 @@ this.__AVALANCHE__ = (function() {
         waits,
         updatesAfterSettled: sumUpdates(settledAt === null ? [] : updates.filter((c) => c.t > settledAt && (!nextInput || c.t < nextInput.t)))
       },
+      boundaries: boundaryKeys.map((key) => ({ boundary: key, depth: boundaryInfo.get(key).depth, label: labelByKey.get(key) ?? null, location: boundaryInfo.get(key).location })),
+      screen: screenStability(frames),
+      ...options.settleMap && { settleMapSvg: settleMapSvg(frames) },
       lanes: { input, network, suspense, commits },
       omitted: { requests: inWindow.length - kept.length, commits: allCommits.length - commits.length },
       mermaid: "",
@@ -5850,7 +6405,7 @@ this.__AVALANCHE__ = (function() {
       suspense.forEach((s, n) => {
         const stop = s.end ?? end;
         const label = s.end === null ? "still waiting" : `${stop - s.start}ms`;
-        lines.push(`  @${s.depth} ${label} :${s.end === null ? "active" : "crit"}, sus${n}, ${bar(s.start, stop)}`);
+        lines.push(`  ${safe(s.label || "@" + s.depth)} ${label} :${s.end === null ? "active" : "crit"}, sus${n}, ${bar(s.start, stop)}`);
       });
     }
     const screen = commits.filter((c) => c.kind !== "update");
@@ -5858,12 +6413,21 @@ this.__AVALANCHE__ = (function() {
       lines.push("  section Screen (lock or unlock)");
       for (const c of screen) lines.push(`  c${c.commitId} ${c.kind} ${safe(c.suspense.join(" "))} :milestone, c${c.commitId}, ${c.t}, ${c.t}`);
     }
+    const visible = commits.filter((c) => c.screen && c.screen.share >= 0.01);
+    if (result.screen) {
+      lines.push("  section Screen changed (share of viewport)");
+      for (const c of visible) {
+        lines.push(`  c${c.commitId} ${percent(c.screen.share)}${c.screen.region ? " " + safe(c.screen.region) : ""} :milestone, sc${c.commitId}, ${c.t}, ${c.t}`);
+      }
+      lines.push(`  VC90 +${result.screen.vc90} :crit, milestone, vc90, ${result.screen.vc90}, ${result.screen.vc90}`);
+    }
     if (updates.length) {
       lines.push("  section Updates (CPU, no Suspense change)");
       for (const c of updates) {
-        const what = safe(c.sources.join(", "));
+        const what = c.sources.length ? safe(c.sources.join(", ")) : "";
         const span = c.renderStart === null ? `milestone, c${c.commitId}, ${c.t}, ${c.t}` : `c${c.commitId}, ${bar(c.renderStart, c.t)}`;
-        lines.push(`  c${c.commitId} ${c.rendered} rendered${what ? " " + what : ""} :${heavy.has(c.commitId) ? "crit, " : ""}${span}`);
+        const seen = result.screen ? c.screen ? ` ${percent(c.screen.share)} screen` : " 0% screen" : "";
+        lines.push(`  c${c.commitId} ${c.rendered} rendered${seen}${what ? " " + what : ""} :${heavy.has(c.commitId) ? "crit, " : ""}${span}`);
       }
     }
     return lines.join("\n");
@@ -5873,21 +6437,30 @@ this.__AVALANCHE__ = (function() {
     const header = [];
     if (p.waits.length === 0) header.push("No Suspense fallback was shown in this window.");
     else {
-      header.push(p.settledAt !== null ? `Fallbacks first shown at +${p.firstLockAt}, all cleared at +${p.settledAt}; ${p.updatesAfterSettled.commits} updates (${p.updatesAfterSettled.rendered} rendered) ran after that, before the next input.` : `Fallbacks first shown at +${p.firstLockAt}; still waiting at the end: @${p.stillWaiting.join(", @")}.`);
+      header.push(p.settledAt !== null ? `Fallbacks first shown at +${p.firstLockAt}, all cleared at +${p.settledAt}; ${p.updatesAfterSettled.commits} updates (${p.updatesAfterSettled.rendered} rendered) ran after that, before the next input.` : `Fallbacks first shown at +${p.firstLockAt}; still waiting at the end: ${p.stillWaiting.map((key) => {
+        var _a2;
+        return ((_a2 = result.boundaries.find((b) => b.boundary === key)) == null ? void 0 : _a2.label) || key;
+      }).join(", ")}.`);
       for (const w of p.waits.slice(0, 5)) {
         const last = w.lastRequests[0];
-        header.push(`  wait @${w.depth} ${w.waitedMs}ms (+${w.from} → ${w.until === null ? "end" : "+" + w.until}), ${w.updatesDuring.commits} updates (${w.updatesDuring.rendered} rendered) meanwhile` + (last ? `, last request before unlock: ${last.label} (+${last.end}, ${last.gapMs}ms before)` : ""));
+        header.push(`  wait ${w.label || "@" + w.depth} ${w.waitedMs}ms (+${w.from} → ${w.until === null ? "end" : "+" + w.until}), ${w.updatesDuring.commits} updates (${w.updatesDuring.rendered} rendered) meanwhile` + (last ? `, last request before unlock: ${last.label} (+${last.end}, ${last.gapMs}ms before)` : ""));
       }
+    }
+    const sc = result.screen;
+    if (sc) {
+      header.push(`Visually complete: VC50 +${sc.vc50}, VC90 +${sc.vc90}, VC100 +${sc.vc100}; ${percent(sc.changedShare)} of the viewport changed` + (sc.changedVc90 !== null ? `, 90% of that by +${sc.changedVc90}` : "") + ".");
+      if (sc.late.length) header.push(`  changing after that: ${sc.late.map((l) => `${l.label} +${l.at} (c${l.commitId}, ${percent(l.share)})`).join(", ")}`);
     }
     const rows = [];
     for (const i of result.lanes.input) rows.push({ t: i.t, lane: "input", text: i.action + (i.target ? " " + i.target : "") });
     for (const r of result.lanes.network) rows.push({ t: r.start, lane: "net", text: `${r.label}  → +${r.end} (${r.durationMs}ms${r.cached ? ", cached" : ""})` });
     for (const s of result.lanes.suspense) {
-      rows.push({ t: s.start, lane: "wait", text: `fallback @${s.depth} ` + (s.end === null ? "still shown at the end" : `until +${s.end} (${s.end - s.start}ms, c${s.enteredAt}→c${s.leftAt})`) });
+      rows.push({ t: s.start, lane: "wait", text: `fallback ${s.label || "@" + s.depth} ` + (s.end === null ? "still shown at the end" : `until +${s.end} (${s.end - s.start}ms, c${s.enteredAt}→c${s.leftAt})`) });
     }
     for (const c of result.lanes.commits) {
       const lane = c.kind === "update" ? "react" : "SCRN";
-      rows.push({ t: c.t, lane, text: `c${c.commitId} ${c.kind === "update" ? "" : c.kind + " "}${c.rendered} rendered${c.sources.length ? " · " + c.sources.join(", ") : ""}${c.suspense.length ? " · " + c.suspense.join(" ") : ""}` });
+      const seen = c.screen ? ` · ${percent(c.screen.share)} screen${c.screen.region ? " " + c.screen.region : ""}` : sc ? " · 0% screen" : "";
+      rows.push({ t: c.t, lane, text: `c${c.commitId} ${c.kind === "update" ? "" : c.kind + " "}${c.rendered} rendered${seen}${c.sources.length ? " · " + c.sources.join(", ") : ""}${c.suspense.length ? " · " + c.suspense.join(", ") : ""}` });
     }
     const order = { input: 0, net: 1, wait: 2, SCRN: 3, react: 4 };
     rows.sort((a, b) => a.t - b.t || order[a.lane] - order[b.lane]);
@@ -6244,7 +6817,8 @@ this.__AVALANCHE__ = (function() {
             toCommit: command == null ? void 0 : command.toCommit,
             minRequestMs: command == null ? void 0 : command.minRequestMs,
             maxRequests: command == null ? void 0 : command.top,
-            exclude: command == null ? void 0 : command.exclude
+            exclude: command == null ? void 0 : command.exclude,
+            settleMap: (command == null ? void 0 : command.format) === "full" || (command == null ? void 0 : command.format) === "map"
           });
           if ("error" in timeline) return { ok: false, available: true, action, error: timeline.error };
           const { ok: _ok, lanes, ...rest } = timeline;
@@ -6832,49 +7406,6 @@ this.__AVALANCHE__ = (function() {
       result._truncated = true;
     }
     return result;
-  }
-  const MAX_CELLS = 25e4;
-  function rectArea(rect) {
-    return Math.max(0, rect.right - rect.left) * Math.max(0, rect.bottom - rect.top);
-  }
-  function intersectRect(a, b) {
-    const left = Math.max(a.left, b.left);
-    const top = Math.max(a.top, b.top);
-    const right = Math.min(a.right, b.right);
-    const bottom = Math.min(a.bottom, b.bottom);
-    return right > left && bottom > top ? { left, top, right, bottom } : null;
-  }
-  function cellSizeFor(clip) {
-    const area = rectArea(clip);
-    return Math.max(1, Math.ceil(Math.sqrt(area / MAX_CELLS)));
-  }
-  function createAreaGrid(clip, cell = cellSizeFor(clip)) {
-    const cols = Math.max(0, Math.ceil((clip.right - clip.left) / cell));
-    const rows = Math.max(0, Math.ceil((clip.bottom - clip.top) / cell));
-    const bits = new Uint8Array(cols * rows);
-    let covered = 0;
-    function add(rect) {
-      const r = intersectRect(rect, clip);
-      if (!r) return;
-      const c0 = Math.max(0, Math.round((r.left - clip.left) / cell));
-      const c1 = Math.min(cols, Math.round((r.right - clip.left) / cell));
-      const r0 = Math.max(0, Math.round((r.top - clip.top) / cell));
-      const r1 = Math.min(rows, Math.round((r.bottom - clip.top) / cell));
-      for (let y = r0; y < r1; y++) {
-        const row = y * cols;
-        for (let x = c0; x < c1; x++) {
-          if (bits[row + x] === 0) {
-            bits[row + x] = 1;
-            covered++;
-          }
-        }
-      }
-    }
-    function area() {
-      const full = rectArea(clip);
-      return Math.min(full, covered * cell * cell);
-    }
-    return { clip, cell, add, area };
   }
   const SUSPENSE_TAG = 13;
   const OFFSCREEN_TAGS = /* @__PURE__ */ new Set([22, 23]);

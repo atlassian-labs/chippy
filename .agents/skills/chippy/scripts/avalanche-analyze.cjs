@@ -161,6 +161,137 @@ function networkByCommit(report, windowMs) {
   return out;
 }
 
+// src/avalanche/screen-stability.ts
+var GRID_COLUMNS = 48;
+function grid(frames) {
+  const [width, height] = frames[frames.length - 1].change.viewport;
+  const cols = GRID_COLUMNS;
+  const rows = Math.max(1, Math.round(cols * height / Math.max(1, width)));
+  const cw = width / cols;
+  const ch = height / rows;
+  const last = new Float64Array(cols * rows).fill(Number.NaN);
+  for (const frame of frames) {
+    for (const [l, t, r, b] of frame.change.rects) {
+      const c0 = Math.max(0, Math.round(l / cw));
+      const c1 = Math.min(cols, Math.round(r / cw));
+      const r0 = Math.max(0, Math.round(t / ch));
+      const r1 = Math.min(rows, Math.round(b / ch));
+      for (let y = r0; y < r1; y++) for (let x = c0; x < c1; x++) last[y * cols + x] = frame.t;
+    }
+  }
+  return { width, height, cols, rows, cw, ch, last };
+}
+function timeAtShare(times, total, share, floor) {
+  if (total === 0) return null;
+  const sorted = times.slice().sort((a, b) => a - b);
+  const needed = Math.ceil(total * share);
+  const missing = total - sorted.length;
+  if (needed <= missing) return floor;
+  return sorted[Math.min(sorted.length - 1, needed - missing - 1)];
+}
+function screenStability(frames) {
+  const sorted = frames.filter((f) => f.change.rects.length > 0).sort((a, b) => a.t - b.t);
+  if (sorted.length === 0) return null;
+  const g = grid(sorted);
+  const changedTimes = [];
+  for (const value of g.last) if (!Number.isNaN(value)) changedTimes.push(value);
+  const total = g.last.length;
+  const vc = (share) => timeAtShare(changedTimes, total, share, 0) ?? 0;
+  const changedVc90 = timeAtShare(changedTimes, changedTimes.length, 0.9, 0);
+  const late = changedVc90 === null ? [] : sorted.filter((f) => f.t > changedVc90 && f.change.regions.length).reverse().slice(0, 5).map((f) => ({ label: f.change.regions[0].label, at: f.t, commitId: f.commitId, share: f.change.share }));
+  return {
+    viewport: [g.width, g.height],
+    changedShare: Math.round(changedTimes.length / total * 1e3) / 1e3,
+    vc50: vc(0.5),
+    vc90: vc(0.9),
+    vc100: changedTimes.length ? Math.max(...changedTimes) : 0,
+    changedVc90,
+    late,
+    visibleCommits: sorted.filter((f) => f.change.share >= 0.01).length
+  };
+}
+var RAMP = ["#fde9a9", "#fbcf7d", "#f7b35a", "#f0953f", "#e5762e", "#d45726", "#bd3b22", "#9f2420", "#7d121c", "#590616"];
+var UNCHANGED = "#e6e6e6";
+function escapeXml(text) {
+  return text.replace(/[<>&"']/g, (c) => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;", '"': "&quot;", "'": "&apos;" })[c]);
+}
+function settleMapSvg(frames, title = "When each part of the screen last changed") {
+  const sorted = frames.filter((f) => f.change.rects.length > 0).sort((a, b) => a.t - b.t);
+  if (sorted.length === 0) return null;
+  const g = grid(sorted);
+  const times = Array.from(g.last).filter((v) => !Number.isNaN(v));
+  const min = Math.min(...times);
+  const max = Math.max(...times);
+  const bucket = (t) => max === min ? RAMP.length - 1 : Math.min(RAMP.length - 1, Math.floor((t - min) / (max - min) * RAMP.length));
+  const scale = Math.min(1, 640 / g.width);
+  const w = Math.round(g.width * scale);
+  const h = Math.round(g.height * scale);
+  const cw = g.cw * scale;
+  const ch = g.ch * scale;
+  const legendH = 34;
+  const parts = [
+    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h + legendH}" width="${w}" height="${h + legendH}" font-family="system-ui, sans-serif" font-size="11" shape-rendering="crispEdges">`,
+    `<title>${escapeXml(title)}</title>`,
+    `<rect x="0" y="0" width="${w}" height="${h}" fill="${UNCHANGED}"/>`
+  ];
+  for (let y = 0; y < g.rows; y++) {
+    let x = 0;
+    while (x < g.cols) {
+      const value = g.last[y * g.cols + x];
+      if (Number.isNaN(value)) {
+        x++;
+        continue;
+      }
+      const color = bucket(value);
+      let end = x + 1;
+      while (end < g.cols && !Number.isNaN(g.last[y * g.cols + end]) && bucket(g.last[y * g.cols + end]) === color) end++;
+      parts.push(`<rect x="${(x * cw).toFixed(1)}" y="${(y * ch).toFixed(1)}" width="${((end - x) * cw).toFixed(1)}" height="${ch.toFixed(1)}" fill="${RAMP[color]}"/>`);
+      x = end;
+    }
+  }
+  for (const frame of sorted.slice(-3)) {
+    const [l, t, r, b] = frame.change.rects[0];
+    const label = frame.change.regions[0]?.label;
+    if (!label) continue;
+    const cx = (l + r) / 2 * scale;
+    const cy = (t + b) / 2 * scale;
+    parts.push(`<text x="${cx.toFixed(0)}" y="${cy.toFixed(0)}" text-anchor="middle" fill="#fff" stroke="#000" stroke-width="2.5" paint-order="stroke">${escapeXml(`${label} +${frame.t}`)}</text>`);
+  }
+  const sw = Math.max(18, Math.floor((w - 120) / RAMP.length));
+  parts.push(`<rect x="0" y="${h + 8}" width="14" height="12" fill="${UNCHANGED}"/><text x="18" y="${h + 18}" fill="#444">unchanged</text>`);
+  RAMP.forEach((color, i) => parts.push(`<rect x="${90 + i * sw}" y="${h + 8}" width="${sw}" height="12" fill="${color}"/>`));
+  parts.push(`<text x="90" y="${h + 31}" fill="#444">+${min} ms</text>`);
+  parts.push(`<text x="${90 + RAMP.length * sw}" y="${h + 31}" text-anchor="end" fill="#444">+${max} ms</text>`);
+  parts.push("</svg>");
+  return parts.join("");
+}
+
+// src/avalanche/suspense-location.ts
+function entryKey(entry) {
+  return entry.name + (entry.props ? JSON.stringify(entry.props) : "") + (entry.source ? `@${entry.source.fileName}:${entry.source.lineNumber}` : "");
+}
+function entryLabel(entry) {
+  const props = entry.props ? Object.entries(entry.props).slice(0, 2).map(([k, v]) => `${k}=${v}`).join(" ") : "";
+  return props ? `${entry.name} ${props}` : entry.name;
+}
+function distinguishingLabels(locations) {
+  const counts = /* @__PURE__ */ new Map();
+  for (const location of locations) {
+    if (!location) continue;
+    for (const key of new Set(location.chain.map(entryKey))) counts.set(key, (counts.get(key) || 0) + 1);
+  }
+  const total = locations.filter(Boolean).length;
+  return locations.map((location) => {
+    if (!location) return null;
+    if (location.name) return location.name;
+    const chain = location.chain;
+    if (chain.length === 0) return location.fallback ? `fallback ${location.fallback}` : null;
+    const unique = total > 1 ? chain.filter((e) => (counts.get(entryKey(e)) || 0) < total) : chain;
+    const pick = unique.find((e) => e.props) || unique[0] || chain.find((e) => e.props) || chain[0];
+    return entryLabel(pick);
+  });
+}
+
 // src/avalanche/timeline.ts
 var round2 = (n) => Math.round(n);
 function requestLabel(url) {
@@ -185,6 +316,12 @@ function renderedCount(report, id) {
   const list = report.renderedByCommit?.[String(id)];
   return Array.isArray(list) ? list.length : 0;
 }
+function screenOf(report, id) {
+  const change = report.screenByCommit?.[String(id)];
+  if (!change || typeof change.share !== "number") return null;
+  return { share: change.share, region: change.regions?.[0]?.label ?? null };
+}
+var percent = (share) => `${Math.round(share * 100)}%`;
 function kindOf(events) {
   const enters = events.some((e) => e.entered);
   const leaves = events.some((e) => e.left);
@@ -237,28 +374,54 @@ function buildTimeline(report, options = {}) {
   const drawable = inWindow.filter((r) => r.duration >= minRequestMs);
   const kept = [...drawable].sort((a, b) => b.duration - a.duration).slice(0, options.maxRequests ?? 30).sort((a, b) => a.startTime - b.startTime);
   const network = kept.map(toRequest);
+  const boundaryKey = (event) => typeof event.boundary === "number" ? "b" + event.boundary : "@" + Number(event.depth);
   const open = /* @__PURE__ */ new Map();
   const suspense = [];
+  const boundaryInfo = /* @__PURE__ */ new Map();
   for (const id of ids.filter((commit) => commit <= windowIds[windowIds.length - 1])) {
     for (const event of report.suspenseByCommit?.[String(id)] ?? []) {
       const depth = Number(event.depth);
       if (!Number.isFinite(depth)) continue;
-      if (event.entered) open.set(depth, [...open.get(depth) || [], id]);
+      const boundary = boundaryKey(event);
+      const info = boundaryInfo.get(boundary);
+      if (!info) boundaryInfo.set(boundary, { depth, location: event.location ?? null });
+      else if (!info.location && event.location) info.location = event.location;
+      if (event.entered) open.set(boundary, [...open.get(boundary) || [], id]);
       if (event.left) {
-        const enteredId = open.get(depth)?.shift();
-        if (enteredId === void 0) continue;
-        if (startOf(id) >= windowStart && startOf(enteredId) <= windowEnd) {
-          suspense.push({ depth, start: rel(startOf(enteredId)), end: rel(startOf(id)), enteredAt: enteredId, leftAt: id });
+        const entered = open.get(boundary)?.shift();
+        if (entered === void 0) continue;
+        if (startOf(id) >= windowStart && startOf(entered) <= windowEnd) {
+          suspense.push({
+            boundary,
+            depth,
+            label: null,
+            start: rel(startOf(entered)),
+            end: rel(startOf(id)),
+            enteredAt: entered,
+            leftAt: id
+          });
         }
       }
     }
   }
-  for (const [depth, stack] of open) {
-    for (const enteredId of stack) {
-      if (startOf(enteredId) <= windowEnd) suspense.push({ depth, start: rel(startOf(enteredId)), end: null, enteredAt: enteredId, leftAt: null });
+  for (const [boundary, stack] of open) {
+    for (const entered of stack) {
+      if (startOf(entered) <= windowEnd) {
+        const { depth } = boundaryInfo.get(boundary);
+        suspense.push({ boundary, depth, label: null, start: rel(startOf(entered)), end: null, enteredAt: entered, leftAt: null });
+      }
     }
   }
   suspense.sort((a, b) => a.start - b.start || a.depth - b.depth);
+  const boundaryKeys = Array.from(new Set(suspense.map((s) => s.boundary)));
+  const labels = distinguishingLabels(boundaryKeys.map((key) => boundaryInfo.get(key)?.location));
+  const labelByKey = new Map(boundaryKeys.map((key, i) => [key, labels[i]]));
+  for (const s of suspense) s.label = labelByKey.get(s.boundary) ?? null;
+  const boundaryName = (event) => {
+    const key = boundaryKey(event);
+    return labelByKey.get(key) || "@" + Number(event.depth);
+  };
+  const frames = windowIds.map((id) => ({ commitId: id, t: rel(startOf(id)), change: report.screenByCommit?.[String(id)] })).filter((f) => !!f.change && Array.isArray(f.change.rects));
   const allCommits = windowIds.map((id) => {
     const events = report.suspenseByCommit?.[String(id)] ?? [];
     const renderStart = Number(report.commitTimings?.[String(id)]?.render?.renderStart);
@@ -269,8 +432,9 @@ function buildTimeline(report, options = {}) {
       renderStart: Number.isFinite(renderStart) && renderStart <= startOf(id) ? rel(renderStart) : null,
       rendered: renderedCount(report, id),
       kind: kindOf(events),
-      suspense: events.map((e) => (e.entered ? "enter" : "leave") + "@" + e.depth),
-      sources: Array.from(new Set(sources)).slice(0, 2)
+      suspense: events.map((e) => (e.entered ? "enter " : "leave ") + boundaryName(e)),
+      sources: Array.from(new Set(sources)).slice(0, 2),
+      screen: screenOf(report, id)
     };
   });
   const updates = allCommits.filter((c) => c.kind === "update");
@@ -282,7 +446,9 @@ function buildTimeline(report, options = {}) {
     const until = s.end ?? rel(windowEnd);
     const lastRequests = allRequests.filter((r) => r.end <= until && r.end >= s.start).sort((a, b) => b.end - a.end).slice(0, 3).map((r) => ({ label: r.label, end: r.end, gapMs: until - r.end }));
     return {
+      boundary: s.boundary,
       depth: s.depth,
+      label: s.label,
       from: s.start,
       until: s.end,
       waitedMs: until - s.start,
@@ -294,7 +460,7 @@ function buildTimeline(report, options = {}) {
   }).sort((a, b) => b.waitedMs - a.waitedMs);
   const nextInput = input.find((i) => i.t > 0);
   const ownWaits = suspense.filter((s) => !nextInput || s.start < nextInput.t);
-  const stillWaiting = ownWaits.filter((s) => s.end === null).map((s) => s.depth);
+  const stillWaiting = ownWaits.filter((s) => s.end === null).map((s) => s.boundary);
   const unlocks = ownWaits.filter((s) => s.end !== null).map((s) => s.end);
   const settledAt = stillWaiting.length === 0 && unlocks.length ? Math.max(...unlocks) : null;
   const result = {
@@ -308,6 +474,9 @@ function buildTimeline(report, options = {}) {
       waits,
       updatesAfterSettled: sumUpdates(settledAt === null ? [] : updates.filter((c) => c.t > settledAt && (!nextInput || c.t < nextInput.t)))
     },
+    boundaries: boundaryKeys.map((key) => ({ boundary: key, depth: boundaryInfo.get(key).depth, label: labelByKey.get(key) ?? null, location: boundaryInfo.get(key).location })),
+    screen: screenStability(frames),
+    ...options.settleMap && { settleMapSvg: settleMapSvg(frames) },
     lanes: { input, network, suspense, commits },
     omitted: { requests: inWindow.length - kept.length, commits: allCommits.length - commits.length },
     mermaid: "",
@@ -349,7 +518,7 @@ function renderMermaid(result) {
     suspense.forEach((s, n) => {
       const stop = s.end ?? end;
       const label = s.end === null ? "still waiting" : `${stop - s.start}ms`;
-      lines.push(`  @${s.depth} ${label} :${s.end === null ? "active" : "crit"}, sus${n}, ${bar(s.start, stop)}`);
+      lines.push(`  ${safe(s.label || "@" + s.depth)} ${label} :${s.end === null ? "active" : "crit"}, sus${n}, ${bar(s.start, stop)}`);
     });
   }
   const screen = commits.filter((c) => c.kind !== "update");
@@ -357,12 +526,21 @@ function renderMermaid(result) {
     lines.push("  section Screen (lock or unlock)");
     for (const c of screen) lines.push(`  c${c.commitId} ${c.kind} ${safe(c.suspense.join(" "))} :milestone, c${c.commitId}, ${c.t}, ${c.t}`);
   }
+  const visible = commits.filter((c) => c.screen && c.screen.share >= 0.01);
+  if (result.screen) {
+    lines.push("  section Screen changed (share of viewport)");
+    for (const c of visible) {
+      lines.push(`  c${c.commitId} ${percent(c.screen.share)}${c.screen.region ? " " + safe(c.screen.region) : ""} :milestone, sc${c.commitId}, ${c.t}, ${c.t}`);
+    }
+    lines.push(`  VC90 +${result.screen.vc90} :crit, milestone, vc90, ${result.screen.vc90}, ${result.screen.vc90}`);
+  }
   if (updates.length) {
     lines.push("  section Updates (CPU, no Suspense change)");
     for (const c of updates) {
-      const what = safe(c.sources.join(", "));
+      const what = c.sources.length ? safe(c.sources.join(", ")) : "";
       const span = c.renderStart === null ? `milestone, c${c.commitId}, ${c.t}, ${c.t}` : `c${c.commitId}, ${bar(c.renderStart, c.t)}`;
-      lines.push(`  c${c.commitId} ${c.rendered} rendered${what ? " " + what : ""} :${heavy.has(c.commitId) ? "crit, " : ""}${span}`);
+      const seen = result.screen ? c.screen ? ` ${percent(c.screen.share)} screen` : " 0% screen" : "";
+      lines.push(`  c${c.commitId} ${c.rendered} rendered${seen}${what ? " " + what : ""} :${heavy.has(c.commitId) ? "crit, " : ""}${span}`);
     }
   }
   return lines.join("\n");
@@ -372,21 +550,27 @@ function renderText(result) {
   const header = [];
   if (p.waits.length === 0) header.push("No Suspense fallback was shown in this window.");
   else {
-    header.push(p.settledAt !== null ? `Fallbacks first shown at +${p.firstLockAt}, all cleared at +${p.settledAt}; ${p.updatesAfterSettled.commits} updates (${p.updatesAfterSettled.rendered} rendered) ran after that, before the next input.` : `Fallbacks first shown at +${p.firstLockAt}; still waiting at the end: @${p.stillWaiting.join(", @")}.`);
+    header.push(p.settledAt !== null ? `Fallbacks first shown at +${p.firstLockAt}, all cleared at +${p.settledAt}; ${p.updatesAfterSettled.commits} updates (${p.updatesAfterSettled.rendered} rendered) ran after that, before the next input.` : `Fallbacks first shown at +${p.firstLockAt}; still waiting at the end: ${p.stillWaiting.map((key) => result.boundaries.find((b) => b.boundary === key)?.label || key).join(", ")}.`);
     for (const w of p.waits.slice(0, 5)) {
       const last = w.lastRequests[0];
-      header.push(`  wait @${w.depth} ${w.waitedMs}ms (+${w.from} \u2192 ${w.until === null ? "end" : "+" + w.until}), ${w.updatesDuring.commits} updates (${w.updatesDuring.rendered} rendered) meanwhile` + (last ? `, last request before unlock: ${last.label} (+${last.end}, ${last.gapMs}ms before)` : ""));
+      header.push(`  wait ${w.label || "@" + w.depth} ${w.waitedMs}ms (+${w.from} \u2192 ${w.until === null ? "end" : "+" + w.until}), ${w.updatesDuring.commits} updates (${w.updatesDuring.rendered} rendered) meanwhile` + (last ? `, last request before unlock: ${last.label} (+${last.end}, ${last.gapMs}ms before)` : ""));
     }
+  }
+  const sc = result.screen;
+  if (sc) {
+    header.push(`Visually complete: VC50 +${sc.vc50}, VC90 +${sc.vc90}, VC100 +${sc.vc100}; ${percent(sc.changedShare)} of the viewport changed` + (sc.changedVc90 !== null ? `, 90% of that by +${sc.changedVc90}` : "") + ".");
+    if (sc.late.length) header.push(`  changing after that: ${sc.late.map((l) => `${l.label} +${l.at} (c${l.commitId}, ${percent(l.share)})`).join(", ")}`);
   }
   const rows = [];
   for (const i of result.lanes.input) rows.push({ t: i.t, lane: "input", text: i.action + (i.target ? " " + i.target : "") });
   for (const r of result.lanes.network) rows.push({ t: r.start, lane: "net", text: `${r.label}  \u2192 +${r.end} (${r.durationMs}ms${r.cached ? ", cached" : ""})` });
   for (const s of result.lanes.suspense) {
-    rows.push({ t: s.start, lane: "wait", text: `fallback @${s.depth} ` + (s.end === null ? "still shown at the end" : `until +${s.end} (${s.end - s.start}ms, c${s.enteredAt}\u2192c${s.leftAt})`) });
+    rows.push({ t: s.start, lane: "wait", text: `fallback ${s.label || "@" + s.depth} ` + (s.end === null ? "still shown at the end" : `until +${s.end} (${s.end - s.start}ms, c${s.enteredAt}\u2192c${s.leftAt})`) });
   }
   for (const c of result.lanes.commits) {
     const lane = c.kind === "update" ? "react" : "SCRN";
-    rows.push({ t: c.t, lane, text: `c${c.commitId} ${c.kind === "update" ? "" : c.kind + " "}${c.rendered} rendered${c.sources.length ? " \xB7 " + c.sources.join(", ") : ""}${c.suspense.length ? " \xB7 " + c.suspense.join(" ") : ""}` });
+    const seen = c.screen ? ` \xB7 ${percent(c.screen.share)} screen${c.screen.region ? " " + c.screen.region : ""}` : sc ? " \xB7 0% screen" : "";
+    rows.push({ t: c.t, lane, text: `c${c.commitId} ${c.kind === "update" ? "" : c.kind + " "}${c.rendered} rendered${seen}${c.sources.length ? " \xB7 " + c.sources.join(", ") : ""}${c.suspense.length ? " \xB7 " + c.suspense.join(", ") : ""}` });
   }
   const order = { input: 0, net: 1, wait: 2, SCRN: 3, react: 4 };
   rows.sort((a, b) => a.t - b.t || order[a.lane] - order[b.lane]);
@@ -742,7 +926,8 @@ function evalAvalanche(command, api, mod) {
           toCommit: command?.toCommit,
           minRequestMs: command?.minRequestMs,
           maxRequests: command?.top,
-          exclude: command?.exclude
+          exclude: command?.exclude,
+          settleMap: command?.format === "full" || command?.format === "map"
         });
         if ("error" in timeline) return { ok: false, available: true, action, error: timeline.error };
         const { ok: _ok, lanes, ...rest } = timeline;
@@ -764,6 +949,7 @@ var PER_COMMIT_KEYS = [
   "sourcesByCommit",
   "interactionsByCommit",
   "renderedByCommit",
+  "screenByCommit",
   "metricsByCommit",
   "atlByCommit",
   "timing",
@@ -919,7 +1105,7 @@ Commands:
   network       [top] [by] [match] [initiators] [windowMs]
                 (--top N --by start|end|duration --match regex --initiators csv --window ms)
   timeline      [fromCommit] [toCommit] [minRequestMs] [exclude]
-                (--fromCommit N --toCommit N --minRequestMs ms --top N --exclude regex --format full)
+                (--fromCommit N --toCommit N --minRequestMs ms --top N --exclude regex --format summary|map|full)
   source-search --name <regex> [--top N]
 
 commit-list sort keys: collateral sources restarts performedWork effects memos

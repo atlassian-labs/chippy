@@ -9,6 +9,8 @@ import type { ComponentType, ChangedHook, Fiber, ThrashInfo } from './internals'
 import { CS_RESTARTS } from './commit-stats-indices';
 import type { CommitTicks, RenderTickStatus } from './render-ticks';
 import type { NetworkCaptureStatus, NetworkRequest } from './network-capture';
+import type { ScreenChange } from './screen-changes';
+import type { SuspenseLocation } from './suspense-location';
 import { getComponentName } from './internals';
 import type { ReportDTO } from './report-serializer';
 import { serializeReport } from './report-serializer';
@@ -478,6 +480,13 @@ export interface Report {
   networkRequests: NetworkRequest[];
 
   /**
+   * Screen area each commit changed: inserted, updated, shown, and removed DOM
+   * boxes in viewport coordinates. Only commits that changed visible boxes
+   * have an entry. Absent when screen capture is off or outside a browser.
+   */
+  screenByCommit?: Record<number, ScreenChange>;
+
+  /**
    * Convert this report to a serializable DTO (safe for JSON.stringify, IPC, network).
    * Strips non-serializable fields like Fiber references and ComponentType functions.
    */
@@ -532,6 +541,13 @@ export interface DetectorOptions {
    * Entries carry URL, initiator type, timing, status, and cache use only.
    */
   networkCapture?: boolean;
+
+  /**
+   * Record the screen area each commit changes (inserted, updated, shown, and
+   * removed DOM boxes). Default true in a browser. Reading boxes forces layout
+   * in the commit hook; the cost is reported per commit as `ms`.
+   */
+  screenCapture?: boolean;
 
   /** Network requests kept per capture; the oldest are dropped first. Default: 500. */
   maxNetworkRequests?: number;
@@ -676,6 +692,9 @@ export interface ProfilerState {
   /** Network requests that finished during the capture (Resource Timing). */
   networkRequests: NetworkRequest[];
 
+  /** Screen area each commit changed. */
+  screenByCommit?: Record<number, ScreenChange>;
+
   /** Structural evidence for each component that rendered in a commit. */
   renderedByCommit: Record<number, RenderedComponentEvidence[]>;
 }
@@ -708,10 +727,14 @@ function isTrueSource(s: Source): boolean {
 export interface SuspenseBoundaryEvent {
   /** Tree depth of the Suspense fiber */
   depth: number;
+  /** Stable id of the boundary within the capture; siblings at one depth differ. */
+  boundary?: number;
   /** true = boundary entered fallback (primary → suspended) */
   entered: boolean;
   /** true = boundary left fallback (suspended → primary revealed) */
   left: boolean;
+  /** Parents, owners, and identifying props around the boundary. */
+  location?: SuspenseLocation;
   /** The Suspense fiber itself (only present when captureFibers is true) */
   fiber?: Fiber;
 }
@@ -1027,6 +1050,7 @@ export function buildReport(
     interactionsByCommit: state.interactionsByCommit,
     renderedByCommit: state.renderedByCommit,
     networkRequests: state.networkRequests.slice(),
+    ...(state.screenByCommit && Object.keys(state.screenByCommit).length > 0 && { screenByCommit: { ...state.screenByCommit } }),
     ...(hasMetricsData && { metricsByCommit: state.metricsByCommit, atlByCommit: state.metricsByCommit }),
     toSerializable() {
       return serializeReport(this);

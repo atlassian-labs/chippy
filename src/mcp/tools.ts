@@ -59,7 +59,7 @@ export function registerChippyTools(server: McpServer, helper: HelperConnection)
     const command = view === 'describe' ? 'describe-component' : view === 'explain' ? 'explain-component' : `inspect-fiber-${view}`;
     return helper.request(`${pagePath(clientId)}/eval-probe`, { command, ...args }, signal, args.timeoutMs + 2000);
   });
-  tool('chippy_avalanche', 'Capture and inspect React commits. install starts capture; clear resets evidence; uninstall stops capture. Hot components alone do not prove the cause. debug-hook requires a captured sourceId and hookIndex. network lists captured requests (Resource Timing) with the commits they landed before or started after; `window` bounds those links in ms. timeline puts input, requests, Suspense fallbacks, and commits on one clock from the interaction and returns a perceived-wait summary plus a Mermaid gantt; fromCommit/toCommit bound it, minRequestMs and exclude filter requests, format full adds lanes. Links are timing, not cause.', {
+  tool('chippy_avalanche', 'Capture and inspect React commits. install starts capture; clear resets evidence; uninstall stops capture. Hot components alone do not prove the cause. debug-hook requires a captured sourceId and hookIndex. network lists captured requests (Resource Timing) with the commits they landed before or started after; `window` bounds those links in ms. timeline puts input, requests, Suspense fallbacks, and commits on one clock from the interaction and returns a perceived-wait summary plus a Mermaid gantt; fromCommit/toCommit bound it, minRequestMs and exclude filter requests, each wait is labelled by the first parent or owner that sets its boundary apart, and `boundaries` lists five parents and five owners with identifying props; `screen` gives VC50/VC90/VC100 (Visually Complete) from the screen area each commit changed; format map adds settleMapSvg, full adds lanes and settleMapSvg. Links are timing, not cause.', {
     clientId: id,
     action: z.enum(['status', 'install', 'uninstall', 'clear', 'export', 'hot-sources', 'commit-list', 'commit-peek', 'debug-hook', 'describe-action', 'export-last', 'network', 'timeline']),
     options: z.object({ detectionMode: z.enum(['stats', 'sources', 'amplifiers', 'full']).optional(), historySize: positive.optional(), captureFibers: z.boolean().optional() }).strict().optional(),
@@ -67,7 +67,7 @@ export function registerChippyTools(server: McpServer, helper: HelperConnection)
     include: z.array(id).optional(), depth: index.optional(), maxItems: positive.optional(),
     sourceId: id.optional(), hookIndex: index.optional(), window: index.optional(), actionId: index.optional(),
     match: id.optional(), initiators: z.array(id).optional(),
-    fromCommit: index.optional(), toCommit: index.optional(), minRequestMs: index.optional(), exclude: id.optional(), format: z.enum(['summary', 'full']).optional(),
+    fromCommit: index.optional(), toCommit: index.optional(), minRequestMs: index.optional(), exclude: id.optional(), format: z.enum(['summary', 'map', 'full']).optional(),
     timeoutMs: timeout,
   }, ({ clientId, ...args }, signal) => helper.request(`${pagePath(clientId)}/avalanche`, args, signal, args.timeoutMs + 2000));
   tool('chippy_interact', 'Apply one explicit stimulus. Name the exact target and stimulus first. invoke requires source inspection and a proven callback contract; schedule-update runs render/effect code without changing props/hooks.', {

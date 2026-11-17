@@ -17,7 +17,7 @@ type SavedReport = {
 // Per-commit maps in a ReportDTO, keyed by commit id.
 const PER_COMMIT_KEYS = [
   'commitStats', 'suspenseByCommit', 'sourcesByCommit', 'interactionsByCommit',
-  'renderedByCommit', 'metricsByCommit', 'atlByCommit', 'timing', 'commitTimings',
+  'renderedByCommit', 'screenByCommit', 'metricsByCommit', 'atlByCommit', 'timing', 'commitTimings',
 ];
 
 export function isSavedReport(value: unknown): value is SavedReport {

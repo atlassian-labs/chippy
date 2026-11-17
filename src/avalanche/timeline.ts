@@ -17,20 +17,24 @@
  *
  * Lines up events in time; it does not prove cause. A request that ends just
  * before an unlock is a candidate, not a proven gate. Waits are paired by
- * boundary depth from enter/leave events, so a boundary that remounts at the
- * same depth reads as one wait. Commit `endTime - startTime` is the detector's
+ * the detector's boundary id (by depth in reports without ids), so a boundary
+ * that remounts reads as a new boundary. Commit `endTime - startTime` is the detector's
  * own overhead, so render time is reported only when the report records a
  * render start.
  */
 
 import type { NetworkRequest } from './network-capture';
+import type { ScreenChange } from './screen-changes';
+import { screenStability, settleMapSvg, type ScreenFrame, type ScreenStability } from './screen-stability';
+import { distinguishingLabels, type SuspenseLocation } from './suspense-location';
 
 type Tuple = unknown[];
 type ReportLike = {
   commitStats?: Record<string, Tuple>;
   renderedByCommit?: Record<string, unknown[]>;
   commitTimings?: Record<string, { startTime?: unknown; endTime?: unknown; render?: { renderStart?: unknown } | null }>;
-  suspenseByCommit?: Record<string, Array<{ depth?: unknown; entered?: unknown; left?: unknown }>>;
+  suspenseByCommit?: Record<string, Array<{ depth?: unknown; boundary?: unknown; entered?: unknown; left?: unknown; location?: SuspenseLocation }>>;
+  screenByCommit?: Record<string, ScreenChange>;
   sourcesByCommit?: Record<string, Array<{ sourceId?: unknown; collateral?: unknown }>>;
   interactionsByCommit?: Record<string, Array<{ id?: unknown; action?: unknown; timestamp?: unknown; location?: { dom?: { nearestTestId?: unknown; text?: unknown; tag?: unknown } } }>>;
   networkRequests?: NetworkRequest[];
@@ -50,13 +54,25 @@ export interface TimelineOptions {
   maxCommits?: number;
   /** Requests whose URL matches this case-insensitive regex are left out. */
   exclude?: string;
+  /** Also render the settle map SVG (each part of the screen colored by when it last changed). */
+  settleMap?: boolean;
 }
 
 export type CommitKind = 'lock' | 'unlock' | 'swap' | 'update';
 
 export interface TimelineInput { t: number; action: string; target: string | null }
 export interface TimelineRequest { id: number; label: string; start: number; end: number; durationMs: number; initiatorType: string; cached: boolean }
-export interface TimelineSuspense { depth: number; start: number; end: number | null; enteredAt: number; leftAt: number | null }
+export interface TimelineSuspense {
+  /** `b<id>` from the detector, or `@<depth>` for reports without boundary ids. */
+  boundary: string;
+  depth: number;
+  /** Boundary name, else the first parent or owner that sets it apart from the other boundaries. */
+  label: string | null;
+  start: number;
+  end: number | null;
+  enteredAt: number;
+  leftAt: number | null;
+}
 export interface TimelineCommit {
   commitId: number;
   t: number;
@@ -66,10 +82,22 @@ export interface TimelineCommit {
   kind: CommitKind;
   suspense: string[];
   sources: string[];
+  /** Screen area this commit changed, when the report records it. */
+  screen: { share: number; region: string | null } | null;
+}
+
+export interface TimelineBoundary {
+  boundary: string;
+  depth: number;
+  label: string | null;
+  /** Five parents and five owners with identifying props; see `suspense-location.ts`. */
+  location: SuspenseLocation | null;
 }
 
 export interface PerceivedWait {
+  boundary: string;
   depth: number;
+  label: string | null;
   from: number;
   until: number | null;
   waitedMs: number;
@@ -89,10 +117,17 @@ export interface TimelineResult {
     firstLockAt: number | null;
     /** Last unlock of the waits that started before the next input; null while one still waits. */
     settledAt: number | null;
-    stillWaiting: number[];
+    /** Boundary keys (see `boundaries`) whose fallback was still shown at the end. */
+    stillWaiting: string[];
     waits: PerceivedWait[];
     updatesAfterSettled: { commits: number; rendered: number };
   };
+  /** Each Suspense boundary in the window, with where it sits in the app. */
+  boundaries: TimelineBoundary[];
+  /** Visually Complete times and late regions, from per-commit screen changes; null when the report has none. */
+  screen: ScreenStability | null;
+  /** SVG of the viewport colored by when each part last changed; only with `settleMap`. */
+  settleMapSvg?: string | null;
   lanes: { input: TimelineInput[]; network: TimelineRequest[]; suspense: TimelineSuspense[]; commits: TimelineCommit[] };
   omitted: { requests: number; commits: number };
   mermaid: string;
@@ -127,6 +162,14 @@ function renderedCount(report: ReportLike, id: number): number {
   const list = report.renderedByCommit?.[String(id)];
   return Array.isArray(list) ? list.length : 0;
 }
+
+function screenOf(report: ReportLike, id: number): TimelineCommit['screen'] {
+  const change = report.screenByCommit?.[String(id)];
+  if (!change || typeof change.share !== 'number') return null;
+  return { share: change.share, region: change.regions?.[0]?.label ?? null };
+}
+
+const percent = (share: number) => `${Math.round(share * 100)}%`;
 
 function kindOf(events: Array<{ entered?: unknown; left?: unknown }>): CommitKind {
   const enters = events.some((e) => e.entered);
@@ -182,31 +225,59 @@ export function buildTimeline(report: ReportLike, options: TimelineOptions = {})
     .sort((a, b) => a.startTime - b.startTime);
   const network = kept.map(toRequest);
 
-  // Pair Suspense enter/leave events by boundary depth, from the start of the
-  // report so a wait that began before the window is still seen ending inside
-  // it, and only up to the window's end so later unlocks read as still waiting.
-  const open = new Map<number, number[]>();
+  // Pair Suspense enter/leave events by boundary (the detector's id, else the
+  // depth), from the start of the report so a wait that began before the
+  // window is still seen ending inside it, and only up to the window's end so
+  // later unlocks read as still waiting.
+  const boundaryKey = (event: { depth?: unknown; boundary?: unknown }) =>
+    typeof event.boundary === 'number' ? 'b' + event.boundary : '@' + Number(event.depth);
+  const open = new Map<string, number[]>();
   const suspense: TimelineSuspense[] = [];
+  const boundaryInfo = new Map<string, { depth: number; location: SuspenseLocation | null }>();
   for (const id of ids.filter((commit) => commit <= windowIds[windowIds.length - 1])) {
     for (const event of report.suspenseByCommit?.[String(id)] ?? []) {
       const depth = Number(event.depth);
       if (!Number.isFinite(depth)) continue;
-      if (event.entered) open.set(depth, [...(open.get(depth) || []), id]);
+      const boundary = boundaryKey(event);
+      const info = boundaryInfo.get(boundary);
+      if (!info) boundaryInfo.set(boundary, { depth, location: event.location ?? null });
+      else if (!info.location && event.location) info.location = event.location;
+      if (event.entered) open.set(boundary, [...(open.get(boundary) || []), id]);
       if (event.left) {
-        const enteredId = open.get(depth)?.shift();
-        if (enteredId === undefined) continue;
-        if (startOf(id) >= windowStart && startOf(enteredId) <= windowEnd) {
-          suspense.push({ depth, start: rel(startOf(enteredId)), end: rel(startOf(id)), enteredAt: enteredId, leftAt: id });
+        const entered = open.get(boundary)?.shift();
+        if (entered === undefined) continue;
+        if (startOf(id) >= windowStart && startOf(entered) <= windowEnd) {
+          suspense.push({
+            boundary, depth, label: null,
+            start: rel(startOf(entered)), end: rel(startOf(id)), enteredAt: entered, leftAt: id,
+          });
         }
       }
     }
   }
-  for (const [depth, stack] of open) {
-    for (const enteredId of stack) {
-      if (startOf(enteredId) <= windowEnd) suspense.push({ depth, start: rel(startOf(enteredId)), end: null, enteredAt: enteredId, leftAt: null });
+  for (const [boundary, stack] of open) {
+    for (const entered of stack) {
+      if (startOf(entered) <= windowEnd) {
+        const { depth } = boundaryInfo.get(boundary)!;
+        suspense.push({ boundary, depth, label: null, start: rel(startOf(entered)), end: null, enteredAt: entered, leftAt: null });
+      }
     }
   }
   suspense.sort((a, b) => a.start - b.start || a.depth - b.depth);
+  // Label boundaries against each other.
+  const boundaryKeys = Array.from(new Set(suspense.map((s) => s.boundary)));
+  const labels = distinguishingLabels(boundaryKeys.map((key) => boundaryInfo.get(key)?.location));
+  const labelByKey = new Map(boundaryKeys.map((key, i) => [key, labels[i]]));
+  for (const s of suspense) s.label = labelByKey.get(s.boundary) ?? null;
+  const boundaryName = (event: { depth?: unknown; boundary?: unknown }) => {
+    const key = boundaryKey(event);
+    return labelByKey.get(key) || '@' + Number(event.depth);
+  };
+
+  // Screen changes inside the window, on the origin clock.
+  const frames: ScreenFrame[] = windowIds
+    .map((id) => ({ commitId: id, t: rel(startOf(id)), change: report.screenByCommit?.[String(id)] }))
+    .filter((f): f is ScreenFrame => !!f.change && Array.isArray(f.change.rects));
 
   const allCommits: TimelineCommit[] = windowIds.map((id) => {
     const events = report.suspenseByCommit?.[String(id)] ?? [];
@@ -220,8 +291,9 @@ export function buildTimeline(report: ReportLike, options: TimelineOptions = {})
       renderStart: Number.isFinite(renderStart) && renderStart <= startOf(id) ? rel(renderStart) : null,
       rendered: renderedCount(report, id),
       kind: kindOf(events),
-      suspense: events.map((e) => (e.entered ? 'enter' : 'leave') + '@' + e.depth),
+      suspense: events.map((e) => (e.entered ? 'enter ' : 'leave ') + boundaryName(e)),
       sources: Array.from(new Set(sources)).slice(0, 2),
+      screen: screenOf(report, id),
     };
   });
   const updates = allCommits.filter((c) => c.kind === 'update');
@@ -238,7 +310,7 @@ export function buildTimeline(report: ReportLike, options: TimelineOptions = {})
       .sort((a, b) => b.end - a.end).slice(0, 3)
       .map((r) => ({ label: r.label, end: r.end, gapMs: until - r.end }));
     return {
-      depth: s.depth, from: s.start, until: s.end, waitedMs: until - s.start, lockedBy: s.enteredAt, unlockedBy: s.leftAt,
+      boundary: s.boundary, depth: s.depth, label: s.label, from: s.start, until: s.end, waitedMs: until - s.start, lockedBy: s.enteredAt, unlockedBy: s.leftAt,
       lastRequests: s.end === null ? [] : lastRequests,
       updatesDuring: sumUpdates(updates.filter((c) => c.t > s.start && c.t < until)),
     };
@@ -247,7 +319,7 @@ export function buildTimeline(report: ReportLike, options: TimelineOptions = {})
   // after the next input belong to that input instead.
   const nextInput = input.find((i) => i.t > 0);
   const ownWaits = suspense.filter((s) => !nextInput || s.start < nextInput.t);
-  const stillWaiting = ownWaits.filter((s) => s.end === null).map((s) => s.depth);
+  const stillWaiting = ownWaits.filter((s) => s.end === null).map((s) => s.boundary);
   const unlocks = ownWaits.filter((s) => s.end !== null).map((s) => s.end!);
   const settledAt = stillWaiting.length === 0 && unlocks.length ? Math.max(...unlocks) : null;
 
@@ -262,6 +334,9 @@ export function buildTimeline(report: ReportLike, options: TimelineOptions = {})
       waits,
       updatesAfterSettled: sumUpdates(settledAt === null ? [] : updates.filter((c) => c.t > settledAt && (!nextInput || c.t < nextInput.t))),
     },
+    boundaries: boundaryKeys.map((key) => ({ boundary: key, depth: boundaryInfo.get(key)!.depth, label: labelByKey.get(key) ?? null, location: boundaryInfo.get(key)!.location })),
+    screen: screenStability(frames),
+    ...(options.settleMap && { settleMapSvg: settleMapSvg(frames) }),
     lanes: { input, network, suspense, commits },
     omitted: { requests: inWindow.length - kept.length, commits: allCommits.length - commits.length },
     mermaid: '',
@@ -309,7 +384,7 @@ function renderMermaid(result: TimelineResult): string {
     suspense.forEach((s, n) => {
       const stop = s.end ?? end;
       const label = s.end === null ? 'still waiting' : `${stop - s.start}ms`;
-      lines.push(`  @${s.depth} ${label} :${s.end === null ? 'active' : 'crit'}, sus${n}, ${bar(s.start, stop)}`);
+      lines.push(`  ${safe(s.label || '@' + s.depth)} ${label} :${s.end === null ? 'active' : 'crit'}, sus${n}, ${bar(s.start, stop)}`);
     });
   }
   const screen = commits.filter((c) => c.kind !== 'update');
@@ -317,12 +392,21 @@ function renderMermaid(result: TimelineResult): string {
     lines.push('  section Screen (lock or unlock)');
     for (const c of screen) lines.push(`  c${c.commitId} ${c.kind} ${safe(c.suspense.join(' '))} :milestone, c${c.commitId}, ${c.t}, ${c.t}`);
   }
+  const visible = commits.filter((c) => c.screen && c.screen.share >= 0.01);
+  if (result.screen) {
+    lines.push('  section Screen changed (share of viewport)');
+    for (const c of visible) {
+      lines.push(`  c${c.commitId} ${percent(c.screen!.share)}${c.screen!.region ? ' ' + safe(c.screen!.region) : ''} :milestone, sc${c.commitId}, ${c.t}, ${c.t}`);
+    }
+    lines.push(`  VC90 +${result.screen.vc90} :crit, milestone, vc90, ${result.screen.vc90}, ${result.screen.vc90}`);
+  }
   if (updates.length) {
     lines.push('  section Updates (CPU, no Suspense change)');
     for (const c of updates) {
-      const what = safe(c.sources.join(', '));
+      const what = c.sources.length ? safe(c.sources.join(', ')) : '';
       const span = c.renderStart === null ? `milestone, c${c.commitId}, ${c.t}, ${c.t}` : `c${c.commitId}, ${bar(c.renderStart, c.t)}`;
-      lines.push(`  c${c.commitId} ${c.rendered} rendered${what ? ' ' + what : ''} :${heavy.has(c.commitId) ? 'crit, ' : ''}${span}`);
+      const seen = result.screen ? (c.screen ? ` ${percent(c.screen.share)} screen` : ' 0% screen') : '';
+      lines.push(`  c${c.commitId} ${c.rendered} rendered${seen}${what ? ' ' + what : ''} :${heavy.has(c.commitId) ? 'crit, ' : ''}${span}`);
     }
   }
   return lines.join('\n');
@@ -335,13 +419,20 @@ function renderText(result: TimelineResult): string {
   else {
     header.push(p.settledAt !== null
       ? `Fallbacks first shown at +${p.firstLockAt}, all cleared at +${p.settledAt}; ${p.updatesAfterSettled.commits} updates (${p.updatesAfterSettled.rendered} rendered) ran after that, before the next input.`
-      : `Fallbacks first shown at +${p.firstLockAt}; still waiting at the end: @${p.stillWaiting.join(', @')}.`);
+      : `Fallbacks first shown at +${p.firstLockAt}; still waiting at the end: ${p.stillWaiting.map((key) => result.boundaries.find((b) => b.boundary === key)?.label || key).join(', ')}.`);
     for (const w of p.waits.slice(0, 5)) {
       const last = w.lastRequests[0];
-      header.push(`  wait @${w.depth} ${w.waitedMs}ms (+${w.from} → ${w.until === null ? 'end' : '+' + w.until})` +
+      header.push(`  wait ${w.label || '@' + w.depth} ${w.waitedMs}ms (+${w.from} → ${w.until === null ? 'end' : '+' + w.until})` +
         `, ${w.updatesDuring.commits} updates (${w.updatesDuring.rendered} rendered) meanwhile` +
         (last ? `, last request before unlock: ${last.label} (+${last.end}, ${last.gapMs}ms before)` : ''));
     }
+  }
+
+  const sc = result.screen;
+  if (sc) {
+    header.push(`Visually complete: VC50 +${sc.vc50}, VC90 +${sc.vc90}, VC100 +${sc.vc100}; ${percent(sc.changedShare)} of the viewport changed` +
+      (sc.changedVc90 !== null ? `, 90% of that by +${sc.changedVc90}` : '') + '.');
+    if (sc.late.length) header.push(`  changing after that: ${sc.late.map((l) => `${l.label} +${l.at} (c${l.commitId}, ${percent(l.share)})`).join(', ')}`);
   }
 
   type Row = { t: number; lane: string; text: string };
@@ -349,11 +440,12 @@ function renderText(result: TimelineResult): string {
   for (const i of result.lanes.input) rows.push({ t: i.t, lane: 'input', text: i.action + (i.target ? ' ' + i.target : '') });
   for (const r of result.lanes.network) rows.push({ t: r.start, lane: 'net', text: `${r.label}  → +${r.end} (${r.durationMs}ms${r.cached ? ', cached' : ''})` });
   for (const s of result.lanes.suspense) {
-    rows.push({ t: s.start, lane: 'wait', text: `fallback @${s.depth} ` + (s.end === null ? 'still shown at the end' : `until +${s.end} (${s.end - s.start}ms, c${s.enteredAt}→c${s.leftAt})`) });
+    rows.push({ t: s.start, lane: 'wait', text: `fallback ${s.label || '@' + s.depth} ` + (s.end === null ? 'still shown at the end' : `until +${s.end} (${s.end - s.start}ms, c${s.enteredAt}→c${s.leftAt})`) });
   }
   for (const c of result.lanes.commits) {
     const lane = c.kind === 'update' ? 'react' : 'SCRN';
-    rows.push({ t: c.t, lane, text: `c${c.commitId} ${c.kind === 'update' ? '' : c.kind + ' '}${c.rendered} rendered${c.sources.length ? ' · ' + c.sources.join(', ') : ''}${c.suspense.length ? ' · ' + c.suspense.join(' ') : ''}` });
+    const seen = c.screen ? ` · ${percent(c.screen.share)} screen${c.screen.region ? ' ' + c.screen.region : ''}` : sc ? ' · 0% screen' : '';
+    rows.push({ t: c.t, lane, text: `c${c.commitId} ${c.kind === 'update' ? '' : c.kind + ' '}${c.rendered} rendered${seen}${c.sources.length ? ' · ' + c.sources.join(', ') : ''}${c.suspense.length ? ' · ' + c.suspense.join(', ') : ''}` });
   }
   const order: Record<string, number> = { input: 0, net: 1, wait: 2, SCRN: 3, react: 4 };
   rows.sort((a, b) => a.t - b.t || order[a.lane] - order[b.lane]);

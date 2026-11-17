@@ -35,6 +35,8 @@
 
 import type { CommitMetricsDelta, IntegrationMode } from './commit-metrics-adapter';
 import type { NetworkCaptureStatus, NetworkRequest } from './network-capture';
+import type { ScreenChange } from './screen-changes';
+import type { SuspenseLocation } from './suspense-location';
 import { toWireValue } from './wire-value';
 
 /** A network request as it travels in a report: already plain data. */
@@ -183,8 +185,12 @@ function wireTrashers(hooks: ChangedHookSample[]): ChangedHookSample[] {
  */
 export interface SuspenseBoundaryEventDTO {
   depth: number;
+  /** Stable id of the boundary within the capture. */
+  boundary?: number;
   entered: boolean;
   left: boolean;
+  /** Parents, owners, and identifying props around the boundary. */
+  location?: SuspenseLocation;
 }
 
 export interface UnmountSampleDTO {
@@ -273,6 +279,8 @@ export interface ReportDTO {
   commitTimings?: Record<number, CommitTimingDTO>;
   /** Requests that finished during the capture. Absent before report v8. */
   networkRequests?: NetworkRequestDTO[];
+  /** Screen area each commit changed. Absent when screen capture is off. */
+  screenByCommit?: Record<number, ScreenChange>;
 }
 
 // ============================================================================
@@ -313,7 +321,7 @@ export function serializeReport(report: {
       isRepeat?: boolean;
     }>
   >;
-  suspenseByCommit?: Record<number, Array<{ depth: number; entered: boolean; left: boolean; fiber?: unknown }>>;
+  suspenseByCommit?: Record<number, Array<{ depth: number; boundary?: number; entered: boolean; left: boolean; location?: SuspenseLocation; fiber?: unknown }>>;
   interactionsByCommit?: Record<number, CommitInteractionActionDTO[]>;
   renderedByCommit?: Record<number, RenderedComponentEvidenceDTO[]>;
   metricsByCommit?: Record<number, CommitMetricsDeltaDTO>;
@@ -321,6 +329,7 @@ export function serializeReport(report: {
   atlByCommit?: Record<number, CommitMetricsDeltaDTO>;
   commitTimings?: Record<number, CommitTimingDTO>;
   networkRequests?: NetworkRequestDTO[];
+  screenByCommit?: Record<number, ScreenChange>;
 }): ReportDTO {
   // Just extract the fields we need - no conversion necessary
   const sources: SourceDTO[] = report.sources.map((source) => ({
@@ -358,8 +367,10 @@ export function serializeReport(report: {
     for (const [k, evts] of Object.entries(report.suspenseByCommit)) {
       suspenseByCommit[Number(k)] = evts.map((e) => ({
         depth: e.depth,
+        ...(typeof e.boundary === 'number' && { boundary: e.boundary }),
         entered: e.entered,
         left: e.left,
+        ...(e.location && { location: e.location }),
       }));
     }
   }
@@ -378,5 +389,6 @@ export function serializeReport(report: {
     }),
     ...(report.commitTimings && { commitTimings: report.commitTimings }),
     ...(report.networkRequests && { networkRequests: report.networkRequests.map((request) => ({ ...request })) }),
+    ...(report.screenByCommit && { screenByCommit: report.screenByCommit }),
   };
 }

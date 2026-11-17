@@ -502,6 +502,7 @@ export function evalAvalanche(
           minRequestMs: command?.minRequestMs,
           maxRequests: command?.top,
           exclude: command?.exclude,
+          settleMap: command?.format === 'full' || command?.format === 'map',
         });
         if ('error' in timeline) return { ok: false, available: true, action, error: timeline.error };
         const { ok: _ok, lanes, ...rest } = timeline;

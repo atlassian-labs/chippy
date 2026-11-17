@@ -71,6 +71,8 @@ import {
 import { createCommitSurfaceOwnership } from './commit-surface-ownership';
 import { createInteractionCapture } from './interaction-capture';
 import { createNetworkCapture } from './network-capture';
+import { createScreenCapture } from './screen-changes';
+import { describeSuspenseLocation } from './suspense-location';
 import { createRenderTickTracker } from './render-ticks';
 import {
   CS_UNMOUNTED_COMPONENTS,
@@ -210,6 +212,18 @@ export function createAvalancheDetector(options: DetectorOptions = {}) {
   const debugRender = createDebugRender();
   const interactionCapture = createInteractionCapture(options);
   const networkCapture = createNetworkCapture(options);
+  const screenCapture = createScreenCapture(options);
+  // Stable id per Suspense boundary (both fiber copies), so sibling boundaries
+  // at the same depth stay apart in the timeline.
+  let boundaryIds = new WeakMap<Fiber, number>();
+  let nextBoundaryId = 1;
+  const boundaryId = (fiber: Fiber): number => {
+    let id = boundaryIds.get(fiber) ?? (fiber.alternate ? boundaryIds.get(fiber.alternate) : undefined);
+    if (id === undefined) id = nextBoundaryId++;
+    boundaryIds.set(fiber, id);
+    if (fiber.alternate) boundaryIds.set(fiber.alternate, id);
+    return id;
+  };
 
   function getComponentDisplayName(type: ComponentType | null | undefined): string {
     if (!type) return 'Unknown';
@@ -414,6 +428,7 @@ export function createAvalancheDetector(options: DetectorOptions = {}) {
     interactionActions: interactionCapture.state.actions,
     interactionsByCommit: interactionCapture.state.byCommit,
     networkRequests: networkCapture.requests,
+    screenByCommit: screenCapture.byCommit,
     renderedByCommit: {},
   };
 
@@ -784,8 +799,10 @@ export function createAvalancheDetector(options: DetectorOptions = {}) {
           }
           const event: SuspenseBoundaryEvent = {
             depth,
+            boundary: boundaryId(fiber),
             entered: suspenseChange.entered,
             left: suspenseChange.left,
+            location: describeSuspenseLocation(fiber),
             ...(captureFibers && { fiber }),
           };
           perCommit.suspenseEvents.push(event);
@@ -1332,6 +1349,9 @@ export function createAvalancheDetector(options: DetectorOptions = {}) {
     }
     interactionCapture.reset();
     networkCapture.reset();
+    screenCapture.reset();
+    boundaryIds = new WeakMap();
+    nextBoundaryId = 1;
     // Recapture adapter snapshot as new baseline
     state.lastMetricsSnapshot = captureMetricsSnapshot();
     // Reset timing baseline
@@ -1485,6 +1505,7 @@ export function createAvalancheDetector(options: DetectorOptions = {}) {
 
     const memoizedUpdaters = root.memoizedUpdaters;
     const committedComponents = recordTree(root.current, memoizedUpdaters || null);
+    screenCapture.record(state.commits, root.current);
 
     // `recordTree` counts deletions from fiber.deletions[]. Some renderers clear
     // that array before the final root callback, while still calling the DevTools

@@ -387,6 +387,83 @@ describe('Avalanche Suspense boundary detection', () => {
 });
 
 // ---------------------------------------------------------------------------
+// Screen changes and Suspense locations
+// ---------------------------------------------------------------------------
+
+describe('Avalanche screen changes and Suspense locations', () => {
+  it('labels boundaries past a shared wrapper and reports VC90 from changed boxes', async () => {
+    const page = await openAvalanchePage();
+    try {
+      const result = await page.evaluate(async () => {
+        const av = (window as any).__AVALANCHE__;
+        const R = (window as any).__R;
+        const RD = (window as any).__RD;
+        const h = R.createElement;
+        const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
+        av.install({ detectionMode: 'full', captureFibers: true });
+
+        const gates: Record<string, { done: boolean; promise: Promise<void>; open: () => void }> = {};
+        for (const key of ['header', 'body']) {
+          let open = () => {};
+          const promise = new Promise<void>((r) => { open = r; });
+          gates[key] = { done: false, promise, open: () => { gates[key].done = true; open(); } };
+        }
+        function Gate({ gate, height }: { gate: string; height: number }) {
+          if (!gates[gate].done) throw gates[gate].promise;
+          return h('div', { 'data-testid': `${gate}-content`, style: { height: `${height}px` } }, gate);
+        }
+        function LoadingBoundary({ children }: { children: unknown }) {
+          return h(R.Suspense, { fallback: h('div', { style: { height: '20px' } }, 'loading') }, children);
+        }
+        function HeaderSlot({ slotName }: { slotName: string }) {
+          return h(LoadingBoundary, null, h(Gate, { gate: 'header', height: 80 }));
+        }
+        function BodySlot({ team }: { team: string }) {
+          return h(LoadingBoundary, null, h(Gate, { gate: 'body', height: 400 }));
+        }
+        const host = document.createElement('div');
+        host.style.width = '600px';
+        document.body.appendChild(host);
+        RD.createRoot(host).render(h('div', null, h(HeaderSlot, { slotName: 'header' }), h(BodySlot, { team: 'body-team' })));
+        await wait(60);
+        gates.header.open();
+        await wait(80);
+        gates.body.open();
+        await wait(150);
+
+        const run = (command: Record<string, unknown>) => av.bridge.evalAvalanche(command, av, null);
+        const ser = av.report(100, 'effect');
+        const report = ser.toSerializable ? ser.toSerializable() : ser;
+        return { timeline: run({ action: 'timeline', fromCommit: 1, format: 'map' }), report };
+      });
+
+      const screen = result.report.screenByCommit ?? {};
+      expect(Object.keys(screen).length).toBeGreaterThan(0);
+      const regions = Object.values(screen).flatMap((c: any) => c.regions.map((r: any) => r.label));
+      expect(regions).toEqual(expect.arrayContaining(['header-content', 'body-content']));
+
+      const events = Object.values(result.report.suspenseByCommit ?? {}).flat() as any[];
+      expect(events.length).toBeGreaterThan(0);
+      expect(events.every((e) => Array.isArray(e.location?.chain))).toBe(true);
+      // React clears Placement before the commit hook; the fallbacks mounted in
+      // the lock commit must still be measured.
+      const lockCommit = Object.entries(result.report.suspenseByCommit).find(([, list]: [string, any]) => list.some((e: any) => e.entered))![0];
+      expect(screen[lockCommit]?.area).toBeGreaterThan(0);
+
+      const payload = result.timeline.payload;
+      expect(result.timeline.ok).toBe(true);
+      expect(payload.boundaries.map((b: any) => b.label).sort()).toEqual(['BodySlot team=body-team', 'HeaderSlot slotName=header']);
+      expect(payload.screen.vc90).toBeGreaterThan(0);
+      expect(payload.screen.vc100).toBeGreaterThanOrEqual(payload.screen.vc90);
+      expect(payload.settleMapSvg.startsWith('<svg')).toBe(true);
+      expect(payload.mermaid).toContain('Screen changed');
+    } finally {
+      await page.close();
+    }
+  }, 30000);
+});
+
+// ---------------------------------------------------------------------------
 // Network capture
 // ---------------------------------------------------------------------------
 
