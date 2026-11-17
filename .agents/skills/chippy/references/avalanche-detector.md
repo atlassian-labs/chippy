@@ -154,6 +154,13 @@ chippy.sh avalanche-describe-action my-client 7
 ```
 Looks up one recorded event/action breadcrumb by id and returns the full payload. Use this after `commit-list` surfaces a useful `latestAction` id. Full payload includes DOM target, nearest test id, target fiber, and complete locality stack. In dev builds the stack is `ownerStackKind: "owners"`; in production bundles owners may be unavailable, so it falls back to `ownerStackKind: "parents"` using the React return chain. This is probe-like grounding for a click/key/input: DOM target + nearest meaningful fiber + locality stack.
 
+Each action also carries `event`:
+- `trusted`: the browser's `isTrusted`. It is false when page code dispatched the event.
+- `key`: for key events, the named key (`Meta`, `Tab`, `Escape`), or `character` for any key that types a character, so captures hold no typed text.
+- `modifiers`: modifier keys held during the event.
+
+A trusted key event is not always a deliberate key press. Switching apps with Cmd+Tab or Alt+Tab sends the page a `Meta` or `Alt` keydown and keyup on the focused element. The timeline shows these details next to each input, for example `keydown Meta` or `keydown character with Shift dispatched`.
+
 ### `avalanche-network <clientId> [top] [by] [match] [initiators] [windowMs]`
 ```bash
 chippy.sh avalanche-network my-client

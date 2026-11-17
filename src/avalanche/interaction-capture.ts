@@ -9,6 +9,7 @@
 
 import { isComponentFiber, type Fiber } from './internals';
 import { describeComponent, describeFiberTarget } from '../layout-lab/fiber-walk';
+import { describeInputEvent } from './input-details';
 import type { CommitInteractionAction, InteractionAction, InteractionCaptureLevel } from './reporter';
 
 const EXPLICIT_INTERACTION_EVENTS = ['click', 'keydown', 'keyup', 'input', 'change', 'submit'];
@@ -124,6 +125,7 @@ export function createInteractionCapture(options: InteractionCaptureOptions = {}
       action: event.type,
       timestamp: performance.now(),
       location: describeActionLocation(target),
+      event: describeInputEvent(event),
     });
     if (state.actions.length > MAX_INTERACTION_ACTIONS) {
       state.actions.splice(0, state.actions.length - MAX_INTERACTION_ACTIONS);
@@ -170,6 +172,7 @@ export function createInteractionCapture(options: InteractionCaptureOptions = {}
           timestamp: action.timestamp,
           action: action.action,
           location: action.location,
+          ...(action.event && { event: action.event }),
         }));
       if (linked.length > 0) state.byCommit[commitId] = linked;
       while (state.actions.length > 0 && commitTime - state.actions[0].timestamp > windowMs) {

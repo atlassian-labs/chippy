@@ -55,8 +55,8 @@ describe('buildTimeline', () => {
     const t = built();
     expect(t.origin).toEqual({ at: 1000, kind: 'interaction' });
     expect(t.lanes.input).toEqual([
-      { t: 0, action: 'click', target: 'card' },
-      { t: 2000, action: 'click', target: 'close' },
+      { t: 0, action: 'click', target: 'card', detail: null },
+      { t: 2000, action: 'click', target: 'close', detail: null },
     ]);
   });
 
@@ -103,7 +103,7 @@ describe('buildTimeline', () => {
 
   it('never starts a task line with a gantt keyword', () => {
     const t = built();
-    expect(t.mermaid).toContain('user click card :milestone, in0, 0, 0');
+    expect(t.mermaid).toContain('input click card :milestone, in0, 0, 0');
     const keyword = /^(click|call|href|section|title|dateformat|axisformat|tickinterval|excludes|includes|todaymarker|weekday|weekend|acctitle|accdescr)\b/i;
     const tasks = t.mermaid.split('\n').slice(4).map((line) => line.trim()).filter((line) => !line.startsWith('section '));
     for (const line of tasks) expect(line).not.toMatch(keyword);
@@ -135,6 +135,24 @@ describe('buildTimeline', () => {
     expect(t.text).toContain('Visually complete: VC50 +500, VC90 +600, VC100 +600');
     expect(t.settleMapSvg).toBeUndefined();
     expect(built({ settleMap: true }).settleMapSvg).toContain('<svg');
+  });
+
+  it('names keys and modifiers, and marks events that page code dispatched', () => {
+    const t = buildTimeline({
+      ...report,
+      interactionsByCommit: {
+        ...report.interactionsByCommit,
+        2: [
+          { id: 7, action: 'click', timestamp: 1000, location: { dom: { nearestTestId: 'card' } } },
+          { id: 9, action: 'keydown', timestamp: 1150, location: { dom: { nearestTestId: 'card' } }, event: { trusted: true, key: 'Meta', modifiers: ['Meta'] } },
+          { id: 10, action: 'keydown', timestamp: 1160, location: { dom: { nearestTestId: 'card' } }, event: { trusted: false, key: 'character', modifiers: ['Shift'] } },
+        ],
+      },
+    } as never);
+    if ('error' in t) throw new Error(t.error);
+    expect(t.lanes.input.map((i) => i.detail)).toEqual([null, 'Meta', 'character with Shift dispatched', null]);
+    expect(t.text).toContain('input  keydown Meta card');
+    expect(t.mermaid).toContain('input keydown character with Shift dispatched card');
   });
 
   it('places what the user sees at paint time when the report records it', () => {

@@ -34,6 +34,7 @@
  */
 
 import type { CommitMetricsDelta, IntegrationMode } from './commit-metrics-adapter';
+import type { InputEventDetails } from './input-details';
 import type { NetworkCaptureStatus, NetworkRequest } from './network-capture';
 import type { ScreenChange } from './screen-changes';
 import type { SuspenseLocation } from './suspense-location';
@@ -265,6 +266,8 @@ export interface CommitInteractionActionDTO {
       }>;
     } | null;
   };
+  /** Whether the browser received the event as input, plus key name and modifiers (no typed text). */
+  event?: InputEventDetails;
 }
 
 export interface ReportDTO {

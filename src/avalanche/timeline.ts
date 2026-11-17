@@ -43,7 +43,7 @@ type ReportLike = {
   suspenseByCommit?: Record<string, Array<{ depth?: unknown; boundary?: unknown; entered?: unknown; left?: unknown; location?: SuspenseLocation }>>;
   screenByCommit?: Record<string, ScreenChange>;
   sourcesByCommit?: Record<string, Array<{ sourceId?: unknown; collateral?: unknown }>>;
-  interactionsByCommit?: Record<string, Array<{ id?: unknown; action?: unknown; timestamp?: unknown; location?: { dom?: { nearestTestId?: unknown; text?: unknown; tag?: unknown } } }>>;
+  interactionsByCommit?: Record<string, Array<{ id?: unknown; action?: unknown; timestamp?: unknown; location?: { dom?: { nearestTestId?: unknown; text?: unknown; tag?: unknown } }; event?: { trusted?: unknown; key?: unknown; modifiers?: unknown } }>>;
   networkRequests?: NetworkRequest[];
   [key: string]: unknown;
 };
@@ -67,7 +67,27 @@ export interface TimelineOptions {
 
 export type CommitKind = 'lock' | 'unlock' | 'swap' | 'update';
 
-export interface TimelineInput { t: number; action: string; target: string | null }
+function inputDetail(event: { trusted?: unknown; key?: unknown; modifiers?: unknown } | undefined): string | null {
+  if (!event || typeof event !== 'object') return null;
+  const parts: string[] = [];
+  if (typeof event.key === 'string') parts.push(event.key);
+  const held = Array.isArray(event.modifiers) ? event.modifiers.filter((m): m is string => typeof m === 'string' && m !== event.key) : [];
+  if (held.length) parts.push('with ' + held.join('+'));
+  if (event.trusted === false) parts.push('dispatched');
+  return parts.length ? parts.join(' ') : null;
+}
+
+function inputLabel(i: TimelineInput): string {
+  return i.action + (i.detail ? ' ' + i.detail : '') + (i.target ? ' ' + i.target : '');
+}
+
+/**
+ * `detail` names the key and held modifiers, and says when page code dispatched
+ * the event (`dispatched`). Trusted key events also come from switching apps
+ * (Cmd+Tab sends the page Meta keydown/keyup), so a key event is not proof of
+ * a deliberate key press.
+ */
+export interface TimelineInput { t: number; action: string; target: string | null; detail: string | null }
 export interface TimelineRequest { id: number; label: string; start: number; end: number; durationMs: number; initiatorType: string; cached: boolean }
 export interface TimelineSuspense {
   /** `b<id>` from the detector, or `@<depth>` for reports without boundary ids. */
@@ -211,7 +231,7 @@ export function buildTimeline(report: ReportLike, options: TimelineOptions = {})
       const key = String(item.id ?? '') + '@' + t;
       const dom = item.location?.dom;
       const target = dom ? String(dom.nearestTestId || dom.text || dom.tag || '') || null : null;
-      if (!interactions.has(key)) interactions.set(key, { t, action: String(item.action || 'input'), target });
+      if (!interactions.has(key)) interactions.set(key, { t, action: String(item.action || 'input'), target, detail: inputDetail(item.event) });
     }
   }
   const inputs = Array.from(interactions.values()).sort((a, b) => a.t - b.t);
@@ -394,7 +414,7 @@ function renderMermaid(result: TimelineResult): string {
   ];
   if (input.length) {
     lines.push('  section Input');
-    input.forEach((i, n) => lines.push(`  ${safe('user ' + i.action + (i.target ? ' ' + i.target : ''))} :milestone, in${n}, ${i.t}, ${i.t}`));
+    input.forEach((i, n) => lines.push(`  ${safe('input ' + inputLabel(i))} :milestone, in${n}, ${i.t}, ${i.t}`));
   }
   if (network.length) {
     lines.push('  section Network');
@@ -466,7 +486,7 @@ function renderText(result: TimelineResult): string {
 
   type Row = { t: number; lane: string; text: string };
   const rows: Row[] = [];
-  for (const i of result.lanes.input) rows.push({ t: i.t, lane: 'input', text: i.action + (i.target ? ' ' + i.target : '') });
+  for (const i of result.lanes.input) rows.push({ t: i.t, lane: 'input', text: inputLabel(i) });
   for (const r of result.lanes.network) rows.push({ t: r.start, lane: 'net', text: `${r.label}  → +${r.end} (${r.durationMs}ms${r.cached ? ', cached' : ''})` });
   for (const s of result.lanes.suspense) {
     rows.push({ t: s.start, lane: 'wait', text: `fallback ${s.label || '@' + s.depth} ` + (s.end === null ? 'still shown at the end' : `until +${s.end} (${s.end - s.start}ms, c${s.enteredAt}→c${s.leftAt})`) });

@@ -439,9 +439,11 @@ describe('createAvalancheDetector — report shape contracts', () => {
             ownerStack: [],
           },
         },
+        // button.click() is dispatched by code, so the browser marks it untrusted.
+        event: { trusted: false },
       },
     ]);
-    expect(report.toSerializable().interactionsByCommit[1][0]).toMatchObject({ action: 'click', lastCommitId: 0 });
+    expect(report.toSerializable().interactionsByCommit[1][0]).toMatchObject({ action: 'click', lastCommitId: 0, event: { trusted: false } });
 
     // Absolute timestamps share the page's performance clock, so exports can be
     // aligned with DevTools traces and PerformanceObserver entries.

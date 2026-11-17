@@ -293,6 +293,18 @@ function distinguishingLabels(locations) {
 }
 
 // src/avalanche/timeline.ts
+function inputDetail(event) {
+  if (!event || typeof event !== "object") return null;
+  const parts = [];
+  if (typeof event.key === "string") parts.push(event.key);
+  const held = Array.isArray(event.modifiers) ? event.modifiers.filter((m) => typeof m === "string" && m !== event.key) : [];
+  if (held.length) parts.push("with " + held.join("+"));
+  if (event.trusted === false) parts.push("dispatched");
+  return parts.length ? parts.join(" ") : null;
+}
+function inputLabel(i) {
+  return i.action + (i.detail ? " " + i.detail : "") + (i.target ? " " + i.target : "");
+}
 var round2 = (n) => Math.round(n);
 function requestLabel(url) {
   try {
@@ -345,7 +357,7 @@ function buildTimeline(report, options = {}) {
       const key = String(item.id ?? "") + "@" + t;
       const dom = item.location?.dom;
       const target = dom ? String(dom.nearestTestId || dom.text || dom.tag || "") || null : null;
-      if (!interactions.has(key)) interactions.set(key, { t, action: String(item.action || "input"), target });
+      if (!interactions.has(key)) interactions.set(key, { t, action: String(item.action || "input"), target, detail: inputDetail(item.event) });
     }
   }
   const inputs = Array.from(interactions.values()).sort((a, b) => a.t - b.t);
@@ -515,7 +527,7 @@ function renderMermaid(result) {
   ];
   if (input.length) {
     lines.push("  section Input");
-    input.forEach((i, n) => lines.push(`  ${safe("user " + i.action + (i.target ? " " + i.target : ""))} :milestone, in${n}, ${i.t}, ${i.t}`));
+    input.forEach((i, n) => lines.push(`  ${safe("input " + inputLabel(i))} :milestone, in${n}, ${i.t}, ${i.t}`));
   }
   if (network.length) {
     lines.push("  section Network");
@@ -577,7 +589,7 @@ function renderText(result) {
     header.push(`Painted late (the commit's task kept running): ${worst.map((c) => `c${c.commitId} +${c.t} \u2192 painted +${c.paintAt} (${c.paintAt - c.t}ms)`).join(", ")}.`);
   }
   const rows = [];
-  for (const i of result.lanes.input) rows.push({ t: i.t, lane: "input", text: i.action + (i.target ? " " + i.target : "") });
+  for (const i of result.lanes.input) rows.push({ t: i.t, lane: "input", text: inputLabel(i) });
   for (const r of result.lanes.network) rows.push({ t: r.start, lane: "net", text: `${r.label}  \u2192 +${r.end} (${r.durationMs}ms${r.cached ? ", cached" : ""})` });
   for (const s of result.lanes.suspense) {
     rows.push({ t: s.start, lane: "wait", text: `fallback ${s.label || "@" + s.depth} ` + (s.end === null ? "still shown at the end" : `until +${s.end} (${s.end - s.start}ms, c${s.enteredAt}\u2192c${s.leftAt})`) });

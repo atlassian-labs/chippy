@@ -14,6 +14,7 @@ import type { SuspenseLocation } from './suspense-location';
 import { getComponentName } from './internals';
 import type { ReportDTO } from './report-serializer';
 import { serializeReport } from './report-serializer';
+import type { InputEventDetails } from './input-details';
 import {
   type CommitMetricsAdapter,
   type CommitMetricsDelta,
@@ -360,6 +361,8 @@ export interface InteractionAction {
   timestamp: number;
   /** DOM-grounded event target plus target component/ownership stack. */
   location: InteractionActionLocation;
+  /** Whether the browser received the event as input, plus key name and modifiers (no typed text). */
+  event?: InputEventDetails;
 }
 
 export type PropChangeKind = 'same' | 'ref-changed' | 'scalar-changed' | 'added' | 'removed';
@@ -406,6 +409,8 @@ export interface CommitInteractionAction {
   timestamp: number;
   action: string;
   location: InteractionAction['location'];
+  /** Whether the browser received the event as input, plus key name and modifiers (no typed text). */
+  event?: InputEventDetails;
 }
 
 export interface Report {

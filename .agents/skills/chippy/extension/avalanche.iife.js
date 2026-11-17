@@ -2235,6 +2235,30 @@ this.__AVALANCHE__ = (function() {
       ...describeRecoveredOrigin(fiber.type)
     };
   }
+  function modifiersOf(event) {
+    const held = [];
+    if (event.altKey) held.push("Alt");
+    if (event.ctrlKey) held.push("Control");
+    if (event.metaKey) held.push("Meta");
+    if (event.shiftKey) held.push("Shift");
+    return held;
+  }
+  function safeKeyName(key) {
+    if (typeof key !== "string" || key === "") return "unknown";
+    return [...key].length === 1 ? "character" : key;
+  }
+  function describeInputEvent(event) {
+    const details = { trusted: event.isTrusted };
+    const withModifiers = event;
+    if (typeof withModifiers.key !== "undefined" && /^key/.test(event.type)) {
+      details.key = safeKeyName(withModifiers.key);
+    }
+    if (typeof withModifiers.metaKey === "boolean") {
+      const held = modifiersOf(withModifiers);
+      if (held.length) details.modifiers = held;
+    }
+    return details;
+  }
   const EXPLICIT_INTERACTION_EVENTS = ["click", "keydown", "keyup", "input", "change", "submit"];
   const NOISY_INTERACTION_EVENTS = ["wheel", "scroll", "pointermove", "mousemove", "touchmove"];
   const ALL_INTERACTION_EVENTS = [
@@ -2320,7 +2344,8 @@ this.__AVALANCHE__ = (function() {
         id: nextActionId++,
         action: event.type,
         timestamp: performance.now(),
-        location: describeActionLocation(target)
+        location: describeActionLocation(target),
+        event: describeInputEvent(event)
       });
       if (state2.actions.length > MAX_INTERACTION_ACTIONS) {
         state2.actions.splice(0, state2.actions.length - MAX_INTERACTION_ACTIONS);
@@ -2356,7 +2381,8 @@ this.__AVALANCHE__ = (function() {
           deltaTime: Math.round((commitTime - action.timestamp) * 100) / 100,
           timestamp: action.timestamp,
           action: action.action,
-          location: action.location
+          location: action.location,
+          ...action.event && { event: action.event }
         }));
         if (linked.length > 0) state2.byCommit[commitId] = linked;
         while (state2.actions.length > 0 && commitTime - state2.actions[0].timestamp > windowMs) {
@@ -6259,6 +6285,18 @@ this.__AVALANCHE__ = (function() {
     parts.push("</svg>");
     return parts.join("");
   }
+  function inputDetail(event) {
+    if (!event || typeof event !== "object") return null;
+    const parts = [];
+    if (typeof event.key === "string") parts.push(event.key);
+    const held = Array.isArray(event.modifiers) ? event.modifiers.filter((m) => typeof m === "string" && m !== event.key) : [];
+    if (held.length) parts.push("with " + held.join("+"));
+    if (event.trusted === false) parts.push("dispatched");
+    return parts.length ? parts.join(" ") : null;
+  }
+  function inputLabel(i) {
+    return i.action + (i.detail ? " " + i.detail : "") + (i.target ? " " + i.target : "");
+  }
   const round$2 = (n) => Math.round(n);
   function requestLabel(url) {
     try {
@@ -6316,7 +6354,7 @@ this.__AVALANCHE__ = (function() {
         const key = String(item.id ?? "") + "@" + t;
         const dom = (_a2 = item.location) == null ? void 0 : _a2.dom;
         const target = dom ? String(dom.nearestTestId || dom.text || dom.tag || "") || null : null;
-        if (!interactions.has(key)) interactions.set(key, { t, action: String(item.action || "input"), target });
+        if (!interactions.has(key)) interactions.set(key, { t, action: String(item.action || "input"), target, detail: inputDetail(item.event) });
       }
     }
     const inputs = Array.from(interactions.values()).sort((a, b) => a.t - b.t);
@@ -6493,7 +6531,7 @@ this.__AVALANCHE__ = (function() {
     ];
     if (input.length) {
       lines.push("  section Input");
-      input.forEach((i, n) => lines.push(`  ${safe("user " + i.action + (i.target ? " " + i.target : ""))} :milestone, in${n}, ${i.t}, ${i.t}`));
+      input.forEach((i, n) => lines.push(`  ${safe("input " + inputLabel(i))} :milestone, in${n}, ${i.t}, ${i.t}`));
     }
     if (network.length) {
       lines.push("  section Network");
@@ -6558,7 +6596,7 @@ this.__AVALANCHE__ = (function() {
       header.push(`Painted late (the commit's task kept running): ${worst.map((c) => `c${c.commitId} +${c.t} → painted +${c.paintAt} (${c.paintAt - c.t}ms)`).join(", ")}.`);
     }
     const rows = [];
-    for (const i of result.lanes.input) rows.push({ t: i.t, lane: "input", text: i.action + (i.target ? " " + i.target : "") });
+    for (const i of result.lanes.input) rows.push({ t: i.t, lane: "input", text: inputLabel(i) });
     for (const r of result.lanes.network) rows.push({ t: r.start, lane: "net", text: `${r.label}  → +${r.end} (${r.durationMs}ms${r.cached ? ", cached" : ""})` });
     for (const s of result.lanes.suspense) {
       rows.push({ t: s.start, lane: "wait", text: `fallback ${s.label || "@" + s.depth} ` + (s.end === null ? "still shown at the end" : `until +${s.end} (${s.end - s.start}ms, c${s.enteredAt}→c${s.leftAt})`) });
