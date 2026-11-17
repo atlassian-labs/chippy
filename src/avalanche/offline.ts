@@ -150,6 +150,18 @@ export function analyzeSavedReport(report: SavedReport, command: string, args: {
         window: number('window', 4),
       });
     }
+    case 'timeline': {
+      const exclude = args.exclude ?? positional[3];
+      return dispatch(report, {
+        action: 'timeline',
+        fromCommit: number('fromCommit', 0),
+        toCommit: number('toCommit', 1),
+        minRequestMs: number('minRequestMs', 2),
+        top: number('top', 99),
+        ...(typeof exclude === 'string' && exclude && { exclude }),
+        ...(typeof args.format === 'string' && { format: args.format }),
+      });
+    }
     case 'source-search': {
       const name = args.name ?? positional[0];
       if (typeof name !== 'string' || !name) return { ok: false, action: 'source-search', error: 'source-search requires --name <regex>' };

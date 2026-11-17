@@ -103,6 +103,18 @@ const SHELL_COMMANDS: ShellCommandCase[] = [
     requiredFields: ['type', 'requestId', 'action', 'top', 'by'],
   },
   {
+    name: 'avalanche-timeline (all positions)',
+    shellLine: 1043,
+    body: { action: 'timeline', fromCommit: 6, toCommit: 56, minRequestMs: 100, exclude: 'analytics', format: 'full' },
+    requiredFields: ['type', 'requestId', 'action', 'fromCommit', 'toCommit', 'minRequestMs', 'exclude', 'format'],
+  },
+  {
+    name: 'avalanche-timeline (defaults)',
+    shellLine: 1043,
+    body: { action: 'timeline' },
+    requiredFields: ['type', 'requestId', 'action'],
+  },
+  {
     name: 'avalanche-install',
     shellLine: 655,
     body: {

@@ -84,6 +84,11 @@ describe('buildAvalancheCommand — wire forwarding contract', () => {
     expect(buildAvalancheCommand({ window: 2 }, 'r').window).toBe(2);
   });
 
+  it('forwards timeline window and filters', () => {
+    const command = buildAvalancheCommand({ fromCommit: '3', toCommit: 9, minRequestMs: '80', exclude: 'beacon', format: 'full' }, 'r');
+    expect(command).toMatchObject({ fromCommit: 3, toCommit: 9, minRequestMs: 80, exclude: 'beacon', format: 'full' });
+  });
+
   it('forwards match as a string', () => {
     expect(buildAvalancheCommand({ match: 'api/' }, 'r').match).toBe('api/');
   });

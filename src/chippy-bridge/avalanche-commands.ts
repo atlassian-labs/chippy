@@ -11,6 +11,7 @@
 
 import { warmComponentTypes, type NameRecoveryStats } from './component-origin';
 import { networkByCommit, networkView, type CommitNetwork } from '../avalanche/network-signals';
+import { buildTimeline } from '../avalanche/timeline';
 
 // ─── Type definitions ────────────────────────────────────────────────────
 
@@ -47,6 +48,15 @@ export type AvalancheCommand = {
   match?: string;
   /** `network`: initiator types to keep, such as fetch or xmlhttprequest. */
   initiators?: string[];
+  /** `timeline`: first and last commit ids of the window. */
+  fromCommit?: number;
+  toCommit?: number;
+  /** `timeline`: requests shorter than this are left out. */
+  minRequestMs?: number;
+  /** `timeline`: case-insensitive regex of request URLs to leave out. */
+  exclude?: string;
+  /** `timeline`: `full` adds the structured lanes to the summary and renderings. */
+  format?: string;
   [key: string]: unknown;
 };
 
@@ -481,6 +491,22 @@ export function evalAvalanche(
         if ('error' in view) return { ok: false, available: true, action, error: view.error, ...(view.validBy && { validBy: [...view.validBy] }) };
         return { ok: true, available: true, action, payload: view.payload };
       }
+      case 'timeline': {
+        const r = getReport(api);
+        if (!r || 'error' in r) {
+          return { ok: false, available: true, action, error: (r && 'error' in r ? r.error : 'report() unavailable') };
+        }
+        const timeline = buildTimeline(r.serial as Parameters<typeof buildTimeline>[0], {
+          fromCommit: command?.fromCommit,
+          toCommit: command?.toCommit,
+          minRequestMs: command?.minRequestMs,
+          maxRequests: command?.top,
+          exclude: command?.exclude,
+        });
+        if ('error' in timeline) return { ok: false, available: true, action, error: timeline.error };
+        const { ok: _ok, lanes, ...rest } = timeline;
+        return { ok: true, available: true, action, payload: command?.format === 'full' ? { ...rest, lanes } : rest };
+      }
       // Removed: start, stop, metrics, help — not present on the current public surface.
       default:
         return { ok: false, available: true, action, error: 'Unknown avalanche action: ' + action };
@@ -496,7 +522,7 @@ export function evalAvalanche(
 export const AVALANCHE_NAME_BUDGET_MS = 3000;
 
 /** Actions whose results carry no component source ids, or that change state. */
-const NAME_FREE_ACTIONS = new Set(['install', 'uninstall', 'reset', 'clear', 'status', 'debug-hook', 'network']);
+const NAME_FREE_ACTIONS = new Set(['install', 'uninstall', 'reset', 'clear', 'status', 'debug-hook', 'network', 'timeline']);
 const SOURCE_ID = /^[^\s#@]+#\d+@-?\d+$/;
 const MAX_SOURCE_IDS = 2000;
 

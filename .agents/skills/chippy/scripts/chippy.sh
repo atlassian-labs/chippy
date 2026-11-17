@@ -90,12 +90,13 @@ Usage:
   ./scripts/chippy.sh avalanche-commit-peek <clientId> <commitId> [include] [depth] [maxItems]
   ./scripts/chippy.sh avalanche-describe-action <clientId> <actionId>
   ./scripts/chippy.sh avalanche-network <clientId> [top] [by] [match] [initiators] [windowMs]
+  ./scripts/chippy.sh avalanche-timeline <clientId> [fromCommit] [toCommit] [minRequestMs] [exclude] [format]
   ./scripts/chippy.sh avalanche-install <clientId> [detectionMode]
   ./scripts/chippy.sh avalanche-uninstall <clientId>
   ./scripts/chippy.sh avalanche-recapture <clientId> [detectionMode]
   ./scripts/chippy.sh avalanche-debug-hook <clientId> <sourceId> <hookIndex> [window]
   ./scripts/chippy.sh avalanche-save <clientId> <file> [count]
-  ./scripts/chippy.sh avalanche-offline <file> <summary|commit-list|commit-peek|hot-sources|describe-action|network|source-search> [args...]
+  ./scripts/chippy.sh avalanche-offline <file> <summary|commit-list|commit-peek|hot-sources|describe-action|network|timeline|source-search> [args...]
   ./scripts/chippy.sh eval-page <clientId> <snippet-file-or-name> [--key value ...]
   ./scripts/chippy.sh eval-snippets
   ./scripts/chippy.sh avalanche-arm <clientId> <origin> [maxCommits] [captureFibers=true|false] [detectionMode=sources|full|stats|amplifiers]
@@ -1020,6 +1021,27 @@ case "$cmd" in
     body+="}"
     post_avalanche "$client_id" "$body"
     ;;
+  avalanche-timeline)
+    client_id="${2:-}"
+    from_commit="${3:-}"
+    to_commit="${4:-}"
+    min_request_ms="${5:-}"
+    exclude="${6:-}"
+    format="${7:-}"
+    if [[ -z "$client_id" ]]; then
+      echo "avalanche-timeline requires <clientId> [fromCommit] [toCommit] [minRequestMs] [exclude] [format]" >&2
+      echo "  default window: from the latest interaction to the last commit; exclude is a URL regex; format full adds the lanes; pass \"\" to skip a position" >&2
+      exit 1
+    fi
+    body="{\"action\":\"timeline\""
+    if [[ -n "$from_commit" ]]; then body+=",\"fromCommit\":$from_commit"; fi
+    if [[ -n "$to_commit" ]]; then body+=",\"toCommit\":$to_commit"; fi
+    if [[ -n "$min_request_ms" ]]; then body+=",\"minRequestMs\":$min_request_ms"; fi
+    if [[ -n "$exclude" ]]; then body+=",\"exclude\":$(json_escape "$exclude")"; fi
+    if [[ -n "$format" ]]; then body+=",\"format\":$(json_escape "$format")"; fi
+    body+="}"
+    post_avalanche "$client_id" "$body"
+    ;;
   avalanche-install)
     client_id="${2:-}"
     detection_mode="${3:-sources}"
@@ -1094,7 +1116,7 @@ case "$cmd" in
   avalanche-offline)
     shift
     if [[ $# -lt 2 ]]; then
-      echo "avalanche-offline requires <file> <summary|commit-list|commit-peek|hot-sources|describe-action|network|source-search> [args...]" >&2
+      echo "avalanche-offline requires <file> <summary|commit-list|commit-peek|hot-sources|describe-action|network|timeline|source-search> [args...]" >&2
       exit 1
     fi
     node "$SCRIPT_DIR/avalanche-analyze.cjs" "$@"

@@ -32,6 +32,7 @@ The shell wrapper forwards every `--key value` pair into `ctx.args`, coercing nu
 | `hook-tracker` | Stateful instrument (ATL plugin) | Install, query, reset, or remove the `onHookUpdate` recomputation tracker. |
 | `stability-nudge` | Active stimulus | Schedule one controlled component render for the stability-render procedure. |
 | `perf-entries` | Read-only | Read buffered layout shifts, long animation frames, slow interactions, LCP, FCP, and TTFB; name the component behind each, and list nearby Avalanche commits. |
+| `component-area` | Read-only; `--watch` is a stateful recorder | Measure how many square pixels of a root (a modal, a panel, the viewport) each component or test id covers, how much is still a loading placeholder, and how much shows content; with `--watch`, record when each section appears. |
 
 Read [hook metrics](../references/hook-metrics.md) before using the metrics snippets. Read [stability render](../references/stability-render.md) before using `stability-nudge`.
 
@@ -46,6 +47,20 @@ Read [hook metrics](../references/hook-metrics.md) before using the metrics snip
 The result has `summary` (`cls` as the largest session window, `layoutShifts`, `longFrames`, `totalBlockingMs`, `interactions`, `worstInteractionMs`, `lcpMs`, `fcpMs`, `ttfbMs`) and `entries[type].items`. Shift sources, interaction targets, and the LCP element carry `component`, `source`, `testId`, and `element`; `component` is `null` when the node is not rendered by React, for example `body`. With Avalanche installed, `avalanche` reports `commits`, `reportVersion`, and `timeOriginMatches`; when `timeOriginMatches` is false, the capture belongs to another document and the commit join is invalid. Each entry carries `commits.during` (capped by `--commits`), `commits.duringCount`, and `commits.before` (`{ commitId, gapMs }`). Report version 7 or later is required for the commit join.
 
 Limits come from the browser: each entry type keeps a bounded buffer (about 150 entries; 200 for long animation frames), and only events of 104 ms or more are buffered. `worstInteractionMs` is the worst buffered interaction, not a percentile INP. Run the snippet soon after the interaction you are measuring.
+
+### `component-area`
+
+```bash
+./scripts/chippy.sh eval-page <clientId> component-area [--root <testid|css>] [--testids a,b] [--components A,B] [--placeholder-names <regex>] [--auto 15] [--min-share 0.01]
+./scripts/chippy.sh eval-page <clientId> component-area --watch start [--root ...] [--testids ...] [--components ...] [--interval 50] [--poll <ms>] [--duration 30000]
+./scripts/chippy.sh eval-page <clientId> component-area --watch read|stop
+```
+
+Areas are square CSS pixels of on-screen boxes, clipped to the root, the viewport, and overflow-clipping ancestors; overlaps count once. A component's area is the box of its outermost DOM elements. `placeholder` is DOM rendered as the fallback of a suspended Suspense boundary, plus components whose names match `--placeholder-names` (a skeleton that is not a Suspense fallback). `content` is text, images, SVG, canvas, video, iframes, and form controls outside placeholders. `--root` takes a `data-testid` value or a CSS selector; without it the root is the viewport. With no `--testids` or `--components`, the snippet measures the largest test ids (`--auto`, `--min-share`).
+
+One measurement returns `root` (`area`, clipped `rect`), `placeholder` and `content` (`area`, `share` of the root), `targets[]` (`label`, `elements`, `area`, `share`, `contentArea`, `contentShare`, `placeholderArea`), and `stats` (`elements`, `textRects`, `ms`). `share` is a fraction of the root's on-screen area. Areas are counted on a grid whose cell grows with the root (`cellSize`), so they are accurate to about one cell along each edge.
+
+`--watch start` records before the interaction: it measures after DOM mutations, scrolls, and resizes, at most once per `--interval`, and keeps a sample only when a value changed. Add `--poll <ms>` when the page animates with CSS alone. `--watch read` returns the recording so far; `--watch stop` ends it. The summary has `startedAt` (a `performance.now()` value on the clock Avalanche commit timings use), `measureMs` (cost per measurement on the page; the interval doubles when a measurement takes more than half of it), `placeholder` (`firstAt`, `peakArea`, `clearedAt`), `content` (`reached50At`, `reached90At`, `reached100At` of the final content area), `targets[label]` (`firstSeenAt`, `firstContentAt`, `lastChangeAt`, `finalArea`, `finalContent`, `peakPlaceholder`), and `samples` (`t`, `root`, `placeholder`, `content`, `targets[label] = [area, contentArea, placeholderArea]`). Times are milliseconds after `startedAt`. Recording stops after `--duration` or 1,000 samples (`stoppedReason`). Start the watch in the same eval-page call sequence as the interaction you measure; a hidden tab measures without animation frames.
 
 ### Fiber and context search snippets
 

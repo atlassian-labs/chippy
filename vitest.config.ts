@@ -14,6 +14,7 @@ const browserSuites = [
   'src/__tests__/chippy-library.pw.test.ts',
   'src/__tests__/chippy-pack.pw.test.ts',
   'src/__tests__/chippy-mcp.test.ts',
+  'src/chippy-bridge/component-area/component-area.pw.test.ts',
 ];
 
 export default defineConfig({

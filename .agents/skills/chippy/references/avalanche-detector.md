@@ -178,6 +178,36 @@ Links, each bounded by the window:
 
 Every link is temporal proximity, not proof of cause. Confirm with the commit's sources (`commit-peek N sources,rendered`). The browser reports a request only when it finishes, so a request still in flight is not listed yet. Requests Chippy makes itself (module and source-map fetches, Chippy assets) are excluded and counted in `meta.network.ignoredOwn`.
 
+### `avalanche-timeline <clientId> [fromCommit] [toCommit] [minRequestMs] [exclude] [format]`
+```bash
+chippy.sh avalanche-timeline my-client
+chippy.sh avalanche-timeline my-client 40 90 100 'analytics|beacon'
+chippy.sh avalanche-offline capture.json timeline --fromCommit 40 --format full
+```
+Puts user input, network requests, Suspense fallbacks, and commits on one clock, in milliseconds from an origin. Use it to answer why an interaction or load felt slow, not only why it cost CPU. Defaults: the window runs from the first commit after the first recorded interaction to the last commit. Requests shorter than 50 ms are left out, and the 30 longest are kept (`--top` offline, `top` over HTTP). `exclude` is a case-insensitive URL regex. Pass `""` to skip a position.
+
+The origin is the latest interaction up to 5 s before the window's first commit, else that commit (`origin.kind`). Times before the origin are negative.
+
+Commits are classified by what the user can see:
+- `lock`: a Suspense boundary showed its fallback.
+- `unlock`: a boundary showed its content.
+- `swap`: both happened in one commit.
+- `update`: no Suspense change. This is CPU work that may or may not change the screen.
+
+Lock, unlock, and swap commits are always kept. Updates are ranked by rendered components (`maxCommits` 25), and the rest are counted in `omitted`.
+
+Output: `payload: {origin, window, perceived, omitted, mermaid, text}`. `format full` adds `lanes`.
+- `perceived.waits[]`, longest first: `depth`, `from`, `until` (null while still shown), `waitedMs`, `lockedBy`, `unlockedBy`, `lastRequests` (up to three requests that overlapped the wait and finished before it cleared, latest first, with `gapMs` before the unlock), and `updatesDuring` (`{commits, rendered}` of update commits while the fallback was on screen).
+- `perceived.firstLockAt`, `settledAt`, `stillWaiting`, `updatesAfterSettled`: waits that start after the next input belong to that input, so `settledAt` is the last unlock of the opening interaction, or null while one of its fallbacks is still shown.
+- `mermaid`: a gantt chart with sections Input, Network (the three longest are `crit`), User waits, Screen (lock and unlock milestones), and Updates (the three heaviest are `crit`). Render it in a ```` ```mermaid ```` block.
+- `text`: the `perceived` summary followed by one aligned row per event.
+- `lanes` (`format full`): `input`, `network`, `suspense`, `commits`. Commit rows have `commitId`, `t`, `renderStart`, `rendered`, `kind`, `suspense`, and `sources` (top two source names).
+
+Limits:
+- Waits are paired by boundary depth from enter and leave events, so a boundary that remounts at the same depth reads as one wait.
+- A request that ends just before an unlock is a candidate gate, not proof. Confirm it from the code that suspends, or from the unlock commit's sources.
+- Commit `endTime - startTime` is the detector's own overhead, so a commit has a duration only when the report records render start. Otherwise commits are drawn as points, and `rendered` stands in for work.
+
 ### `avalanche-export <clientId> [lastN] [outFile]`
 ```bash
 chippy.sh avalanche-export my-client
@@ -203,16 +233,16 @@ avalanche-analyze: response has no Avalanche export (expected meta and commitSta
 
 No file is written. Re-check `avalanche-status` first: `installed`, `hasMetricsGlobal`, and `commitCount` should show a real capture. If status is empty, arm/reload correctly and capture again before saving. With `count=N`, per-commit data keeps the last N commits; aggregate `sources` totals still cover the whole capture.
 
-### `avalanche-offline <path> <summary|commit-list|commit-peek|hot-sources|describe-action|network|source-search> ...`
+### `avalanche-offline <path> <summary|commit-list|commit-peek|hot-sources|describe-action|network|timeline|source-search> ...`
 ```bash
 chippy.sh avalanche-offline .chippy-captures/raf-1846.json summary
 chippy.sh avalanche-offline .chippy-captures/raf-1846.json commit-list 10 collateral
 chippy.sh avalanche-offline .chippy-captures/raf-1846.json commit-peek 42 stats,sources,rendered 20
 chippy.sh avalanche-offline .chippy-captures/raf-1846.json source-search --name 'Issue(Row|List)'
 ```
-Use saved captures without a live page. `commit-list`, `commit-peek`, `hot-sources`, `describe-action`, and `network` run the same code as the live commands and return the same shapes, so sort keys and include values match the live tables above (`unmounts` is live-only; a saved capture always returns it empty).
+Use saved captures without a live page. `commit-list`, `commit-peek`, `hot-sources`, `describe-action`, `network`, and `timeline` run the same code as the live commands and return the same shapes, so sort keys and include values match the live tables above (`unmounts` is live-only; a saved capture always returns it empty).
 
-Offline arguments: `commit-list [top] [by]`, `commit-peek <commitId> [include] [maxItems]` (no `depth`; the third value is maxItems, default 50), `hot-sources [limit]`, `describe-action <actionId>`, `network [top] [by] [match] [initiators] [windowMs]`, and `source-search --name <regex> [--top N]` (default top 50). Flags such as `--top`, `--by`, `--include`, `--maxItems`, `--match`, `--initiators`, and `--window` are accepted in place of positional values.
+Offline arguments: `commit-list [top] [by]`, `commit-peek <commitId> [include] [maxItems]` (no `depth`; the third value is maxItems, default 50), `hot-sources [limit]`, `describe-action <actionId>`, `network [top] [by] [match] [initiators] [windowMs]`, `timeline [fromCommit] [toCommit] [minRequestMs] [exclude]` (`--top N` keeps the N longest requests, `--format full` adds lanes), and `source-search --name <regex> [--top N]` (default top 50). Flags such as `--top`, `--by`, `--include`, `--maxItems`, `--match`, `--initiators`, and `--window` are accepted in place of positional values.
 
 `summary` returns commit count, first/last commit id, source count, and totals of the commit stats. `source-search --name <regex>` matches aggregate sources by `sourceId` and rendered components by name with per-instance render and self-source counts.
 

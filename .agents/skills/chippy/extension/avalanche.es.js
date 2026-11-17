@@ -1495,11 +1495,11 @@ function humanSourceId(internalId, type, depth) {
   const instanceNum = match ? match[1] : "1";
   return `${componentName}#${instanceNum}@${depth}`;
 }
-function buildReport(state, thrashMode, topN, sortBy, options = {}, detectorConfig) {
+function buildReport(state2, thrashMode, topN, sortBy, options = {}, detectorConfig) {
   const { minCollateral = 1 } = options;
   const toHumanReadableId = humanSourceId;
   const idMapping = /* @__PURE__ */ new Map();
-  const allSources = Array.from(state.sources.entries()).map(([internalId, s]) => {
+  const allSources = Array.from(state2.sources.entries()).map(([internalId, s]) => {
     const humanId = toHumanReadableId(internalId, s.type, s.depth);
     idMapping.set(internalId, humanId);
     return {
@@ -1513,7 +1513,7 @@ function buildReport(state, thrashMode, topN, sortBy, options = {}, detectorConf
       restartWasteByCommit: {}
     };
   }).filter(isTrueSource);
-  Object.entries(state.commitStats).forEach(([commitIdStr, stats]) => {
+  Object.entries(state2.commitStats).forEach(([commitIdStr, stats]) => {
     const commitId = Number(commitIdStr);
     const restarts = stats[CS_RESTARTS];
     if (restarts === 0) return;
@@ -1535,7 +1535,7 @@ function buildReport(state, thrashMode, topN, sortBy, options = {}, detectorConf
   if (thrashMode === "full") {
     for (const sourceItem of allSources) {
       const amplifiedByThisSource = [];
-      state.amplifierSources.forEach((amplifierData, amplifierInternalId) => {
+      state2.amplifierSources.forEach((amplifierData, amplifierInternalId) => {
         const amplifierHumanId = idMapping.get(amplifierInternalId) || toHumanReadableId(amplifierInternalId, amplifierData.type, amplifierData.depth);
         const causedByHumanId = amplifierData.causedBySourceId ? idMapping.get(amplifierData.causedBySourceId) : null;
         if (causedByHumanId === sourceItem.sourceId || amplifierHumanId === sourceItem.sourceId) {
@@ -1563,8 +1563,8 @@ function buildReport(state, thrashMode, topN, sortBy, options = {}, detectorConf
     const bTotalWaste = b.collateralUpdates + (b.restartWaste || 0);
     return bTotalWaste - aTotalWaste || b.maxCollateralUpdates - a.maxCollateralUpdates || (b.maxRestartWaste || 0) - (a.maxRestartWaste || 0);
   }).slice(0, topN);
-  const coverage = state.commits > 0 ? Math.round(state.commitsWithMemoizedUpdaters / state.commits * 100) + "%" : "0%";
-  const timingEntries = Object.values(state.commitTimings);
+  const coverage = state2.commits > 0 ? Math.round(state2.commitsWithMemoizedUpdaters / state2.commits * 100) + "%" : "0%";
+  const timingEntries = Object.values(state2.commitTimings);
   const totalDetectorOverhead = timingEntries.reduce((sum, t) => sum + t.detectorOverhead, 0);
   const totalTimeSpan = timingEntries.reduce((sum, t) => sum + t.timeSinceLastCommit, 0);
   const avgDetectorOverhead = timingEntries.length > 0 ? totalDetectorOverhead / timingEntries.length : 0;
@@ -1623,7 +1623,7 @@ function buildReport(state, thrashMode, topN, sortBy, options = {}, detectorConf
       sourcesByCommit[commitId].push(entry);
     });
   });
-  const hasMetricsData = Object.keys(state.metricsByCommit).length > 0;
+  const hasMetricsData = Object.keys(state2.metricsByCommit).length > 0;
   const integrationMode = (detectorConfig == null ? void 0 : detectorConfig.integrationMode) ?? "none";
   const metricsAdapter = adapterIdFromMode(integrationMode);
   const metricsAvailable = metricsAdapter !== null && hasMetricsData;
@@ -1632,7 +1632,7 @@ function buildReport(state, thrashMode, topN, sortBy, options = {}, detectorConf
     version: 8,
     // v8: networkRequests + meta.network; v7: meta.timeOrigin, absolute commit and action timestamps
     timeOrigin: performance.timeOrigin,
-    commits: state.commits,
+    commits: state2.commits,
     config: {
       detectionLevel: (detectorConfig == null ? void 0 : detectorConfig.detectionLevel) ?? "full",
       effectThrashMode: (detectorConfig == null ? void 0 : detectorConfig.effectThrashMode) ?? "non-primitive",
@@ -1640,8 +1640,8 @@ function buildReport(state, thrashMode, topN, sortBy, options = {}, detectorConf
       historySize: (detectorConfig == null ? void 0 : detectorConfig.historySize) ?? 1
     },
     memoizedUpdatersSupport: {
-      available: state.memoizedUpdatersAvailable,
-      commitsWithData: state.commitsWithMemoizedUpdaters,
+      available: state2.memoizedUpdatersAvailable,
+      commitsWithData: state2.commitsWithMemoizedUpdaters,
       coverage
     },
     integrationMode,
@@ -1675,14 +1675,14 @@ function buildReport(state, thrashMode, topN, sortBy, options = {}, detectorConf
     meta,
     sources,
     sourcesByCommit,
-    commitStats: state.commitStats,
-    commitTimings: state.commitTimings,
-    suspenseByCommit: state.suspenseByCommit,
-    unmountsByCommit: state.unmountsByCommit,
-    interactionsByCommit: state.interactionsByCommit,
-    renderedByCommit: state.renderedByCommit,
-    networkRequests: state.networkRequests.slice(),
-    ...hasMetricsData && { metricsByCommit: state.metricsByCommit, atlByCommit: state.metricsByCommit },
+    commitStats: state2.commitStats,
+    commitTimings: state2.commitTimings,
+    suspenseByCommit: state2.suspenseByCommit,
+    unmountsByCommit: state2.unmountsByCommit,
+    interactionsByCommit: state2.interactionsByCommit,
+    renderedByCommit: state2.renderedByCommit,
+    networkRequests: state2.networkRequests.slice(),
+    ...hasMetricsData && { metricsByCommit: state2.metricsByCommit, atlByCommit: state2.metricsByCommit },
     toSerializable() {
       return serializeReport(this);
     }
@@ -1702,9 +1702,9 @@ function buildReport(state, thrashMode, topN, sortBy, options = {}, detectorConf
       if (sortBy === "total") return as.hooksTotal;
       return as.effectCount;
     };
-    const amplifierSources = Array.from(state.amplifierSources.entries()).map(([internalId, lt]) => {
+    const amplifierSources = Array.from(state2.amplifierSources.entries()).map(([internalId, lt]) => {
       const humanId = idMapping.get(internalId) || toHumanReadableId(internalId, lt.type, lt.depth);
-      const sourceData = state.sources.get(internalId);
+      const sourceData = state2.sources.get(internalId);
       return {
         sourceId: humanId,
         type: lt.type,
@@ -1722,16 +1722,16 @@ function buildReport(state, thrashMode, topN, sortBy, options = {}, detectorConf
     }).sort((a, b) => getLinkedSortValue(b) - getLinkedSortValue(a) || b.hooksTotal - a.hooksTotal).slice(0, topN);
     return {
       ...base,
-      amplifiers: Array.from(state.amplifiers.entries()).map(([type, s]) => ({ type, ...s })).sort(
+      amplifiers: Array.from(state2.amplifiers.entries()).map(([type, s]) => ({ type, ...s })).sort(
         (a, b) => getSortValue(b) - getSortValue(a) || b.hooksTotal - a.hooksTotal || b.maxHooksPerCommit - a.maxHooksPerCommit
       ).slice(0, topN),
       amplifierSources
     };
   }
-  if (thrashMode === "counts" && state.thrashCounts) {
+  if (thrashMode === "counts" && state2.thrashCounts) {
     meta.amplifiersMetrics = {
-      totalHookThrashes: state.thrashCounts.totalHooks,
-      affectedComponentCount: state.thrashCounts.affectedComponents.size
+      totalHookThrashes: state2.thrashCounts.totalHooks,
+      affectedComponentCount: state2.thrashCounts.affectedComponents.size
     };
   }
   return base;
@@ -1846,7 +1846,8 @@ function isHookFrameName(name) {
   return /^use[A-Z0-9_]/.test(name.slice(name.lastIndexOf(".") + 1));
 }
 function deriveComponentName(frames) {
-  for (const { name } of frames) {
+  const wrapper = frames.findIndex((frame) => frame.name === "atlDispatcherHook" || frame.name.endsWith(".atlDispatcherHook"));
+  for (const { name } of wrapper >= 0 ? frames.slice(wrapper + 1) : frames) {
     if (!name) continue;
     if (isReactInternalFrameName(name)) continue;
     if (isHookFrameName(name)) continue;
@@ -2246,7 +2247,7 @@ function createInteractionCapture(options = {}) {
     interactionEvents = [],
     interactionWindowMs = 1e3
   } = options;
-  const state = {
+  const state2 = {
     actions: [],
     byCommit: {}
   };
@@ -2309,18 +2310,18 @@ function createInteractionCapture(options = {}) {
   function capture(event) {
     const pathTarget = typeof event.composedPath === "function" ? event.composedPath()[0] : null;
     const target = pathTarget instanceof Element ? pathTarget : event.target;
-    state.actions.push({
+    state2.actions.push({
       id: nextActionId++,
       action: event.type,
       timestamp: performance.now(),
       location: describeActionLocation(target)
     });
-    if (state.actions.length > MAX_INTERACTION_ACTIONS) {
-      state.actions.splice(0, state.actions.length - MAX_INTERACTION_ACTIONS);
+    if (state2.actions.length > MAX_INTERACTION_ACTIONS) {
+      state2.actions.splice(0, state2.actions.length - MAX_INTERACTION_ACTIONS);
     }
   }
   return {
-    state,
+    state: state2,
     install() {
       if (installed2) return;
       const names = eventNames();
@@ -2334,16 +2335,16 @@ function createInteractionCapture(options = {}) {
       installed2 = false;
     },
     reset() {
-      state.actions.length = 0;
-      for (const key of Object.keys(state.byCommit)) {
-        delete state.byCommit[Number(key)];
+      state2.actions.length = 0;
+      for (const key of Object.keys(state2.byCommit)) {
+        delete state2.byCommit[Number(key)];
       }
       nextActionId = 1;
     },
     linkRecent(commitId, commitTime) {
       const windowMs = Math.max(0, Number(interactionWindowMs) || 0);
-      if (windowMs === 0 || state.actions.length === 0) return;
-      const linked = state.actions.filter((action) => action.timestamp <= commitTime && commitTime - action.timestamp <= windowMs).map((action) => ({
+      if (windowMs === 0 || state2.actions.length === 0) return;
+      const linked = state2.actions.filter((action) => action.timestamp <= commitTime && commitTime - action.timestamp <= windowMs).map((action) => ({
         id: action.id,
         lastCommitId: Math.max(0, commitId - 1),
         deltaTime: Math.round((commitTime - action.timestamp) * 100) / 100,
@@ -2351,16 +2352,16 @@ function createInteractionCapture(options = {}) {
         action: action.action,
         location: action.location
       }));
-      if (linked.length > 0) state.byCommit[commitId] = linked;
-      while (state.actions.length > 0 && commitTime - state.actions[0].timestamp > windowMs) {
-        state.actions.shift();
+      if (linked.length > 0) state2.byCommit[commitId] = linked;
+      while (state2.actions.length > 0 && commitTime - state2.actions[0].timestamp > windowMs) {
+        state2.actions.shift();
       }
     }
   };
 }
 const DEFAULT_MAX_NETWORK_REQUESTS = 500;
 const MAX_URL_LENGTH = 300;
-const round$1 = (value) => Math.round(value * 10) / 10;
+const round$4 = (value) => Math.round(value * 10) / 10;
 function cacheUse(entry) {
   if (entry.deliveryType === "cache") return true;
   const transfer = entry.transferSize ?? 0;
@@ -2397,9 +2398,9 @@ function createNetworkCapture(options = {}) {
       id: nextId++,
       url: entry.name.length > MAX_URL_LENGTH ? entry.name.slice(0, MAX_URL_LENGTH) : entry.name,
       initiatorType: entry.initiatorType || "other",
-      startTime: round$1(entry.startTime),
-      endTime: round$1(endTime),
-      duration: round$1(endTime - entry.startTime),
+      startTime: round$4(entry.startTime),
+      endTime: round$4(endTime),
+      duration: round$4(endTime - entry.startTime),
       status: typeof entry.responseStatus === "number" && entry.responseStatus > 0 ? entry.responseStatus : null,
       cached: cacheUse(entry),
       startedBeforeCapture: entry.startTime < windowStart
@@ -2454,7 +2455,7 @@ function createNetworkCapture(options = {}) {
       return {
         supported: observerConstructor() !== null,
         enabled,
-        windowStart: round$1(windowStart),
+        windowStart: round$4(windowStart),
         requests: requests.length,
         dropped,
         ignoredOwn
@@ -2819,7 +2820,7 @@ function createAvalancheDetector(options = {}) {
     }
     return { changedIndices, changedHooks };
   }
-  const state = {
+  const state2 = {
     commits: 0,
     sources: /* @__PURE__ */ new Map(),
     amplifiers: /* @__PURE__ */ new Map(),
@@ -2938,8 +2939,8 @@ function createAvalancheDetector(options = {}) {
   }
   function recordTree(rootFiber, memoizedUpdaters = null) {
     if (memoizedUpdaters && memoizedUpdaters.size > 0) {
-      state.memoizedUpdatersAvailable = true;
-      state.commitsWithMemoizedUpdaters++;
+      state2.memoizedUpdatersAvailable = true;
+      state2.commitsWithMemoizedUpdaters++;
     }
     const perCommit = {
       selfUpdated: /* @__PURE__ */ new Map(),
@@ -3231,9 +3232,9 @@ function createAvalancheDetector(options = {}) {
             const totalThrashing = thrashResult.effects.length + thrashResult.callbacks.length + thrashResult.memos.length;
             if (totalThrashing > 0) {
               if (thrashMode === "counts") {
-                if (state.thrashCounts) {
-                  state.thrashCounts.affectedComponents.add(type);
-                  state.thrashCounts.totalHooks += totalThrashing;
+                if (state2.thrashCounts) {
+                  state2.thrashCounts.affectedComponents.add(type);
+                  state2.thrashCounts.totalHooks += totalThrashing;
                 }
               } else if (thrashMode === "full") {
                 const allThrashedHooks = [
@@ -3288,10 +3289,10 @@ function createAvalancheDetector(options = {}) {
       if (fiber.sibling) visit(fiber.sibling, depth, currentOwnerSourceId);
     }
     visit(rootFiber);
-    state.commits++;
+    state2.commits++;
     for (const [sourceId, data] of perCommit.selfUpdated.entries()) {
       const { type, depth, count, changedHookIndices, fiber } = data;
-      let s = state.sources.get(sourceId);
+      let s = state2.sources.get(sourceId);
       if (!s) {
         s = {
           type,
@@ -3306,25 +3307,25 @@ function createAvalancheDetector(options = {}) {
           // Per-commit collateral for this source
           debugHookIndices: changedHookIndices.slice()
         };
-        state.sources.set(sourceId, s);
+        state2.sources.set(sourceId, s);
       }
       s.renderCount++;
       s.debugHookIndices = changedHookIndices.slice();
       const historyWithUpdate = pushUpdateHistory(
         s.updateHistory,
-        state.commits,
+        state2.commits,
         changedHookIndices,
         data.changedHooks
       );
       s.updateHistory = trimHistoryToSize(historyWithUpdate, historySize);
-      const thisCommitEntry = s.updateHistory[state.commits];
+      const thisCommitEntry = s.updateHistory[state2.commits];
       const isRepeat = thisCommitEntry === "repeat";
       if (!isRepeat && data.isUpdater) {
         s.causedUpdates += count;
         const blast = perCommit.blastBySourceId.get(sourceId) || 0;
         s.collateralUpdates += blast;
         if (blast > s.maxCollateralUpdates) s.maxCollateralUpdates = blast;
-        s.collateralByCommit[state.commits] = blast;
+        s.collateralByCommit[state2.commits] = blast;
         const penetrationDepth = perCommit.depthBySourceId.get(sourceId) || 0;
         if (penetrationDepth > s.maxPenetrationDepth) {
           s.maxPenetrationDepth = penetrationDepth;
@@ -3336,7 +3337,7 @@ function createAvalancheDetector(options = {}) {
     }
     if (enableAmplifiers && thrashMode === "full") {
       for (const [type, data] of perCommit.thrashing.entries()) {
-        let s = state.amplifiers.get(type);
+        let s = state2.amplifiers.get(type);
         if (!s) {
           s = {
             renderCount: 0,
@@ -3349,7 +3350,7 @@ function createAvalancheDetector(options = {}) {
             memoCount: 0,
             lastAmplification: { depth: 0, thrashedHooks: [] }
           };
-          state.amplifiers.set(type, s);
+          state2.amplifiers.set(type, s);
         }
         s.renderCount++;
         s.instancesTotal += data.instanceCount;
@@ -3365,7 +3366,7 @@ function createAvalancheDetector(options = {}) {
         s.lastAmplification = data.lastAmplification;
       }
       for (const [sourceId, data] of perCommit.linkedThrashing.entries()) {
-        let as = state.amplifierSources.get(sourceId);
+        let as = state2.amplifierSources.get(sourceId);
         if (!as) {
           as = {
             type: data.type,
@@ -3379,16 +3380,16 @@ function createAvalancheDetector(options = {}) {
             causedBySourceId: data.causedBySourceId,
             lastAmplification: { depth: 0, thrashedHooks: [] }
           };
-          state.amplifierSources.set(sourceId, as);
+          state2.amplifierSources.set(sourceId, as);
         }
         as.effectCount += data.effects;
         as.callbackCount += data.callbacks;
         as.memoCount += data.memos;
         as.hooksTotal += data.effects + data.callbacks + data.memos;
-        if (!as.commitIds.includes(state.commits)) {
-          as.commitIds.push(state.commits);
+        if (!as.commitIds.includes(state2.commits)) {
+          as.commitIds.push(state2.commits);
         }
-        as.byCommit[state.commits] = {
+        as.byCommit[state2.commits] = {
           effects: data.effects,
           callbacks: data.callbacks,
           memos: data.memos
@@ -3400,12 +3401,12 @@ function createAvalancheDetector(options = {}) {
       }
     }
     if (perCommit.suspenseEvents && perCommit.suspenseEvents.length > 0) {
-      state.suspenseByCommit[state.commits] = perCommit.suspenseEvents;
+      state2.suspenseByCommit[state2.commits] = perCommit.suspenseEvents;
     }
     if (perCommit.rendered.length > 0) {
-      state.renderedByCommit[state.commits] = perCommit.rendered;
+      state2.renderedByCommit[state2.commits] = perCommit.rendered;
     }
-    state.commitStats[state.commits] = [
+    state2.commitStats[state2.commits] = [
       perCommit.totalCollateral,
       perCommit.selfUpdated.size,
       // Number of sources in this commit
@@ -3421,43 +3422,43 @@ function createAvalancheDetector(options = {}) {
       perCommit.unmountedSubtrees
     ];
     if (perCommit.unmountSamples && perCommit.unmountSamples.length > 0) {
-      state.unmountsByCommit[state.commits] = perCommit.unmountSamples;
+      state2.unmountsByCommit[state2.commits] = perCommit.unmountSamples;
     }
     return perCommit.committedComponentCount;
   }
   function resetState() {
-    state.commits = 0;
-    state.sources.clear();
-    state.amplifiers.clear();
-    state.amplifierSources.clear();
-    if (state.thrashCounts) {
-      state.thrashCounts.totalHooks = 0;
-      state.thrashCounts.affectedComponents.clear();
+    state2.commits = 0;
+    state2.sources.clear();
+    state2.amplifiers.clear();
+    state2.amplifierSources.clear();
+    if (state2.thrashCounts) {
+      state2.thrashCounts.totalHooks = 0;
+      state2.thrashCounts.affectedComponents.clear();
     }
-    state.memoizedUpdatersAvailable = false;
-    state.commitsWithMemoizedUpdaters = 0;
-    for (const key of Object.keys(state.commitStats)) {
-      delete state.commitStats[Number(key)];
+    state2.memoizedUpdatersAvailable = false;
+    state2.commitsWithMemoizedUpdaters = 0;
+    for (const key of Object.keys(state2.commitStats)) {
+      delete state2.commitStats[Number(key)];
     }
-    for (const key of Object.keys(state.metricsByCommit)) {
-      delete state.metricsByCommit[Number(key)];
+    for (const key of Object.keys(state2.metricsByCommit)) {
+      delete state2.metricsByCommit[Number(key)];
     }
-    for (const key of Object.keys(state.commitTimings)) {
-      delete state.commitTimings[Number(key)];
+    for (const key of Object.keys(state2.commitTimings)) {
+      delete state2.commitTimings[Number(key)];
     }
-    for (const key of Object.keys(state.suspenseByCommit)) {
-      delete state.suspenseByCommit[Number(key)];
+    for (const key of Object.keys(state2.suspenseByCommit)) {
+      delete state2.suspenseByCommit[Number(key)];
     }
-    for (const key of Object.keys(state.unmountsByCommit)) {
-      delete state.unmountsByCommit[Number(key)];
+    for (const key of Object.keys(state2.unmountsByCommit)) {
+      delete state2.unmountsByCommit[Number(key)];
     }
-    for (const key of Object.keys(state.renderedByCommit)) {
-      delete state.renderedByCommit[Number(key)];
+    for (const key of Object.keys(state2.renderedByCommit)) {
+      delete state2.renderedByCommit[Number(key)];
     }
     interactionCapture.reset();
     networkCapture.reset();
-    state.lastMetricsSnapshot = captureMetricsSnapshot();
-    state.lastCommitEndTime = performance.now();
+    state2.lastMetricsSnapshot = captureMetricsSnapshot();
+    state2.lastCommitEndTime = performance.now();
     renderTicks.reset();
     sourceIdManager.clear();
   }
@@ -3532,20 +3533,20 @@ function createAvalancheDetector(options = {}) {
   function recordMetricsEvidence(commitId, committedComponents, before, after) {
     if (!metricsAdapter) return;
     const { delta, restarts } = metricsAdapter.measure(before, after, committedComponents, commitId);
-    state.metricsByCommit[commitId] = delta;
-    if (state.commitStats[commitId]) {
-      state.commitStats[commitId][CS_RESTARTS] = restarts;
+    state2.metricsByCommit[commitId] = delta;
+    if (state2.commitStats[commitId]) {
+      state2.commitStats[commitId][CS_RESTARTS] = restarts;
     }
   }
   function handleCommit(root, metricsDeltaAvailable) {
     debugRender.install();
     const commitHookStartTime = performance.now();
-    const timeSinceLastCommit = commitHookStartTime - state.lastCommitEndTime;
+    const timeSinceLastCommit = commitHookStartTime - state2.lastCommitEndTime;
     const ticks = renderTicks.takeCommitTicks();
-    const metricsBefore = state.lastMetricsSnapshot || captureMetricsSnapshot();
+    const metricsBefore = state2.lastMetricsSnapshot || captureMetricsSnapshot();
     const memoizedUpdaters = root.memoizedUpdaters;
     const committedComponents = recordTree(root.current, memoizedUpdaters || null);
-    const currentStats = state.commitStats[state.commits];
+    const currentStats = state2.commitStats[state2.commits];
     if (currentStats && (pendingDevtoolsUnmounts.components > 0 || pendingDevtoolsUnmounts.subtrees > 0)) {
       const recordTreeSawDeletions = (currentStats[CS_UNMOUNTED_COMPONENTS] || 0) > 0;
       if (!recordTreeSawDeletions) {
@@ -3555,21 +3556,21 @@ function createAvalancheDetector(options = {}) {
       pendingDevtoolsUnmounts = { components: 0, subtrees: 0 };
     }
     if (pendingDevtoolsUnmountSamples.length > 0) {
-      const existing = state.unmountsByCommit[state.commits];
+      const existing = state2.unmountsByCommit[state2.commits];
       if (existing && existing.length > 0) ;
       else {
-        state.unmountsByCommit[state.commits] = pendingDevtoolsUnmountSamples;
+        state2.unmountsByCommit[state2.commits] = pendingDevtoolsUnmountSamples;
       }
       pendingDevtoolsUnmountSamples = [];
     }
     const metricsAfter = captureMetricsSnapshot();
     if (metricsDeltaAvailable && metricsBefore && metricsAfter) {
-      recordMetricsEvidence(state.commits, committedComponents, metricsBefore, metricsAfter);
+      recordMetricsEvidence(state2.commits, committedComponents, metricsBefore, metricsAfter);
     }
-    state.lastMetricsSnapshot = metricsAfter;
+    state2.lastMetricsSnapshot = metricsAfter;
     const commitHookEndTime = performance.now();
-    interactionCapture.linkRecent(state.commits, commitHookEndTime);
-    state.commitTimings[state.commits] = {
+    interactionCapture.linkRecent(state2.commits, commitHookEndTime);
+    state2.commitTimings[state2.commits] = {
       startTime: commitHookStartTime,
       endTime: commitHookEndTime,
       timeSinceLastCommit,
@@ -3577,7 +3578,7 @@ function createAvalancheDetector(options = {}) {
       ticks: ticks ? ticks.ticks : null,
       render: ticks
     };
-    state.lastCommitEndTime = commitHookEndTime;
+    state2.lastCommitEndTime = commitHookEndTime;
     return committedComponents;
   }
   return {
@@ -3625,7 +3626,7 @@ function createAvalancheDetector(options = {}) {
       networkCapture.install();
       const devtoolsGlobal = globalThis;
       metricsAdapter = resolveMetricsAdapter();
-      state.lastMetricsSnapshot = captureMetricsSnapshot();
+      state2.lastMetricsSnapshot = captureMetricsSnapshot();
       let hook = devtoolsGlobal.__REACT_DEVTOOLS_GLOBAL_HOOK__;
       if (!hook) {
         hook = {};
@@ -3648,24 +3649,24 @@ function createAvalancheDetector(options = {}) {
         if (commitSurface.adapterObserved && metricsAdapter) {
           if (!metricsAdapter.isAttached()) {
             metricsAdapter.reattach();
-            const metricsBefore2 = state.lastMetricsSnapshot || captureMetricsSnapshot();
+            const metricsBefore2 = state2.lastMetricsSnapshot || captureMetricsSnapshot();
             const committedComponents2 = handleCommit(
               root,
               /* metricsDeltaAvailable */
               false
             );
-            commitSurface.recordDevtools(root, { commitId: state.commits, committedComponents: committedComponents2, metricsBefore: metricsBefore2 });
+            commitSurface.recordDevtools(root, { commitId: state2.commits, committedComponents: committedComponents2, metricsBefore: metricsBefore2 });
             return;
           }
           return;
         }
-        const metricsBefore = state.lastMetricsSnapshot || captureMetricsSnapshot();
+        const metricsBefore = state2.lastMetricsSnapshot || captureMetricsSnapshot();
         const committedComponents = handleCommit(
           root,
           /* metricsDeltaAvailable */
           false
         );
-        commitSurface.recordDevtools(root, { commitId: state.commits, committedComponents, metricsBefore });
+        commitSurface.recordDevtools(root, { commitId: state2.commits, committedComponents, metricsBefore });
       };
       hook.onCommitFiberRoot = devtoolsHandler;
       const devtoolsUnmountHandler = (...args) => {
@@ -3746,7 +3747,7 @@ function createAvalancheDetector(options = {}) {
             if (previousCapture.metricsBefore && metricsAfter) {
               recordMetricsEvidence(previousCapture.commitId, previousCapture.committedComponents, previousCapture.metricsBefore, metricsAfter);
             }
-            state.lastMetricsSnapshot = metricsAfter;
+            state2.lastMetricsSnapshot = metricsAfter;
           } else {
             handleCommit(
               root,
@@ -3826,8 +3827,8 @@ function createAvalancheDetector(options = {}) {
           if (wanted.has(humanSourceId(internalId, entry.type, entry.depth))) types.add(entry.type);
         }
       };
-      collect(state.sources.entries());
-      collect(state.amplifierSources.entries());
+      collect(state2.sources.entries());
+      collect(state2.amplifierSources.entries());
       return Array.from(types);
     },
     /**
@@ -3839,7 +3840,7 @@ function createAvalancheDetector(options = {}) {
      */
     report(topN = 10, sortBy = "effect", reportOptions) {
       networkCapture.flush();
-      return buildReport(state, thrashMode, topN, sortBy, reportOptions, {
+      return buildReport(state2, thrashMode, topN, sortBy, reportOptions, {
         effectThrashMode,
         captureFibers,
         historySize,
@@ -3870,14 +3871,14 @@ function createAvalancheDetector(options = {}) {
       }
     },
     _debugSetSourceForTest(sourceId, source) {
-      state.sources.set(sourceId, source);
+      state2.sources.set(sourceId, source);
     },
     debugHook(sourceId, hookIndex, windowSize = 3) {
       var _a2;
-      let source = state.sources.get(sourceId);
+      let source = state2.sources.get(sourceId);
       let resolvedSourceId = sourceId;
       if (!source) {
-        for (const [internalId, candidate] of state.sources.entries()) {
+        for (const [internalId, candidate] of state2.sources.entries()) {
           const candidateHumanId = `${getComponentDisplayName(candidate.type)}#${((_a2 = String(internalId).match(/#(\d+)@/)) == null ? void 0 : _a2[1]) || "1"}@${candidate.depth}`;
           if (candidateHumanId === sourceId) {
             source = candidate;
@@ -3958,7 +3959,7 @@ function createAvalancheDetector(options = {}) {
     /** Commit and network request counts, without building a report. */
     counts() {
       networkCapture.flush();
-      return { commits: state.commits, networkRequests: networkCapture.requests.length };
+      return { commits: state2.commits, networkRequests: networkCapture.requests.length };
     }
   };
 }
@@ -4469,9 +4470,9 @@ function replayComponentHooks(fiber) {
   };
 }
 const MAX_BOUNDARY_FIBERS = 400;
-const SUSPENSE_TAG = 13;
+const SUSPENSE_TAG$1 = 13;
 const CLASS_COMPONENT_TAG$1 = 1;
-function fiberTag(fiber) {
+function fiberTag$1(fiber) {
   return fiber.tag;
 }
 function describeErrorBoundary(fiber) {
@@ -4479,7 +4480,7 @@ function describeErrorBoundary(fiber) {
   const componentName = getDisplayName(fiber.type) || getDisplayName(fiber.elementType);
   const type = fiber.type;
   const hasLifecycle = !!type && (typeof type.getDerivedStateFromError === "function" || typeof ((_a2 = type.prototype) == null ? void 0 : _a2.componentDidCatch) === "function");
-  if (hasLifecycle && (fiberTag(fiber) === CLASS_COMPONENT_TAG$1 || fiberTag(fiber) === void 0)) {
+  if (hasLifecycle && (fiberTag$1(fiber) === CLASS_COMPONENT_TAG$1 || fiberTag$1(fiber) === void 0)) {
     return { componentName: componentName || "ErrorBoundary", detectedBy: "lifecycle" };
   }
   if (componentName && /ErrorBoundary$/.test(componentName)) {
@@ -4489,7 +4490,7 @@ function describeErrorBoundary(fiber) {
 }
 function describeSuspenseBoundary(fiber) {
   const displayName = getDisplayName(fiber.type) || getDisplayName(fiber.elementType);
-  const isSuspense = fiberTag(fiber) === SUSPENSE_TAG || displayName === "Suspense" || displayName === "SuspenseComponent" || displayName === "SuspenseList";
+  const isSuspense = fiberTag$1(fiber) === SUSPENSE_TAG$1 || displayName === "Suspense" || displayName === "SuspenseComponent" || displayName === "SuspenseList";
   if (!isSuspense) return null;
   return { componentName: displayName || "Suspense" };
 }
@@ -5522,21 +5523,21 @@ function evalDescribeComponent(fiberIdRaw, nameRaw, deps) {
 }
 const DEFAULT_NETWORK_WINDOW_MS = 250;
 const NETWORK_SORT_KEYS = ["start", "end", "duration"];
-const round = (value) => Math.round(value * 10) / 10;
+const round$3 = (value) => Math.round(value * 10) / 10;
 function commitAnchors(commitTimings) {
   var _a2;
   const anchors = [];
   for (const [id, timing] of Object.entries(commitTimings ?? {})) {
-    const commitStart = Number(timing == null ? void 0 : timing.startTime);
+    const commitStart2 = Number(timing == null ? void 0 : timing.startTime);
     const commitEnd = Number(timing == null ? void 0 : timing.endTime);
-    if (!Number.isFinite(commitStart) || !Number.isFinite(commitEnd)) continue;
+    if (!Number.isFinite(commitStart2) || !Number.isFinite(commitEnd)) continue;
     const renderStart = Number((_a2 = timing == null ? void 0 : timing.render) == null ? void 0 : _a2.renderStart);
-    const renderStartKnown = Number.isFinite(renderStart) && renderStart <= commitStart;
+    const renderStartKnown = Number.isFinite(renderStart) && renderStart <= commitStart2;
     anchors.push({
       commitId: Number(id),
-      renderStart: renderStartKnown ? renderStart : commitStart,
+      renderStart: renderStartKnown ? renderStart : commitStart2,
       renderStartKnown,
-      commitStart,
+      commitStart: commitStart2,
       commitEnd
     });
   }
@@ -5556,7 +5557,7 @@ function linkRequest(request, anchors, windowMs) {
   const { startTime, endTime } = request;
   const afterIndex = firstAtOrAfter(anchors, startTime, "commitEnd") - 1;
   const after = afterIndex >= 0 ? anchors[afterIndex] : null;
-  const startedAfter = after && startTime - after.commitEnd <= windowMs ? { commitId: after.commitId, gapMs: round(startTime - after.commitEnd) } : null;
+  const startedAfter = after && startTime - after.commitEnd <= windowMs ? { commitId: after.commitId, gapMs: round$3(startTime - after.commitEnd) } : null;
   const rendering = anchors[firstAtOrAfter(anchors, startTime, "commitStart")];
   const startedDuringRender = rendering && rendering.renderStartKnown && rendering.renderStart <= startTime ? rendering.commitId : null;
   let landedBefore = null;
@@ -5564,7 +5565,7 @@ function linkRequest(request, anchors, windowMs) {
     const anchor = anchors[i];
     if (anchor.renderStart - endTime > windowMs) break;
     if (anchor.renderStart >= endTime) {
-      landedBefore = { commitId: anchor.commitId, gapMs: round(anchor.renderStart - endTime) };
+      landedBefore = { commitId: anchor.commitId, gapMs: round$3(anchor.renderStart - endTime) };
       break;
     }
   }
@@ -5580,8 +5581,8 @@ function windowOf(windowMs) {
 }
 function linkNetworkRequests(report, windowMs) {
   const anchors = commitAnchors(report.commitTimings);
-  const window = windowOf(windowMs);
-  return requestsOf(report).map((request) => ({ ...request, ...linkRequest(request, anchors, window) }));
+  const window2 = windowOf(windowMs);
+  return requestsOf(report).map((request) => ({ ...request, ...linkRequest(request, anchors, window2) }));
 }
 function networkView(report, options = {}) {
   var _a2;
@@ -5655,6 +5656,236 @@ function networkByCommit(report, windowMs) {
     if (inFlight > 0) entry(anchor.commitId).inFlight = inFlight;
   }
   return out;
+}
+const round$2 = (n) => Math.round(n);
+function requestLabel(url) {
+  try {
+    const parsed = new URL(url, "http://local.invalid");
+    const op = parsed.searchParams.get("operation") || parsed.searchParams.get("operationName") || parsed.searchParams.get("opName");
+    if (op) return op;
+    const segments = parsed.pathname.split("/").filter((s) => s && !/^[0-9a-f]{16,}$/i.test(s) && !/^\d+$/.test(s));
+    const tail = segments.slice(-2).join("/") || parsed.pathname;
+    return parsed.host === "local.invalid" ? tail : parsed.host + " …/" + tail;
+  } catch (_) {
+    return url.slice(0, 60);
+  }
+}
+function commitStart(report, id) {
+  var _a2, _b2;
+  const start = Number((_b2 = (_a2 = report.commitTimings) == null ? void 0 : _a2[String(id)]) == null ? void 0 : _b2.startTime);
+  return Number.isFinite(start) ? start : null;
+}
+function renderedCount(report, id) {
+  var _a2, _b2, _c2;
+  const fromStats = Number(((_b2 = (_a2 = report.commitStats) == null ? void 0 : _a2[String(id)]) == null ? void 0 : _b2[3]) || 0);
+  if (fromStats > 0) return fromStats;
+  const list = (_c2 = report.renderedByCommit) == null ? void 0 : _c2[String(id)];
+  return Array.isArray(list) ? list.length : 0;
+}
+function kindOf(events) {
+  const enters = events.some((e) => e.entered);
+  const leaves = events.some((e) => e.left);
+  return enters && leaves ? "swap" : enters ? "lock" : leaves ? "unlock" : "update";
+}
+function buildTimeline(report, options = {}) {
+  var _a2, _b2, _c2;
+  const ids = Object.keys(report.commitTimings ?? {}).map(Number).filter((id) => Number.isFinite(id) && commitStart(report, id) !== null).sort((a, b) => a - b);
+  if (ids.length === 0) return { ok: false, error: "report has no commit timings (report version 6 or later is required)" };
+  const startOf = (id) => commitStart(report, id);
+  const interactions = /* @__PURE__ */ new Map();
+  for (const list of Object.values(report.interactionsByCommit ?? {})) {
+    for (const item of list || []) {
+      const t = Number(item.timestamp);
+      if (!Number.isFinite(t)) continue;
+      const key = String(item.id ?? "") + "@" + t;
+      const dom = (_a2 = item.location) == null ? void 0 : _a2.dom;
+      const target = dom ? String(dom.nearestTestId || dom.text || dom.tag || "") || null : null;
+      if (!interactions.has(key)) interactions.set(key, { t, action: String(item.action || "input"), target });
+    }
+  }
+  const inputs = Array.from(interactions.values()).sort((a, b) => a.t - b.t);
+  const firstInput = inputs[0];
+  const fromCommit = options.fromCommit ?? (firstInput ? ids.find((id) => startOf(id) >= firstInput.t) ?? ids[0] : ids[0]);
+  const toCommit = options.toCommit ?? ids[ids.length - 1];
+  const windowIds = ids.filter((id) => id >= fromCommit && id <= toCommit);
+  if (windowIds.length === 0) return { ok: false, error: `no commits between ${fromCommit} and ${toCommit}` };
+  const windowStart = startOf(windowIds[0]);
+  const windowEnd = startOf(windowIds[windowIds.length - 1]);
+  const originInput = [...inputs].reverse().find((input2) => input2.t <= windowStart && windowStart - input2.t <= 5e3);
+  const origin = originInput ? originInput.t : windowStart;
+  const rel = (t) => round$2(t - origin);
+  const input = inputs.filter((i) => i.t >= origin && i.t <= windowEnd).map((i) => ({ ...i, t: rel(i.t) }));
+  let exclude = null;
+  try {
+    exclude = options.exclude ? new RegExp(options.exclude, "i") : null;
+  } catch (_) {
+    exclude = null;
+  }
+  const minRequestMs = options.minRequestMs ?? 50;
+  const inWindow = (report.networkRequests ?? []).filter((r) => r.endTime >= origin && r.startTime <= windowEnd && !(exclude && exclude.test(r.url)));
+  const toRequest = (r) => ({
+    id: r.id,
+    label: requestLabel(r.url),
+    start: rel(r.startTime),
+    end: rel(r.endTime),
+    durationMs: round$2(r.duration),
+    initiatorType: r.initiatorType,
+    cached: !!r.cached
+  });
+  const drawable = inWindow.filter((r) => r.duration >= minRequestMs);
+  const kept = [...drawable].sort((a, b) => b.duration - a.duration).slice(0, options.maxRequests ?? 30).sort((a, b) => a.startTime - b.startTime);
+  const network = kept.map(toRequest);
+  const open = /* @__PURE__ */ new Map();
+  const suspense = [];
+  for (const id of ids.filter((commit) => commit <= windowIds[windowIds.length - 1])) {
+    for (const event of ((_b2 = report.suspenseByCommit) == null ? void 0 : _b2[String(id)]) ?? []) {
+      const depth = Number(event.depth);
+      if (!Number.isFinite(depth)) continue;
+      if (event.entered) open.set(depth, [...open.get(depth) || [], id]);
+      if (event.left) {
+        const enteredId = (_c2 = open.get(depth)) == null ? void 0 : _c2.shift();
+        if (enteredId === void 0) continue;
+        if (startOf(id) >= windowStart && startOf(enteredId) <= windowEnd) {
+          suspense.push({ depth, start: rel(startOf(enteredId)), end: rel(startOf(id)), enteredAt: enteredId, leftAt: id });
+        }
+      }
+    }
+  }
+  for (const [depth, stack] of open) {
+    for (const enteredId of stack) {
+      if (startOf(enteredId) <= windowEnd) suspense.push({ depth, start: rel(startOf(enteredId)), end: null, enteredAt: enteredId, leftAt: null });
+    }
+  }
+  suspense.sort((a, b) => a.start - b.start || a.depth - b.depth);
+  const allCommits = windowIds.map((id) => {
+    var _a3, _b3, _c3, _d2, _e;
+    const events = ((_a3 = report.suspenseByCommit) == null ? void 0 : _a3[String(id)]) ?? [];
+    const renderStart = Number((_d2 = (_c3 = (_b3 = report.commitTimings) == null ? void 0 : _b3[String(id)]) == null ? void 0 : _c3.render) == null ? void 0 : _d2.renderStart);
+    const sources = (((_e = report.sourcesByCommit) == null ? void 0 : _e[String(id)]) ?? []).slice().sort((a, b) => Number(b.collateral || 0) - Number(a.collateral || 0)).map((s) => String(s.sourceId || "").split("#")[0]).filter(Boolean);
+    return {
+      commitId: id,
+      t: rel(startOf(id)),
+      renderStart: Number.isFinite(renderStart) && renderStart <= startOf(id) ? rel(renderStart) : null,
+      rendered: renderedCount(report, id),
+      kind: kindOf(events),
+      suspense: events.map((e) => (e.entered ? "enter" : "leave") + "@" + e.depth),
+      sources: Array.from(new Set(sources)).slice(0, 2)
+    };
+  });
+  const updates = allCommits.filter((c) => c.kind === "update");
+  const topUpdates = new Set([...updates].filter((c) => c.rendered > 0).sort((a, b) => b.rendered - a.rendered).slice(0, options.maxCommits ?? 25).map((c) => c.commitId));
+  const commits = allCommits.filter((c) => c.kind !== "update" || topUpdates.has(c.commitId));
+  const sumUpdates = (list) => ({ commits: list.length, rendered: list.reduce((n, c) => n + c.rendered, 0) });
+  const allRequests = inWindow.map(toRequest);
+  const waits = suspense.map((s) => {
+    const until = s.end ?? rel(windowEnd);
+    const lastRequests = allRequests.filter((r) => r.end <= until && r.end >= s.start).sort((a, b) => b.end - a.end).slice(0, 3).map((r) => ({ label: r.label, end: r.end, gapMs: until - r.end }));
+    return {
+      depth: s.depth,
+      from: s.start,
+      until: s.end,
+      waitedMs: until - s.start,
+      lockedBy: s.enteredAt,
+      unlockedBy: s.leftAt,
+      lastRequests: s.end === null ? [] : lastRequests,
+      updatesDuring: sumUpdates(updates.filter((c) => c.t > s.start && c.t < until))
+    };
+  }).sort((a, b) => b.waitedMs - a.waitedMs);
+  const nextInput = input.find((i) => i.t > 0);
+  const ownWaits = suspense.filter((s) => !nextInput || s.start < nextInput.t);
+  const stillWaiting = ownWaits.filter((s) => s.end === null).map((s) => s.depth);
+  const unlocks = ownWaits.filter((s) => s.end !== null).map((s) => s.end);
+  const settledAt = stillWaiting.length === 0 && unlocks.length ? Math.max(...unlocks) : null;
+  const result = {
+    ok: true,
+    origin: { at: Math.round(origin * 10) / 10, kind: originInput ? "interaction" : "commit" },
+    window: { fromCommit: windowIds[0], toCommit: windowIds[windowIds.length - 1], start: rel(windowStart), end: rel(windowEnd) },
+    perceived: {
+      firstLockAt: suspense.length ? suspense[0].start : null,
+      settledAt,
+      stillWaiting,
+      waits,
+      updatesAfterSettled: sumUpdates(settledAt === null ? [] : updates.filter((c) => c.t > settledAt && (!nextInput || c.t < nextInput.t)))
+    },
+    lanes: { input, network, suspense, commits },
+    omitted: { requests: inWindow.length - kept.length, commits: allCommits.length - commits.length },
+    mermaid: "",
+    text: ""
+  };
+  result.mermaid = renderMermaid(result);
+  result.text = renderText(result);
+  return result;
+}
+const safe = (s) => s.replace(/[:#;]/g, " ").replace(/\s+/g, " ").trim();
+function renderMermaid(result) {
+  const { input, network, suspense, commits } = result.lanes;
+  const end = result.window.end;
+  const slow = new Set([...network].sort((a, b) => b.durationMs - a.durationMs).slice(0, 3).map((r) => r.id));
+  const updates = commits.filter((c) => c.kind === "update");
+  const heavy = new Set([...updates].sort((a, b) => b.rendered - a.rendered).slice(0, 3).filter((c) => c.rendered > 0).map((c) => c.commitId));
+  const bar = (start, stop) => `${start}, ${Math.max(stop, start + 1)}`;
+  const lines = [
+    "gantt",
+    `  title Commits ${result.window.fromCommit}–${result.window.toCommit}, ms from ${result.origin.kind === "interaction" ? "the interaction" : "the first commit"}`,
+    "  dateFormat x",
+    "  axisFormat %S.%L"
+  ];
+  if (input.length) {
+    lines.push("  section Input");
+    input.forEach((i, n) => lines.push(`  ${safe(i.action + (i.target ? " " + i.target : ""))} :milestone, in${n}, ${i.t}, ${i.t}`));
+  }
+  if (network.length) {
+    lines.push("  section Network");
+    for (const r of network) lines.push(`  ${safe(r.label)} ${r.durationMs}ms :${slow.has(r.id) ? "crit, " : ""}net${r.id}, ${bar(r.start, r.end)}`);
+  }
+  if (suspense.length) {
+    lines.push("  section User waits (fallback shown)");
+    suspense.forEach((s, n) => {
+      const stop = s.end ?? end;
+      const label = s.end === null ? "still waiting" : `${stop - s.start}ms`;
+      lines.push(`  @${s.depth} ${label} :${s.end === null ? "active" : "crit"}, sus${n}, ${bar(s.start, stop)}`);
+    });
+  }
+  const screen = commits.filter((c) => c.kind !== "update");
+  if (screen.length) {
+    lines.push("  section Screen (lock or unlock)");
+    for (const c of screen) lines.push(`  c${c.commitId} ${c.kind} ${safe(c.suspense.join(" "))} :milestone, c${c.commitId}, ${c.t}, ${c.t}`);
+  }
+  if (updates.length) {
+    lines.push("  section Updates (CPU, no Suspense change)");
+    for (const c of updates) {
+      const what = safe(c.sources.join(", "));
+      const span = c.renderStart === null ? `milestone, c${c.commitId}, ${c.t}, ${c.t}` : `c${c.commitId}, ${bar(c.renderStart, c.t)}`;
+      lines.push(`  c${c.commitId} ${c.rendered} rendered${what ? " " + what : ""} :${heavy.has(c.commitId) ? "crit, " : ""}${span}`);
+    }
+  }
+  return lines.join("\n");
+}
+function renderText(result) {
+  const p = result.perceived;
+  const header = [];
+  if (p.waits.length === 0) header.push("No Suspense fallback was shown in this window.");
+  else {
+    header.push(p.settledAt !== null ? `Fallbacks first shown at +${p.firstLockAt}, all cleared at +${p.settledAt}; ${p.updatesAfterSettled.commits} updates (${p.updatesAfterSettled.rendered} rendered) ran after that, before the next input.` : `Fallbacks first shown at +${p.firstLockAt}; still waiting at the end: @${p.stillWaiting.join(", @")}.`);
+    for (const w of p.waits.slice(0, 5)) {
+      const last = w.lastRequests[0];
+      header.push(`  wait @${w.depth} ${w.waitedMs}ms (+${w.from} → ${w.until === null ? "end" : "+" + w.until}), ${w.updatesDuring.commits} updates (${w.updatesDuring.rendered} rendered) meanwhile` + (last ? `, last request before unlock: ${last.label} (+${last.end}, ${last.gapMs}ms before)` : ""));
+    }
+  }
+  const rows = [];
+  for (const i of result.lanes.input) rows.push({ t: i.t, lane: "input", text: i.action + (i.target ? " " + i.target : "") });
+  for (const r of result.lanes.network) rows.push({ t: r.start, lane: "net", text: `${r.label}  → +${r.end} (${r.durationMs}ms${r.cached ? ", cached" : ""})` });
+  for (const s of result.lanes.suspense) {
+    rows.push({ t: s.start, lane: "wait", text: `fallback @${s.depth} ` + (s.end === null ? "still shown at the end" : `until +${s.end} (${s.end - s.start}ms, c${s.enteredAt}→c${s.leftAt})`) });
+  }
+  for (const c of result.lanes.commits) {
+    const lane = c.kind === "update" ? "react" : "SCRN";
+    rows.push({ t: c.t, lane, text: `c${c.commitId} ${c.kind === "update" ? "" : c.kind + " "}${c.rendered} rendered${c.sources.length ? " · " + c.sources.join(", ") : ""}${c.suspense.length ? " · " + c.suspense.join(" ") : ""}` });
+  }
+  const order = { input: 0, net: 1, wait: 2, SCRN: 3, react: 4 };
+  rows.sort((a, b) => a.t - b.t || order[a.lane] - order[b.lane]);
+  const width = Math.max(...rows.map((r) => String(r.t).length), 1);
+  return [...header, "", ...rows.map((r) => `+${String(r.t).padStart(width)}  ${r.lane.padEnd(5)}  ${r.text}`)].join("\n");
 }
 const UPSTREAM_COMMIT_STAT_KEYS = [
   "collateral",
@@ -5996,6 +6227,22 @@ function evalAvalanche(command, api2, mod) {
         if ("error" in view) return { ok: false, available: true, action, error: view.error, ...view.validBy && { validBy: [...view.validBy] } };
         return { ok: true, available: true, action, payload: view.payload };
       }
+      case "timeline": {
+        const r = getReport(api2);
+        if (!r || "error" in r) {
+          return { ok: false, available: true, action, error: r && "error" in r ? r.error : "report() unavailable" };
+        }
+        const timeline = buildTimeline(r.serial, {
+          fromCommit: command == null ? void 0 : command.fromCommit,
+          toCommit: command == null ? void 0 : command.toCommit,
+          minRequestMs: command == null ? void 0 : command.minRequestMs,
+          maxRequests: command == null ? void 0 : command.top,
+          exclude: command == null ? void 0 : command.exclude
+        });
+        if ("error" in timeline) return { ok: false, available: true, action, error: timeline.error };
+        const { ok: _ok, lanes, ...rest } = timeline;
+        return { ok: true, available: true, action, payload: (command == null ? void 0 : command.format) === "full" ? { ...rest, lanes } : rest };
+      }
       // Removed: start, stop, metrics, help — not present on the current public surface.
       default:
         return { ok: false, available: true, action, error: "Unknown avalanche action: " + action };
@@ -6005,7 +6252,7 @@ function evalAvalanche(command, api2, mod) {
   }
 }
 const AVALANCHE_NAME_BUDGET_MS = 3e3;
-const NAME_FREE_ACTIONS = /* @__PURE__ */ new Set(["install", "uninstall", "reset", "clear", "status", "debug-hook", "network"]);
+const NAME_FREE_ACTIONS = /* @__PURE__ */ new Set(["install", "uninstall", "reset", "clear", "status", "debug-hook", "network", "timeline"]);
 const SOURCE_ID = /^[^\s#@]+#\d+@-?\d+$/;
 const MAX_SOURCE_IDS = 2e3;
 function sourceIdsIn(value, limit = MAX_SOURCE_IDS) {
@@ -6227,7 +6474,7 @@ function grepFiber(fiber, re, scopes, limits, replay) {
   }
   return { hits, ...replayInfo ? { replay: replayInfo } : {} };
 }
-function evalElementDom(element, parentLevel, getComputedStyle) {
+function evalElementDom(element, parentLevel, getComputedStyle2) {
   let el = element || null;
   if (!el || el.nodeType !== 1) return { error: "Target element is not available" };
   const level = Number(parentLevel) || 0;
@@ -6243,7 +6490,7 @@ function evalElementDom(element, parentLevel, getComputedStyle) {
     if (attr.name === "class") continue;
     attrs[attr.name] = attr.value.slice(0, 120);
   }
-  const cs = getComputedStyle(el);
+  const cs = getComputedStyle2(el);
   const styles = {
     display: cs.display,
     visibility: cs.visibility,
@@ -6579,6 +6826,458 @@ function scriptResultJson(value, options = {}) {
   }
   return result;
 }
+const MAX_CELLS = 25e4;
+function rectArea(rect) {
+  return Math.max(0, rect.right - rect.left) * Math.max(0, rect.bottom - rect.top);
+}
+function intersectRect(a, b) {
+  const left = Math.max(a.left, b.left);
+  const top = Math.max(a.top, b.top);
+  const right = Math.min(a.right, b.right);
+  const bottom = Math.min(a.bottom, b.bottom);
+  return right > left && bottom > top ? { left, top, right, bottom } : null;
+}
+function cellSizeFor(clip) {
+  const area = rectArea(clip);
+  return Math.max(1, Math.ceil(Math.sqrt(area / MAX_CELLS)));
+}
+function createAreaGrid(clip, cell = cellSizeFor(clip)) {
+  const cols = Math.max(0, Math.ceil((clip.right - clip.left) / cell));
+  const rows = Math.max(0, Math.ceil((clip.bottom - clip.top) / cell));
+  const bits = new Uint8Array(cols * rows);
+  let covered = 0;
+  function add(rect) {
+    const r = intersectRect(rect, clip);
+    if (!r) return;
+    const c0 = Math.max(0, Math.round((r.left - clip.left) / cell));
+    const c1 = Math.min(cols, Math.round((r.right - clip.left) / cell));
+    const r0 = Math.max(0, Math.round((r.top - clip.top) / cell));
+    const r1 = Math.min(rows, Math.round((r.bottom - clip.top) / cell));
+    for (let y = r0; y < r1; y++) {
+      const row = y * cols;
+      for (let x = c0; x < c1; x++) {
+        if (bits[row + x] === 0) {
+          bits[row + x] = 1;
+          covered++;
+        }
+      }
+    }
+  }
+  function area() {
+    const full = rectArea(clip);
+    return Math.min(full, covered * cell * cell);
+  }
+  return { clip, cell, add, area };
+}
+const SUSPENSE_TAG = 13;
+const OFFSCREEN_TAGS = /* @__PURE__ */ new Set([22, 23]);
+const COMPOSITE_TAGS = /* @__PURE__ */ new Set([0, 1, 2, 11, 14, 15]);
+const REPLACED = /* @__PURE__ */ new Set(["IMG", "SVG", "CANVAS", "VIDEO", "IFRAME", "INPUT", "TEXTAREA", "SELECT", "PICTURE", "OBJECT", "EMBED"]);
+const SKIPPED = /* @__PURE__ */ new Set(["SCRIPT", "STYLE", "TEMPLATE", "NOSCRIPT", "LINK", "META"]);
+const DEFAULT_AUTO_TARGETS = 15;
+const DEFAULT_MIN_SHARE = 0.01;
+const domGeometry = {
+  viewport() {
+    return { left: 0, top: 0, right: window.innerWidth, bottom: window.innerHeight };
+  },
+  rect(el) {
+    const r = el.getBoundingClientRect();
+    return { left: r.left, top: r.top, right: r.right, bottom: r.bottom };
+  },
+  textRects(node) {
+    const range = document.createRange();
+    range.selectNodeContents(node);
+    return Array.from(range.getClientRects(), (r) => ({ left: r.left, top: r.top, right: r.right, bottom: r.bottom }));
+  },
+  style(el) {
+    return getComputedStyle(el);
+  }
+};
+function resolveAreaRoot(root, doc = document) {
+  if (root && typeof root === "object") return root;
+  if (!root) return doc.documentElement;
+  const value = String(root).trim();
+  const byTestId = doc.querySelector('[data-testid="' + value.replace(/["\\]/g, "\\$&") + '"]');
+  if (byTestId) return byTestId;
+  try {
+    return doc.querySelector(value);
+  } catch (_) {
+    return null;
+  }
+}
+function rootLabel(root, el) {
+  if (typeof root === "string" && root) return root;
+  const testId = el.getAttribute("data-testid");
+  return testId ? "testid:" + testId : el === el.ownerDocument.documentElement ? "viewport" : el.tagName.toLowerCase();
+}
+function fiberName(fiber) {
+  return readComponentName(fiber.type) || readComponentName(fiber.elementType);
+}
+function fiberTag(fiber) {
+  return fiber.tag ?? -1;
+}
+function isFallbackEdge(child, parent) {
+  if (fiberTag(parent) !== SUSPENSE_TAG || OFFSCREEN_TAGS.has(fiberTag(child))) return false;
+  const alternate = parent.alternate;
+  return parent.memoizedState != null || !!(alternate && alternate.memoizedState != null);
+}
+function measureComponentArea(options = {}, geometry = domGeometry, doc = typeof document === "undefined" ? void 0 : document) {
+  const startedAt = performance.now();
+  const rootName = typeof options.root === "string" ? options.root : null;
+  if (!doc) return { ok: false, reason: "no-document", root: rootName, at: startedAt };
+  const rootEl = resolveAreaRoot(options.root, doc);
+  if (!rootEl) return { ok: false, reason: "root-not-found", root: rootName, at: startedAt };
+  const viewport = geometry.viewport();
+  const isViewport = rootEl === doc.documentElement;
+  const rootRect = isViewport ? viewport : geometry.rect(rootEl);
+  const clip = intersectRect(rootRect, viewport);
+  if (!clip) return { ok: false, reason: "root-offscreen", root: rootName, at: startedAt };
+  const cell = cellSizeFor(clip);
+  const placeholder = createAreaGrid(clip, cell);
+  const content = createAreaGrid(clip, cell);
+  const placeholderPattern = options.placeholderNames ? options.placeholderNames instanceof RegExp ? options.placeholderNames : new RegExp(options.placeholderNames) : null;
+  const targets = [];
+  const componentIndex = /* @__PURE__ */ new Map();
+  const testIdIndex = /* @__PURE__ */ new Map();
+  function addTarget(kind, name) {
+    const index = kind === "component" ? componentIndex : testIdIndex;
+    if (index.has(name)) return;
+    index.set(name, targets.length);
+    targets.push({
+      label: kind + ":" + name,
+      kind,
+      name,
+      elements: 0,
+      box: createAreaGrid(clip, cell),
+      content: createAreaGrid(clip, cell),
+      placeholder: createAreaGrid(clip, cell)
+    });
+  }
+  for (const name of options.components || []) if (name) addTarget("component", name);
+  for (const id of options.testIds || []) if (id) addTarget("testid", id);
+  if (targets.length === 0) {
+    for (const id of largestTestIds(rootEl, clip, geometry, options)) addTarget("testid", id);
+  }
+  let elements = 0;
+  let textRects = 0;
+  function membershipFor(el, parentFiber, parent) {
+    const fiber = getFiber(el);
+    let groups = parent.groups;
+    let isPlaceholder = parent.placeholder;
+    const add = (index) => {
+      if (index === void 0 || groups.includes(index)) return;
+      groups = groups === parent.groups ? groups.slice() : groups;
+      groups.push(index);
+    };
+    if (fiber) {
+      const parentAlternate = parentFiber ? parentFiber.alternate : null;
+      let child = fiber;
+      let node = fiber.return || null;
+      while (node && node !== parentFiber && node !== parentAlternate) {
+        if (!isPlaceholder && isFallbackEdge(child, node)) isPlaceholder = true;
+        if (COMPOSITE_TAGS.has(fiberTag(node)) && (componentIndex.size > 0 || placeholderPattern)) {
+          const name = fiberName(node);
+          if (name) {
+            add(componentIndex.get(name));
+            if (!isPlaceholder && placeholderPattern && placeholderPattern.test(name)) isPlaceholder = true;
+          }
+        }
+        child = node;
+        node = node.return || null;
+      }
+    }
+    const testId = testIdIndex.size > 0 ? el.getAttribute("data-testid") : null;
+    if (testId) add(testIdIndex.get(testId));
+    return { m: { groups, placeholder: isPlaceholder }, fiber };
+  }
+  function visit(el, parentFiber, parent, area, isRoot) {
+    if (SKIPPED.has(el.tagName.toUpperCase())) return;
+    elements++;
+    const { m, fiber } = membershipFor(el, parentFiber, parent);
+    const style = geometry.style(el);
+    if (style.display === "none") return;
+    const rect = isRoot && isViewport ? viewport : geometry.rect(el);
+    const sized = rectArea(rect) > 0;
+    const visible = sized && style.visibility !== "hidden" && style.opacity !== "0";
+    const box = visible ? intersectRect(rect, area) : null;
+    const tag = el.tagName.toUpperCase();
+    if (box) {
+      if (m.placeholder && (!parent.placeholder || isRoot)) placeholder.add(box);
+      for (const index of m.groups) {
+        const target = targets[index];
+        if (isRoot || !parent.groups.includes(index)) {
+          target.box.add(box);
+          target.elements++;
+        }
+        if (m.placeholder) target.placeholder.add(box);
+      }
+      if (REPLACED.has(tag)) addContent(box, m);
+    }
+    if (REPLACED.has(tag)) return;
+    let childArea = area;
+    if (!isRoot && sized && (clips(style.overflowX) || clips(style.overflowY))) {
+      const clipped = intersectRect(area, rect);
+      if (!clipped) return;
+      childArea = clipped;
+    }
+    if (style.visibility !== "hidden" && style.opacity !== "0") {
+      for (let node = el.firstChild; node; node = node.nextSibling) {
+        if (node.nodeType !== 3 || !node.data.trim()) continue;
+        for (const r of geometry.textRects(node)) {
+          const inside = intersectRect(r, childArea);
+          if (inside) {
+            textRects++;
+            addContent(inside, m);
+          }
+        }
+      }
+    }
+    if (style.opacity === "0") return;
+    for (let child = el.firstElementChild; child; child = child.nextElementSibling) {
+      visit(child, fiber || parentFiber, m, childArea, false);
+    }
+  }
+  function addContent(rect, m) {
+    if (m.placeholder) return;
+    content.add(rect);
+    for (const index of m.groups) targets[index].content.add(rect);
+  }
+  visit(rootEl, null, { groups: [], placeholder: false }, clip, true);
+  const rootArea = rectArea(clip);
+  const share = (n) => rootArea > 0 ? round$1(n / rootArea, 4) : 0;
+  return {
+    ok: true,
+    at: round$1(startedAt, 1),
+    root: { label: rootLabel(options.root ?? null, rootEl), rect: roundRect(clip), area: Math.round(rootArea) },
+    cellSize: cell,
+    placeholder: { area: Math.round(placeholder.area()), share: share(placeholder.area()) },
+    content: { area: Math.round(content.area()), share: share(content.area()) },
+    targets: targets.map((t) => ({
+      label: t.label,
+      kind: t.kind,
+      name: t.name,
+      elements: t.elements,
+      area: Math.round(t.box.area()),
+      share: share(t.box.area()),
+      contentArea: Math.round(t.content.area()),
+      contentShare: share(t.content.area()),
+      placeholderArea: Math.round(t.placeholder.area())
+    })),
+    stats: { elements, textRects, ms: round$1(performance.now() - startedAt, 1) }
+  };
+}
+function largestTestIds(rootEl, clip, geometry, options) {
+  const limit = options.autoTargets ?? DEFAULT_AUTO_TARGETS;
+  if (limit <= 0) return [];
+  const minArea = rectArea(clip) * (options.minShare ?? DEFAULT_MIN_SHARE);
+  const best = /* @__PURE__ */ new Map();
+  for (const el of Array.from(rootEl.querySelectorAll("[data-testid]"))) {
+    const id = el.getAttribute("data-testid");
+    if (!id) continue;
+    const box = intersectRect(geometry.rect(el), clip);
+    const area = box ? rectArea(box) : 0;
+    if (area >= minArea && area > (best.get(id) || 0)) best.set(id, area);
+  }
+  return Array.from(best.entries()).sort((a, b) => b[1] - a[1]).slice(0, limit).map(([id]) => id);
+}
+function clips(overflow) {
+  return overflow === "hidden" || overflow === "auto" || overflow === "scroll" || overflow === "clip";
+}
+function round$1(n, digits) {
+  const f = 10 ** digits;
+  return Math.round(n * f) / f;
+}
+function roundRect(r) {
+  return { left: Math.round(r.left), top: Math.round(r.top), right: Math.round(r.right), bottom: Math.round(r.bottom) };
+}
+let state = null;
+const domWatchDeps = {
+  measure: (options) => measureComponentArea(options),
+  now: () => performance.now(),
+  setTimeout: (fn, ms) => globalThis.setTimeout(fn, ms),
+  clearTimeout: (handle) => globalThis.clearTimeout(handle),
+  frame: (fn) => {
+    if (typeof requestAnimationFrame === "function" && !(typeof document !== "undefined" && document.hidden)) requestAnimationFrame(() => fn());
+    else fn();
+  },
+  observe: (onChange) => {
+    const observer = new MutationObserver(onChange);
+    observer.observe(document.documentElement, {
+      childList: true,
+      subtree: true,
+      characterData: true,
+      attributes: true,
+      attributeFilter: ["class", "style", "hidden", "aria-hidden", "data-testid"]
+    });
+    window.addEventListener("scroll", onChange, true);
+    window.addEventListener("resize", onChange);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("scroll", onChange, true);
+      window.removeEventListener("resize", onChange);
+    };
+  }
+};
+function startAreaWatch(options = {}, deps = domWatchDeps) {
+  if (state) finish("restarted");
+  const s = {
+    options,
+    startedAt: deps.now(),
+    intervalMs: Math.max(16, options.intervalMs ?? 50),
+    samples: [],
+    measurements: 0,
+    measureMsTotal: 0,
+    measureMsMax: 0,
+    lastMeasuredAt: -Infinity,
+    pending: null,
+    poll: null,
+    stopTimer: null,
+    disconnect: () => {
+    },
+    active: true,
+    stoppedReason: null,
+    lastKey: "",
+    deps
+  };
+  state = s;
+  s.disconnect = deps.observe(() => schedule(s));
+  s.stopTimer = deps.setTimeout(() => {
+    if (state === s) finish("duration");
+  }, Math.max(100, options.durationMs ?? 3e4));
+  if (options.pollMs && options.pollMs > 0) startPoll(s, Math.max(s.intervalMs, options.pollMs));
+  recordSample(s);
+  return { ok: true, startedAt: round(s.startedAt), intervalMs: s.intervalMs, first: s.samples[0] || null };
+}
+function readAreaWatch() {
+  if (!state) return { ok: false, reason: "not-started" };
+  return summarize(state);
+}
+function stopAreaWatch() {
+  if (!state) return { ok: false, reason: "not-started" };
+  if (state.active) {
+    recordSample(state);
+    finish("stopped");
+  }
+  return summarize(state);
+}
+function startPoll(s, ms) {
+  const tick = () => {
+    if (!s.active) return;
+    schedule(s);
+    s.poll = s.deps.setTimeout(tick, ms);
+  };
+  s.poll = s.deps.setTimeout(tick, ms);
+}
+function schedule(s) {
+  if (!s.active || s.pending) return;
+  const wait = Math.max(0, s.lastMeasuredAt + s.intervalMs - s.deps.now());
+  s.pending = s.deps.setTimeout(() => {
+    s.deps.frame(() => {
+      s.pending = null;
+      if (s.active) recordSample(s);
+    });
+  }, wait);
+}
+function recordSample(s) {
+  const before = s.deps.now();
+  const report = s.deps.measure(s.options);
+  const after = s.deps.now();
+  const cost = after - before;
+  s.lastMeasuredAt = after;
+  s.measurements++;
+  s.measureMsTotal += cost;
+  s.measureMsMax = Math.max(s.measureMsMax, cost);
+  if (cost > s.intervalMs / 2) s.intervalMs = Math.min(1e3, s.intervalMs * 2);
+  const sample = toSample(report, before - s.startedAt);
+  const key = JSON.stringify([sample.root, sample.placeholder, sample.content, sample.targets]);
+  if (key === s.lastKey) return;
+  s.lastKey = key;
+  s.samples.push(sample);
+  if (s.samples.length >= Math.max(1, s.options.maxSamples ?? 1e3)) finish("max-samples");
+}
+function toSample(report, t) {
+  if (!report.ok) return { t: round(t), root: 0, placeholder: 0, content: 0, targets: {} };
+  const targets = {};
+  for (const target of report.targets) {
+    if (target.area || target.contentArea || target.placeholderArea) {
+      targets[target.label] = [target.area, target.contentArea, target.placeholderArea];
+    }
+  }
+  return { t: round(t), root: report.root.area, placeholder: report.placeholder.area, content: report.content.area, targets };
+}
+function finish(reason) {
+  const s = state;
+  if (!s || !s.active) return;
+  s.active = false;
+  s.stoppedReason = reason;
+  s.disconnect();
+  for (const handle of [s.pending, s.poll, s.stopTimer]) if (handle) s.deps.clearTimeout(handle);
+  s.pending = null;
+}
+function summarize(s) {
+  var _a2;
+  const samples = s.samples;
+  const last = samples[samples.length - 1] || null;
+  const labels = /* @__PURE__ */ new Set();
+  for (const sample of samples) for (const label of Object.keys(sample.targets)) labels.add(label);
+  for (const name of s.options.components || []) labels.add("component:" + name);
+  for (const id of s.options.testIds || []) labels.add("testid:" + id);
+  const targets = {};
+  for (const label of labels) {
+    let firstSeenAt = null;
+    let firstContentAt = null;
+    let lastChangeAt = null;
+    let peakPlaceholder = 0;
+    let previous = "";
+    for (const sample of samples) {
+      const v = sample.targets[label] || [0, 0, 0];
+      if (firstSeenAt === null && v[0] > 0) firstSeenAt = sample.t;
+      if (firstContentAt === null && v[1] > 0) firstContentAt = sample.t;
+      peakPlaceholder = Math.max(peakPlaceholder, v[2]);
+      const key = v.join(",");
+      if (previous && key !== previous) lastChangeAt = sample.t;
+      previous = key;
+    }
+    const final = last && last.targets[label] || [0, 0, 0];
+    targets[label] = { firstSeenAt, firstContentAt, lastChangeAt, finalArea: final[0], finalContent: final[1], peakPlaceholder };
+  }
+  let placeholderFirstAt = null;
+  let placeholderPeak = 0;
+  let placeholderClearedAt = null;
+  for (const sample of samples) {
+    if (sample.placeholder > 0) {
+      if (placeholderFirstAt === null) placeholderFirstAt = sample.t;
+      placeholderPeak = Math.max(placeholderPeak, sample.placeholder);
+      placeholderClearedAt = null;
+    } else if (placeholderFirstAt !== null && placeholderClearedAt === null) {
+      placeholderClearedAt = sample.t;
+    }
+  }
+  const finalContent = last ? last.content : 0;
+  const reached = (fraction) => {
+    if (finalContent <= 0) return null;
+    const hit = samples.find((sample) => sample.content >= finalContent * fraction);
+    return hit ? hit.t : null;
+  };
+  return {
+    ok: true,
+    active: s.active,
+    stoppedReason: s.stoppedReason,
+    startedAt: round(s.startedAt),
+    elapsedMs: round(s.deps.now() - s.startedAt),
+    measurements: s.measurements,
+    measureMs: { avg: s.measurements ? round(s.measureMsTotal / s.measurements) : 0, max: round(s.measureMsMax) },
+    intervalMs: s.intervalMs,
+    root: { firstFoundAt: ((_a2 = samples.find((sample) => sample.root > 0)) == null ? void 0 : _a2.t) ?? null, finalArea: last ? last.root : 0 },
+    placeholder: { firstAt: placeholderFirstAt, peakArea: placeholderPeak, clearedAt: placeholderClearedAt, finalArea: last ? last.placeholder : 0 },
+    content: { finalArea: finalContent, reached50At: reached(0.5), reached90At: reached(0.9), reached100At: reached(1) },
+    targets,
+    samples
+  };
+}
+function round(n) {
+  return Math.round(n * 10) / 10;
+}
 function safeJson(value, depth = 6, seen = /* @__PURE__ */ new WeakSet()) {
   if (value == null) return value;
   const t = typeof value;
@@ -6720,8 +7419,8 @@ function summarizeFunctionContract(value) {
 function evalFiberPropContract(fiberId, propName, deps) {
   const read = readFiberProp(fiberId, propName, deps);
   if (!read.ok) {
-    const fiberName = read.fiber ? getFiberDisplayName$1(read.fiber) : null;
-    return { ok: false, error: read.error, fiberId: read.fiberId, fiberName, propNames: read.props ? Object.keys(read.props) : [] };
+    const fiberName2 = read.fiber ? getFiberDisplayName$1(read.fiber) : null;
+    return { ok: false, error: read.error, fiberId: read.fiberId, fiberName: fiberName2, propNames: read.props ? Object.keys(read.props) : [] };
   }
   const propNames = Object.keys(read.props);
   const contract = summarizeFunctionContract(read.value);
@@ -6748,8 +7447,8 @@ function pickThisArg(fiber) {
 async function evalFiberInvoke(fiberId, propName, args, deps) {
   const read = readFiberProp(fiberId, propName, deps);
   if (!read.ok) {
-    const fiberName = read.fiber ? getFiberDisplayName$1(read.fiber) : null;
-    return { ok: false, error: read.error, fiberId: read.fiberId, fiberName };
+    const fiberName2 = read.fiber ? getFiberDisplayName$1(read.fiber) : null;
+    return { ok: false, error: read.error, fiberId: read.fiberId, fiberName: fiberName2 };
   }
   const value = read.value;
   if (typeof value !== "function") {
@@ -6856,7 +7555,7 @@ function evalFiberScheduleUpdate(fiberId, ownerIndex, deps) {
       ownerIndex: idx
     };
   }
-  const fiberName = getFiberDisplayName(target);
+  const fiberName2 = getFiberDisplayName(target);
   const source = getFiberSource(target);
   const resolveSchedule = deps.getScheduleUpdate || getScheduleUpdate;
   const scheduleUpdate = resolveSchedule(deps.scope);
@@ -6866,7 +7565,7 @@ function evalFiberScheduleUpdate(fiberId, ownerIndex, deps) {
       reason: "no-scheduleUpdate",
       error: "no renderer.scheduleUpdate (production React build, or the DevTools-hook shim was not installed before react-dom evaluated)",
       fiberId: rememberedFiberId,
-      fiberName,
+      fiberName: fiberName2,
       source,
       ownerIndex: idx
     };
@@ -6881,12 +7580,12 @@ function evalFiberScheduleUpdate(fiberId, ownerIndex, deps) {
       error: (err == null ? void 0 : err.message) || String(e),
       stack: (err == null ? void 0 : err.stack) || null,
       fiberId: rememberedFiberId,
-      fiberName,
+      fiberName: fiberName2,
       source,
       ownerIndex: idx
     };
   }
-  return { ok: true, fiberId: rememberedFiberId, fiberName, source, ownerIndex: idx, scheduled: true };
+  return { ok: true, fiberId: rememberedFiberId, fiberName: fiberName2, source, ownerIndex: idx, scheduled: true };
 }
 function fnv1a(value) {
   let hash = 0xcbf29ce484222325n;
@@ -7577,6 +8276,8 @@ const api = {
     applyProductionBreadcrumbs,
     safeJson,
     scriptResultJson,
+    measureComponentArea: (options) => measureComponentArea(options),
+    areaWatch: { start: (options) => startAreaWatch(options), read: readAreaWatch, stop: stopAreaWatch },
     resolveOwnerFiber,
     getOwnerStackKind,
     findFiberByName,

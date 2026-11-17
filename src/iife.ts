@@ -85,6 +85,8 @@ import {
 import { applyRecoveredOrigin, readComponentName, resolveComponentOrigin } from './chippy-bridge/component-origin';
 import { applyProductionBreadcrumbs } from './chippy-bridge/production-breadcrumbs';
 import { scriptResultJson } from './chippy-bridge/script-result';
+import { measureComponentArea } from './chippy-bridge/component-area/measure';
+import { readAreaWatch, startAreaWatch, stopAreaWatch } from './chippy-bridge/component-area/watch';
 import {
   safeJson as safeJsonImpl,
   resolveOwnerFiber as resolveOwnerFiberImpl,
@@ -296,6 +298,8 @@ type AvalancheApi = {
     applyProductionBreadcrumbs: typeof applyProductionBreadcrumbs;
     safeJson: typeof safeJsonImpl;
     scriptResultJson: typeof scriptResultJson;
+    measureComponentArea: (options?: Parameters<typeof measureComponentArea>[0]) => ReturnType<typeof measureComponentArea>;
+    areaWatch: { start: (options?: Parameters<typeof startAreaWatch>[0]) => ReturnType<typeof startAreaWatch>; read: typeof readAreaWatch; stop: typeof stopAreaWatch };
     resolveOwnerFiber: typeof resolveOwnerFiberImpl;
     getOwnerStackKind: typeof getOwnerStackKindImpl;
     findFiberByName: typeof findFiberByNameImpl;
@@ -453,6 +457,8 @@ const api: AvalancheApi = {
     applyProductionBreadcrumbs,
     safeJson: safeJsonImpl,
     scriptResultJson,
+    measureComponentArea: (options) => measureComponentArea(options),
+    areaWatch: { start: (options) => startAreaWatch(options), read: readAreaWatch, stop: stopAreaWatch },
     resolveOwnerFiber: resolveOwnerFiberImpl,
     getOwnerStackKind: getOwnerStackKindImpl,
     findFiberByName: findFiberByNameImpl,

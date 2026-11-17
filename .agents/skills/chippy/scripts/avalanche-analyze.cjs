@@ -32,16 +32,16 @@ var round = (value) => Math.round(value * 10) / 10;
 function commitAnchors(commitTimings) {
   const anchors = [];
   for (const [id, timing] of Object.entries(commitTimings ?? {})) {
-    const commitStart = Number(timing?.startTime);
+    const commitStart2 = Number(timing?.startTime);
     const commitEnd = Number(timing?.endTime);
-    if (!Number.isFinite(commitStart) || !Number.isFinite(commitEnd)) continue;
+    if (!Number.isFinite(commitStart2) || !Number.isFinite(commitEnd)) continue;
     const renderStart = Number(timing?.render?.renderStart);
-    const renderStartKnown = Number.isFinite(renderStart) && renderStart <= commitStart;
+    const renderStartKnown = Number.isFinite(renderStart) && renderStart <= commitStart2;
     anchors.push({
       commitId: Number(id),
-      renderStart: renderStartKnown ? renderStart : commitStart,
+      renderStart: renderStartKnown ? renderStart : commitStart2,
       renderStartKnown,
-      commitStart,
+      commitStart: commitStart2,
       commitEnd
     });
   }
@@ -159,6 +159,234 @@ function networkByCommit(report, windowMs) {
     if (inFlight > 0) entry(anchor.commitId).inFlight = inFlight;
   }
   return out;
+}
+
+// src/avalanche/timeline.ts
+var round2 = (n) => Math.round(n);
+function requestLabel(url) {
+  try {
+    const parsed = new URL(url, "http://local.invalid");
+    const op = parsed.searchParams.get("operation") || parsed.searchParams.get("operationName") || parsed.searchParams.get("opName");
+    if (op) return op;
+    const segments = parsed.pathname.split("/").filter((s) => s && !/^[0-9a-f]{16,}$/i.test(s) && !/^\d+$/.test(s));
+    const tail = segments.slice(-2).join("/") || parsed.pathname;
+    return parsed.host === "local.invalid" ? tail : parsed.host + " \u2026/" + tail;
+  } catch (_) {
+    return url.slice(0, 60);
+  }
+}
+function commitStart(report, id) {
+  const start = Number(report.commitTimings?.[String(id)]?.startTime);
+  return Number.isFinite(start) ? start : null;
+}
+function renderedCount(report, id) {
+  const fromStats = Number(report.commitStats?.[String(id)]?.[3] || 0);
+  if (fromStats > 0) return fromStats;
+  const list = report.renderedByCommit?.[String(id)];
+  return Array.isArray(list) ? list.length : 0;
+}
+function kindOf(events) {
+  const enters = events.some((e) => e.entered);
+  const leaves = events.some((e) => e.left);
+  return enters && leaves ? "swap" : enters ? "lock" : leaves ? "unlock" : "update";
+}
+function buildTimeline(report, options = {}) {
+  const ids = Object.keys(report.commitTimings ?? {}).map(Number).filter((id) => Number.isFinite(id) && commitStart(report, id) !== null).sort((a, b) => a - b);
+  if (ids.length === 0) return { ok: false, error: "report has no commit timings (report version 6 or later is required)" };
+  const startOf = (id) => commitStart(report, id);
+  const interactions = /* @__PURE__ */ new Map();
+  for (const list of Object.values(report.interactionsByCommit ?? {})) {
+    for (const item of list || []) {
+      const t = Number(item.timestamp);
+      if (!Number.isFinite(t)) continue;
+      const key = String(item.id ?? "") + "@" + t;
+      const dom = item.location?.dom;
+      const target = dom ? String(dom.nearestTestId || dom.text || dom.tag || "") || null : null;
+      if (!interactions.has(key)) interactions.set(key, { t, action: String(item.action || "input"), target });
+    }
+  }
+  const inputs = Array.from(interactions.values()).sort((a, b) => a.t - b.t);
+  const firstInput = inputs[0];
+  const fromCommit = options.fromCommit ?? (firstInput ? ids.find((id) => startOf(id) >= firstInput.t) ?? ids[0] : ids[0]);
+  const toCommit = options.toCommit ?? ids[ids.length - 1];
+  const windowIds = ids.filter((id) => id >= fromCommit && id <= toCommit);
+  if (windowIds.length === 0) return { ok: false, error: `no commits between ${fromCommit} and ${toCommit}` };
+  const windowStart = startOf(windowIds[0]);
+  const windowEnd = startOf(windowIds[windowIds.length - 1]);
+  const originInput = [...inputs].reverse().find((input2) => input2.t <= windowStart && windowStart - input2.t <= 5e3);
+  const origin = originInput ? originInput.t : windowStart;
+  const rel = (t) => round2(t - origin);
+  const input = inputs.filter((i) => i.t >= origin && i.t <= windowEnd).map((i) => ({ ...i, t: rel(i.t) }));
+  let exclude = null;
+  try {
+    exclude = options.exclude ? new RegExp(options.exclude, "i") : null;
+  } catch (_) {
+    exclude = null;
+  }
+  const minRequestMs = options.minRequestMs ?? 50;
+  const inWindow = (report.networkRequests ?? []).filter((r) => r.endTime >= origin && r.startTime <= windowEnd && !(exclude && exclude.test(r.url)));
+  const toRequest = (r) => ({
+    id: r.id,
+    label: requestLabel(r.url),
+    start: rel(r.startTime),
+    end: rel(r.endTime),
+    durationMs: round2(r.duration),
+    initiatorType: r.initiatorType,
+    cached: !!r.cached
+  });
+  const drawable = inWindow.filter((r) => r.duration >= minRequestMs);
+  const kept = [...drawable].sort((a, b) => b.duration - a.duration).slice(0, options.maxRequests ?? 30).sort((a, b) => a.startTime - b.startTime);
+  const network = kept.map(toRequest);
+  const open = /* @__PURE__ */ new Map();
+  const suspense = [];
+  for (const id of ids.filter((commit) => commit <= windowIds[windowIds.length - 1])) {
+    for (const event of report.suspenseByCommit?.[String(id)] ?? []) {
+      const depth = Number(event.depth);
+      if (!Number.isFinite(depth)) continue;
+      if (event.entered) open.set(depth, [...open.get(depth) || [], id]);
+      if (event.left) {
+        const enteredId = open.get(depth)?.shift();
+        if (enteredId === void 0) continue;
+        if (startOf(id) >= windowStart && startOf(enteredId) <= windowEnd) {
+          suspense.push({ depth, start: rel(startOf(enteredId)), end: rel(startOf(id)), enteredAt: enteredId, leftAt: id });
+        }
+      }
+    }
+  }
+  for (const [depth, stack] of open) {
+    for (const enteredId of stack) {
+      if (startOf(enteredId) <= windowEnd) suspense.push({ depth, start: rel(startOf(enteredId)), end: null, enteredAt: enteredId, leftAt: null });
+    }
+  }
+  suspense.sort((a, b) => a.start - b.start || a.depth - b.depth);
+  const allCommits = windowIds.map((id) => {
+    const events = report.suspenseByCommit?.[String(id)] ?? [];
+    const renderStart = Number(report.commitTimings?.[String(id)]?.render?.renderStart);
+    const sources = (report.sourcesByCommit?.[String(id)] ?? []).slice().sort((a, b) => Number(b.collateral || 0) - Number(a.collateral || 0)).map((s) => String(s.sourceId || "").split("#")[0]).filter(Boolean);
+    return {
+      commitId: id,
+      t: rel(startOf(id)),
+      renderStart: Number.isFinite(renderStart) && renderStart <= startOf(id) ? rel(renderStart) : null,
+      rendered: renderedCount(report, id),
+      kind: kindOf(events),
+      suspense: events.map((e) => (e.entered ? "enter" : "leave") + "@" + e.depth),
+      sources: Array.from(new Set(sources)).slice(0, 2)
+    };
+  });
+  const updates = allCommits.filter((c) => c.kind === "update");
+  const topUpdates = new Set([...updates].filter((c) => c.rendered > 0).sort((a, b) => b.rendered - a.rendered).slice(0, options.maxCommits ?? 25).map((c) => c.commitId));
+  const commits = allCommits.filter((c) => c.kind !== "update" || topUpdates.has(c.commitId));
+  const sumUpdates = (list) => ({ commits: list.length, rendered: list.reduce((n, c) => n + c.rendered, 0) });
+  const allRequests = inWindow.map(toRequest);
+  const waits = suspense.map((s) => {
+    const until = s.end ?? rel(windowEnd);
+    const lastRequests = allRequests.filter((r) => r.end <= until && r.end >= s.start).sort((a, b) => b.end - a.end).slice(0, 3).map((r) => ({ label: r.label, end: r.end, gapMs: until - r.end }));
+    return {
+      depth: s.depth,
+      from: s.start,
+      until: s.end,
+      waitedMs: until - s.start,
+      lockedBy: s.enteredAt,
+      unlockedBy: s.leftAt,
+      lastRequests: s.end === null ? [] : lastRequests,
+      updatesDuring: sumUpdates(updates.filter((c) => c.t > s.start && c.t < until))
+    };
+  }).sort((a, b) => b.waitedMs - a.waitedMs);
+  const nextInput = input.find((i) => i.t > 0);
+  const ownWaits = suspense.filter((s) => !nextInput || s.start < nextInput.t);
+  const stillWaiting = ownWaits.filter((s) => s.end === null).map((s) => s.depth);
+  const unlocks = ownWaits.filter((s) => s.end !== null).map((s) => s.end);
+  const settledAt = stillWaiting.length === 0 && unlocks.length ? Math.max(...unlocks) : null;
+  const result = {
+    ok: true,
+    origin: { at: Math.round(origin * 10) / 10, kind: originInput ? "interaction" : "commit" },
+    window: { fromCommit: windowIds[0], toCommit: windowIds[windowIds.length - 1], start: rel(windowStart), end: rel(windowEnd) },
+    perceived: {
+      firstLockAt: suspense.length ? suspense[0].start : null,
+      settledAt,
+      stillWaiting,
+      waits,
+      updatesAfterSettled: sumUpdates(settledAt === null ? [] : updates.filter((c) => c.t > settledAt && (!nextInput || c.t < nextInput.t)))
+    },
+    lanes: { input, network, suspense, commits },
+    omitted: { requests: inWindow.length - kept.length, commits: allCommits.length - commits.length },
+    mermaid: "",
+    text: ""
+  };
+  result.mermaid = renderMermaid(result);
+  result.text = renderText(result);
+  return result;
+}
+var safe = (s) => s.replace(/[:#;]/g, " ").replace(/\s+/g, " ").trim();
+function renderMermaid(result) {
+  const { input, network, suspense, commits } = result.lanes;
+  const end = result.window.end;
+  const slow = new Set([...network].sort((a, b) => b.durationMs - a.durationMs).slice(0, 3).map((r) => r.id));
+  const updates = commits.filter((c) => c.kind === "update");
+  const heavy = new Set([...updates].sort((a, b) => b.rendered - a.rendered).slice(0, 3).filter((c) => c.rendered > 0).map((c) => c.commitId));
+  const bar = (start, stop) => `${start}, ${Math.max(stop, start + 1)}`;
+  const lines = [
+    "gantt",
+    `  title Commits ${result.window.fromCommit}\u2013${result.window.toCommit}, ms from ${result.origin.kind === "interaction" ? "the interaction" : "the first commit"}`,
+    "  dateFormat x",
+    "  axisFormat %S.%L"
+  ];
+  if (input.length) {
+    lines.push("  section Input");
+    input.forEach((i, n) => lines.push(`  ${safe(i.action + (i.target ? " " + i.target : ""))} :milestone, in${n}, ${i.t}, ${i.t}`));
+  }
+  if (network.length) {
+    lines.push("  section Network");
+    for (const r of network) lines.push(`  ${safe(r.label)} ${r.durationMs}ms :${slow.has(r.id) ? "crit, " : ""}net${r.id}, ${bar(r.start, r.end)}`);
+  }
+  if (suspense.length) {
+    lines.push("  section User waits (fallback shown)");
+    suspense.forEach((s, n) => {
+      const stop = s.end ?? end;
+      const label = s.end === null ? "still waiting" : `${stop - s.start}ms`;
+      lines.push(`  @${s.depth} ${label} :${s.end === null ? "active" : "crit"}, sus${n}, ${bar(s.start, stop)}`);
+    });
+  }
+  const screen = commits.filter((c) => c.kind !== "update");
+  if (screen.length) {
+    lines.push("  section Screen (lock or unlock)");
+    for (const c of screen) lines.push(`  c${c.commitId} ${c.kind} ${safe(c.suspense.join(" "))} :milestone, c${c.commitId}, ${c.t}, ${c.t}`);
+  }
+  if (updates.length) {
+    lines.push("  section Updates (CPU, no Suspense change)");
+    for (const c of updates) {
+      const what = safe(c.sources.join(", "));
+      const span = c.renderStart === null ? `milestone, c${c.commitId}, ${c.t}, ${c.t}` : `c${c.commitId}, ${bar(c.renderStart, c.t)}`;
+      lines.push(`  c${c.commitId} ${c.rendered} rendered${what ? " " + what : ""} :${heavy.has(c.commitId) ? "crit, " : ""}${span}`);
+    }
+  }
+  return lines.join("\n");
+}
+function renderText(result) {
+  const p = result.perceived;
+  const header = [];
+  if (p.waits.length === 0) header.push("No Suspense fallback was shown in this window.");
+  else {
+    header.push(p.settledAt !== null ? `Fallbacks first shown at +${p.firstLockAt}, all cleared at +${p.settledAt}; ${p.updatesAfterSettled.commits} updates (${p.updatesAfterSettled.rendered} rendered) ran after that, before the next input.` : `Fallbacks first shown at +${p.firstLockAt}; still waiting at the end: @${p.stillWaiting.join(", @")}.`);
+    for (const w of p.waits.slice(0, 5)) {
+      const last = w.lastRequests[0];
+      header.push(`  wait @${w.depth} ${w.waitedMs}ms (+${w.from} \u2192 ${w.until === null ? "end" : "+" + w.until}), ${w.updatesDuring.commits} updates (${w.updatesDuring.rendered} rendered) meanwhile` + (last ? `, last request before unlock: ${last.label} (+${last.end}, ${last.gapMs}ms before)` : ""));
+    }
+  }
+  const rows = [];
+  for (const i of result.lanes.input) rows.push({ t: i.t, lane: "input", text: i.action + (i.target ? " " + i.target : "") });
+  for (const r of result.lanes.network) rows.push({ t: r.start, lane: "net", text: `${r.label}  \u2192 +${r.end} (${r.durationMs}ms${r.cached ? ", cached" : ""})` });
+  for (const s of result.lanes.suspense) {
+    rows.push({ t: s.start, lane: "wait", text: `fallback @${s.depth} ` + (s.end === null ? "still shown at the end" : `until +${s.end} (${s.end - s.start}ms, c${s.enteredAt}\u2192c${s.leftAt})`) });
+  }
+  for (const c of result.lanes.commits) {
+    const lane = c.kind === "update" ? "react" : "SCRN";
+    rows.push({ t: c.t, lane, text: `c${c.commitId} ${c.kind === "update" ? "" : c.kind + " "}${c.rendered} rendered${c.sources.length ? " \xB7 " + c.sources.join(", ") : ""}${c.suspense.length ? " \xB7 " + c.suspense.join(" ") : ""}` });
+  }
+  const order = { input: 0, net: 1, wait: 2, SCRN: 3, react: 4 };
+  rows.sort((a, b) => a.t - b.t || order[a.lane] - order[b.lane]);
+  const width = Math.max(...rows.map((r) => String(r.t).length), 1);
+  return [...header, "", ...rows.map((r) => `+${String(r.t).padStart(width)}  ${r.lane.padEnd(5)}  ${r.text}`)].join("\n");
 }
 
 // src/chippy-bridge/avalanche-commands.ts
@@ -499,6 +727,22 @@ function evalAvalanche(command, api, mod) {
         if ("error" in view) return { ok: false, available: true, action, error: view.error, ...view.validBy && { validBy: [...view.validBy] } };
         return { ok: true, available: true, action, payload: view.payload };
       }
+      case "timeline": {
+        const r = getReport(api);
+        if (!r || "error" in r) {
+          return { ok: false, available: true, action, error: r && "error" in r ? r.error : "report() unavailable" };
+        }
+        const timeline = buildTimeline(r.serial, {
+          fromCommit: command?.fromCommit,
+          toCommit: command?.toCommit,
+          minRequestMs: command?.minRequestMs,
+          maxRequests: command?.top,
+          exclude: command?.exclude
+        });
+        if ("error" in timeline) return { ok: false, available: true, action, error: timeline.error };
+        const { ok: _ok, lanes, ...rest } = timeline;
+        return { ok: true, available: true, action, payload: command?.format === "full" ? { ...rest, lanes } : rest };
+      }
       // Removed: start, stop, metrics, help — not present on the current public surface.
       default:
         return { ok: false, available: true, action, error: "Unknown avalanche action: " + action };
@@ -636,6 +880,18 @@ function analyzeSavedReport(report, command, args) {
         window: number("window", 4)
       });
     }
+    case "timeline": {
+      const exclude = args.exclude ?? positional[3];
+      return dispatch(report, {
+        action: "timeline",
+        fromCommit: number("fromCommit", 0),
+        toCommit: number("toCommit", 1),
+        minRequestMs: number("minRequestMs", 2),
+        top: number("top", 99),
+        ...typeof exclude === "string" && exclude && { exclude },
+        ...typeof args.format === "string" && { format: args.format }
+      });
+    }
     case "source-search": {
       const name = args.name ?? positional[0];
       if (typeof name !== "string" || !name) return { ok: false, action: "source-search", error: "source-search requires --name <regex>" };
@@ -657,6 +913,8 @@ Commands:
   describe-action <actionId>
   network       [top] [by] [match] [initiators] [windowMs]
                 (--top N --by start|end|duration --match regex --initiators csv --window ms)
+  timeline      [fromCommit] [toCommit] [minRequestMs] [exclude]
+                (--fromCommit N --toCommit N --minRequestMs ms --top N --exclude regex --format full)
   source-search --name <regex> [--top N]
 
 commit-list sort keys: collateral sources restarts performedWork effects memos
