@@ -33,6 +33,7 @@
  * gone, so it carries evidence and summaries rather than live object identity.
  */
 
+import type { RenderedEvidenceStatus } from './rendered-evidence-store';
 import type { AvalancheHookResult } from './avalanche-hooks';
 import type { CommitMetricsDelta, IntegrationMode } from './commit-metrics-adapter';
 import type { InputEventDetails } from './input-details';
@@ -131,6 +132,8 @@ export interface ReportMetaDTO {
   renderTicks?: { available: boolean; sources: string[]; reason: string | null };
   /** Resource Timing capture behind `networkRequests`. Absent before report v8. */
   network?: NetworkCaptureStatus;
+  /** `renderedByCommit` budget and what it dropped. Absent before the budget existed. */
+  renderedEvidence?: RenderedEvidenceStatus;
   amplifiersMetrics?: {
     totalHookThrashes: number;
     affectedComponentCount: number;

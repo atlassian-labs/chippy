@@ -3,6 +3,7 @@
 
 // src/avalanche/offline-cli.ts
 var import_node_fs = require("node:fs");
+var import_node_zlib = require("node:zlib");
 
 // src/avalanche/avalanche-hooks.ts
 function summarizeHookResults(results) {
@@ -859,6 +860,8 @@ function evalAvalanche(command, api, mod) {
         if (include.includes("rendered")) {
           out.rendered = rendered.slice(0, maxItems);
           out.renderedTotal = rendered.length;
+          const evicted = ser.meta?.renderedEvidence?.evicted;
+          if (!rendered.length && evicted && Number(evicted.throughCommit) >= commitId) out.renderedEvicted = true;
         }
         if (include.includes("network")) {
           out.network = compactNetwork(networkByCommit(ser, command?.window).get(commitId), maxItems);
@@ -1197,6 +1200,11 @@ function parseJson(text, label) {
     return fail(`invalid JSON in ${label}: ${error.message}`);
   }
 }
+function readSaved(file) {
+  const bytes = (0, import_node_fs.readFileSync)(file);
+  const gzipped = bytes.length > 2 && bytes[0] === 31 && bytes[1] === 139;
+  return (gzipped ? (0, import_node_zlib.gunzipSync)(bytes) : bytes).toString("utf8");
+}
 function main(argv) {
   if (!argv.length || argv[0] === "-h" || argv[0] === "--help") {
     process.stdout.write(USAGE);
@@ -1216,15 +1224,18 @@ function main(argv) {
     if (!report2) fail("response has no Avalanche export (expected meta and commitStats); check avalanche-status");
     const trimmed = keepLastCommits(report2, Number(argv[1]) || 0);
     const text = JSON.stringify(trimmed);
-    (0, import_node_fs.writeFileSync)(out, text);
+    const data = out.endsWith(".gz") ? (0, import_node_zlib.gzipSync)(text, { level: 1 }) : text;
+    (0, import_node_fs.writeFileSync)(out, data);
     const commits = Object.keys(trimmed.commitStats || {}).length;
-    process.stdout.write(`${JSON.stringify({ ok: true, file: out, bytes: Buffer.byteLength(text), commits })}
+    const jsonBytes = Buffer.byteLength(text);
+    const bytes = typeof data === "string" ? jsonBytes : data.length;
+    process.stdout.write(`${JSON.stringify({ ok: true, file: out, bytes, ...bytes !== jsonBytes && { jsonBytes }, commits })}
 `);
     return;
   }
   const [file, command, ...rest] = argv;
   if (!command) fail("command missing");
-  const report = unwrapSavedReport(parseJson((0, import_node_fs.readFileSync)(file, "utf8"), file));
+  const report = unwrapSavedReport(parseJson(readSaved(file), file));
   if (!report) fail(`${file} is not an Avalanche export (expected meta and commitStats)`);
   const result = analyzeSavedReport(report, command, parseArgs(rest));
   process.stdout.write(`${JSON.stringify(result, null, 2)}

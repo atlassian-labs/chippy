@@ -128,11 +128,11 @@ Always surface `key` when present.
 
 Prefer the `avalanche-*` shell commands. Read the page global directly only when the helper cannot reach the page, for example right after a reload in [mode-a-injection](mode-a-injection.md).
 
-- `status()` — `{ installed, hasMetricsGlobal, commitCount, integrationMode, metricsAdapter, networkRequests, packs, hooks }`; each pack entry is `{ id, label, instructions, extensions: [{ name, reportKey, scripts }], compileErrors, initErrors }`
+- `status()` — `{ installed, hasMetricsGlobal, commitCount, integrationMode, metricsAdapter, networkRequests, renderedEvidence, packs, hooks }`; `renderedEvidence` is the `renderedByCommit` entry budget and what it dropped (null before install); each pack entry is `{ id, label, instructions, extensions: [{ name, reportKey, scripts }], compileErrors, initErrors }`
 - `registerPack(pack)`, `unregisterPack(id)`, `listPacks()` — load a JSON pack into the current page; a pack loaded during a recording steps from the next commit without `onStart`, so `reset()` first for a full run; each of a pack's `avalancheExtensions` reports under `hooks["<pack id>.<extension name>"]`
 - `exportLast(n?)` — same as `report()` with every source included; `n` currently has no effect. Use `chippy.sh avalanche-save <clientId> <file> N` to keep only the last N commits
 - `report(topN?, sortBy?)` — live report; `topN` defaults to 10 and `sortBy` is `effect` (default), `callback`, `memo`, or `total`
-- `install(options?)`, `uninstall()`, `reset()` — with no options, non-development builds install `amplifiers` mode with `historySize: 1` and no fiber capture; `avalanche-install` sets its own options
+- `install(options?)`, `uninstall()`, `reset()` — with no options, non-development builds install `amplifiers` mode with `historySize: 1` and no fiber capture; `avalanche-install` sets its own options. `maxRenderedEntries` (default 250,000) bounds `renderedByCommit`; the oldest commits' rendered evidence is dropped past it
 - `enablePlugins(ids)`, `listPlugins()` — see [React compatibility](../SKILL.md#react-compatibility) in `SKILL.md`
 
 Before `install`, `report`, `exportLast`, and `debugHook` return `{ ok: false, error: 'not installed' }`.

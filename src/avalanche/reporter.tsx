@@ -5,6 +5,7 @@
  * ordering, so presentation changes do not alter hot-path collection.
  */
 
+import type { RenderedEvidenceStatus } from './rendered-evidence-store';
 import type { ComponentType, ChangedHook, Fiber, ThrashInfo } from './internals';
 import { CS_RESTARTS } from './commit-stats-indices';
 import type { CommitTicks, RenderTickStatus } from './render-ticks';
@@ -288,6 +289,11 @@ export interface ReportMeta {
    * supports it, when the window opened, and what was dropped or excluded.
    */
   network: NetworkCaptureStatus;
+  /**
+   * `renderedByCommit` budget and what it dropped. `evicted.throughCommit`:
+   * commits up to it may have lost their rendered evidence.
+   */
+  renderedEvidence?: RenderedEvidenceStatus;
   /** Amplifier summary (when detectionMode: 'amplifierMetrics') */
   amplifiersMetrics?: {
     totalHookThrashes: number;
@@ -536,6 +542,13 @@ export interface DetectorOptions {
     | false;
 
   historySize?: number;
+
+  /**
+   * Most `renderedByCommit` entries (one per rendered component per commit)
+   * the capture holds. Past it, the oldest commits' rendered evidence is
+   * dropped and reported in `meta.renderedEvidence.evicted`. Default 250,000.
+   */
+  maxRenderedEntries?: number;
 
   /**
    * Browser action capture level. Defaults to 'explicit' to capture high-signal
@@ -796,6 +809,7 @@ export function buildReport(
     renderTicks?: RenderTickStatus;
     /** Network capture status from the detector. */
     network?: NetworkCaptureStatus;
+    renderedEvidence?: RenderedEvidenceStatus;
   }
 ): Report {
   const { minCollateral = 1 } = options;
@@ -1049,6 +1063,7 @@ export function buildReport(
       ticks: renderTicks.available,
     },
     renderTicks,
+    ...(detectorConfig?.renderedEvidence && { renderedEvidence: detectorConfig.renderedEvidence }),
     network: detectorConfig?.network
       ?? { supported: false, enabled: false, windowStart: 0, requests: 0, dropped: 0, ignoredOwn: 0 },
     timing: {

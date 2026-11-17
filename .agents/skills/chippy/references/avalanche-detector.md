@@ -86,7 +86,7 @@ Use `reload-with-avalanche` only for initial-load profiling. Runtime performance
 ```bash
 chippy.sh avalanche-status my-client
 ```
-Look for `installed`, `hasMetricsGlobal`, `commitCount`.
+Look for `installed`, `hasMetricsGlobal`, `commitCount`. `renderedEvidence` is `{ maxEntries, entries, commits, evicted }`: the capture holds at most `maxEntries` `renderedByCommit` entries (default 250,000). Past it, the oldest commits' rendered evidence is dropped and `evicted` is `{ commits, entries, throughCommit }`; their stats, sources, and timings stay. To keep a long interaction's rendered evidence whole, `avalanche-clear` before reproducing it, or save before `evicted` appears.
 
 ### `reload-with-avalanche <clientId> <origin> [maxCommits] [timeoutMs] [settleMs] [captureFibers] [detectionMode]`
 ```bash
@@ -233,8 +233,9 @@ Full JSON export from live page. `lastN` does not trim the payload; to keep the 
 ```bash
 chippy.sh avalanche-save my-client .chippy-captures/raf-1846.json
 chippy.sh avalanche-save my-client .chippy-captures/last-50.json 50
+chippy.sh avalanche-save my-client .chippy-captures/run.json.gz
 ```
-Save once. Analyze offline many times. `count=0` or omitted saves the full export; `count=N` saves the last N commits. The save waits up to 60 seconds for the page, rather than the 5-second default of other commands, so a large capture completes.
+Save once. Analyze offline many times. A path ending in `.gz` is written gzip-compressed, and `avalanche-offline` reads it the same way; the response then adds `jsonBytes`, the uncompressed size. Use it for large captures: a full re-render of a few thousand components exports several MB of JSON, which compresses many times over. `count=0` or omitted saves the full export; `count=N` saves the last N commits. The save waits up to 60 seconds for the page, rather than the 5-second default of other commands, so a large capture completes.
 
 Expected success response:
 ```json
@@ -432,6 +433,8 @@ PropValueSummary = {               // bounded, no deep clone
   sample?:    unknown[]
 }
 ```
+
+`renderedByCommit` is bounded by the capture's entry budget (see `avalanche-status`). A commit whose evidence was dropped has no entry; `commit-peek ... rendered` then returns `rendered: []` with `renderedEvicted: true`, and `meta.renderedEvidence.evicted` records the dropped range.
 
 Changed hook dependencies are not on rendered entries. Read them from `commit-peek N sources`: each source row carries `trashers: [{ index, prevValue, currentValue }]` when the detection mode records amplifiers.
 

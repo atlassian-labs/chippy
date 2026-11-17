@@ -2,7 +2,10 @@
 //   avalanche-analyze.cjs <file> <command> [args]   analyze a saved export
 //   avalanche-analyze.cjs normalize [count] < resp  unwrap a helper export response
 //   avalanche-analyze.cjs save <count> <file> < resp  unwrap and write it, print {ok,file,bytes,commits}
+// A save file ending in `.gz` is written gzip-compressed; any file starting
+// with the gzip magic bytes is decompressed on read.
 import { readFileSync, writeFileSync } from 'node:fs';
+import { gunzipSync, gzipSync } from 'node:zlib';
 import { analyzeSavedReport, keepLastCommits, unwrapSavedReport } from './offline';
 
 const USAGE = `Usage: avalanche-analyze.cjs <file> <command> [args]
@@ -50,6 +53,12 @@ function parseJson(text: string, label: string) {
   }
 }
 
+function readSaved(file: string): string {
+  const bytes = readFileSync(file);
+  const gzipped = bytes.length > 2 && bytes[0] === 0x1f && bytes[1] === 0x8b;
+  return (gzipped ? gunzipSync(bytes) : bytes).toString('utf8');
+}
+
 function main(argv: string[]) {
   if (!argv.length || argv[0] === '-h' || argv[0] === '--help') {
     process.stdout.write(USAGE);
@@ -71,14 +80,19 @@ function main(argv: string[]) {
     if (!report) fail('response has no Avalanche export (expected meta and commitStats); check avalanche-status');
     const trimmed = keepLastCommits(report, Number(argv[1]) || 0) as { commitStats?: object };
     const text = JSON.stringify(trimmed);
-    writeFileSync(out, text);
+    // The export repeats the same field names and summaries per rendered
+    // component, so gzip at the fastest level already shrinks it many times.
+    const data = out.endsWith('.gz') ? gzipSync(text, { level: 1 }) : text;
+    writeFileSync(out, data);
     const commits = Object.keys(trimmed.commitStats || {}).length;
-    process.stdout.write(`${JSON.stringify({ ok: true, file: out, bytes: Buffer.byteLength(text), commits })}\n`);
+    const jsonBytes = Buffer.byteLength(text);
+    const bytes = typeof data === 'string' ? jsonBytes : data.length;
+    process.stdout.write(`${JSON.stringify({ ok: true, file: out, bytes, ...(bytes !== jsonBytes && { jsonBytes }), commits })}\n`);
     return;
   }
   const [file, command, ...rest] = argv;
   if (!command) fail('command missing');
-  const report = unwrapSavedReport(parseJson(readFileSync(file, 'utf8'), file));
+  const report = unwrapSavedReport(parseJson(readSaved(file), file));
   if (!report) fail(`${file} is not an Avalanche export (expected meta and commitStats)`);
   const result = analyzeSavedReport(report, command, parseArgs(rest));
   process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);

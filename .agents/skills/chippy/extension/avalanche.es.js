@@ -1667,6 +1667,7 @@ function buildReport(state2, thrashMode, topN, sortBy, options = {}, detectorCon
       ticks: renderTicks.available
     },
     renderTicks,
+    ...(detectorConfig == null ? void 0 : detectorConfig.renderedEvidence) && { renderedEvidence: detectorConfig.renderedEvidence },
     network: (detectorConfig == null ? void 0 : detectorConfig.network) ?? { supported: false, enabled: false, windowStart: 0, requests: 0, dropped: 0, ignoredOwn: 0 },
     timing: {
       totalDetectorOverhead,
@@ -3409,6 +3410,51 @@ function createRenderTickTracker(options = {}) {
     }
   };
 }
+const DEFAULT_MAX_RENDERED_ENTRIES = 25e4;
+function createRenderedEvidenceStore(byCommit, maxEntries = DEFAULT_MAX_RENDERED_ENTRIES) {
+  const budget = Number.isFinite(maxEntries) && maxEntries > 0 ? Math.floor(maxEntries) : DEFAULT_MAX_RENDERED_ENTRIES;
+  let order = [];
+  let head = 0;
+  let entries = 0;
+  let evicted = null;
+  function add(commitId, list) {
+    var _a2;
+    const previous = byCommit[commitId];
+    if (previous) entries -= previous.length;
+    else order.push(commitId);
+    byCommit[commitId] = list;
+    entries += list.length;
+    while (entries > budget && order.length - head > 1) {
+      const oldest = order[head++];
+      const dropped = ((_a2 = byCommit[oldest]) == null ? void 0 : _a2.length) ?? 0;
+      delete byCommit[oldest];
+      entries -= dropped;
+      evicted = {
+        commits: ((evicted == null ? void 0 : evicted.commits) ?? 0) + 1,
+        entries: ((evicted == null ? void 0 : evicted.entries) ?? 0) + dropped,
+        throughCommit: Math.max((evicted == null ? void 0 : evicted.throughCommit) ?? oldest, oldest)
+      };
+    }
+    if (head > 1024 && head * 2 > order.length) {
+      order = order.slice(head);
+      head = 0;
+    }
+  }
+  function reset() {
+    for (const key of Object.keys(byCommit)) delete byCommit[Number(key)];
+    order = [];
+    head = 0;
+    entries = 0;
+    evicted = null;
+  }
+  function status() {
+    return { maxEntries: budget, entries, commits: order.length - head, evicted: evicted && { ...evicted } };
+  }
+  function inEvictedRange(commitId) {
+    return !!evicted && commitId <= evicted.throughCommit && byCommit[commitId] === void 0;
+  }
+  return { add, reset, status, inEvictedRange };
+}
 var __defProp = Object.defineProperty;
 var __defNormalProp = (obj, key, value) => key in obj ? __defProp(obj, key, { enumerable: true, configurable: true, writable: true, value }) : obj[key] = value;
 var __publicField = (obj, key, value) => __defNormalProp(obj, typeof key !== "symbol" ? key + "" : key, value);
@@ -3422,7 +3468,8 @@ function createAvalancheDetector(options = {}) {
     effectThrashMode = "non-primitive",
     captureFibers = isDevelopment(),
     detectionMode = "amplifiers",
-    historySize = 1
+    historySize = 1,
+    maxRenderedEntries = DEFAULT_MAX_RENDERED_ENTRIES
   } = options;
   const mode = detectionMode;
   let metricsAdapter = null;
@@ -3586,6 +3633,7 @@ function createAvalancheDetector(options = {}) {
     screenByCommit: screenCapture.byCommit,
     renderedByCommit: {}
   };
+  const renderedEvidence = createRenderedEvidenceStore(state2.renderedByCommit, maxRenderedEntries);
   function trimHistoryToSize(updHistory, limit) {
     const keys = Object.keys(updHistory).map(Number).sort((a, b) => a - b);
     const keysToKeep = keys.slice(keys.length - limit);
@@ -4183,7 +4231,7 @@ function createAvalancheDetector(options = {}) {
       state2.suspenseByCommit[state2.commits] = perCommit.suspenseEvents;
     }
     if (perCommit.rendered.length > 0) {
-      state2.renderedByCommit[state2.commits] = perCommit.rendered;
+      renderedEvidence.add(state2.commits, perCommit.rendered);
     }
     state2.commitStats[state2.commits] = [
       perCommit.totalCollateral,
@@ -4231,9 +4279,7 @@ function createAvalancheDetector(options = {}) {
     for (const key of Object.keys(state2.unmountsByCommit)) {
       delete state2.unmountsByCommit[Number(key)];
     }
-    for (const key of Object.keys(state2.renderedByCommit)) {
-      delete state2.renderedByCommit[Number(key)];
-    }
+    renderedEvidence.reset();
     interactionCapture.reset();
     networkCapture.reset();
     screenCapture.reset();
@@ -4641,7 +4687,8 @@ function createAvalancheDetector(options = {}) {
         detectionLevel,
         integrationMode,
         renderTicks: renderTicks.status(),
-        network: networkCapture.status()
+        network: networkCapture.status(),
+        renderedEvidence: renderedEvidence.status()
       });
       const hooks = hookRunner.collect();
       if (hooks) report.hooks = hooks;
@@ -4760,7 +4807,7 @@ function createAvalancheDetector(options = {}) {
     /** Commit and network request counts, without building a report. */
     counts() {
       networkCapture.flush();
-      return { commits: state2.commits, networkRequests: networkCapture.requests.length };
+      return { commits: state2.commits, networkRequests: networkCapture.requests.length, renderedEvidence: renderedEvidence.status() };
     }
   };
 }
@@ -7274,7 +7321,7 @@ function readAvalancheStatus(api2, mod) {
   }
 }
 function evalAvalanche(command, api2, mod) {
-  var _a2, _b2, _c2, _d2, _e2, _f, _g, _h, _i, _j, _k, _l, _m, _n, _o, _p;
+  var _a2, _b2, _c2, _d2, _e2, _f, _g, _h, _i, _j, _k, _l, _m, _n, _o, _p, _q, _r;
   const action = String((command == null ? void 0 : command.action) || "status");
   if (!api2) {
     return { ok: false, available: false, action, error: "__AVALANCHE__ not available" };
@@ -7422,13 +7469,15 @@ function evalAvalanche(command, api2, mod) {
         if (include.includes("rendered")) {
           out.rendered = rendered.slice(0, maxItems);
           out.renderedTotal = rendered.length;
+          const evicted = (_p = (_o = ser.meta) == null ? void 0 : _o.renderedEvidence) == null ? void 0 : _p.evicted;
+          if (!rendered.length && evicted && Number(evicted.throughCommit) >= commitId) out.renderedEvicted = true;
         }
         if (include.includes("network")) {
           out.network = compactNetwork(networkByCommit(ser, command == null ? void 0 : command.window).get(commitId), maxItems);
         }
         if (include.includes("unmounts")) {
           const raw = r.raw || {};
-          const samples = ((_o = raw.unmountsByCommit) == null ? void 0 : _o[commitId]) || ((_p = raw.unmountsByCommit) == null ? void 0 : _p[String(commitId)]) || null;
+          const samples = ((_q = raw.unmountsByCommit) == null ? void 0 : _q[commitId]) || ((_r = raw.unmountsByCommit) == null ? void 0 : _r[String(commitId)]) || null;
           out.unmounts = samples ? samples.slice(0, maxItems) : [];
           out.unmountsTotal = Array.isArray(samples) ? samples.length : 0;
         }
@@ -9463,9 +9512,10 @@ const api = {
     }
     let commitCount = 0;
     let networkRequests = 0;
+    let renderedEvidence = null;
     try {
       const counts = detector ? detector.counts() : null;
-      if (counts) ({ commits: commitCount, networkRequests } = counts);
+      if (counts) ({ commits: commitCount, networkRequests, renderedEvidence } = counts);
     } catch (_) {
     }
     const integrationMode = detector ? ((_b2 = detector.getIntegrationMode) == null ? void 0 : _b2.call(detector)) ?? "none" : "none";
@@ -9476,7 +9526,7 @@ const api = {
       hooks = summarizeHookResults(detector == null ? void 0 : detector.hookResults());
     } catch (_) {
     }
-    return { installed, hasMetricsGlobal, commitCount, integrationMode, metricsAdapter, networkRequests, packs: packs2, hooks };
+    return { installed, hasMetricsGlobal, commitCount, integrationMode, metricsAdapter, networkRequests, renderedEvidence, packs: packs2, hooks };
   },
   registerCommitMetricsAdapter,
   enablePlugins,

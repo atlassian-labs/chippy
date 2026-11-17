@@ -76,6 +76,7 @@ import { createAvalancheHookRunner, type AvalancheHookResult } from './avalanche
 import { createScreenCapture } from './screen-changes';
 import { describeSuspenseLocation } from './suspense-location';
 import { createRenderTickTracker } from './render-ticks';
+import { createRenderedEvidenceStore, DEFAULT_MAX_RENDERED_ENTRIES, type RenderedEvidenceStatus } from './rendered-evidence-store';
 import {
   CS_UNMOUNTED_COMPONENTS,
   CS_UNMOUNTED_SUBTREES,
@@ -97,6 +98,7 @@ export function createAvalancheDetector(options: DetectorOptions = {}) {
     captureFibers = isDevelopment(),
     detectionMode = isDevelopment() ? 'full' : 'amplifiers',
     historySize = isDevelopment() ? 10 : 1,
+    maxRenderedEntries = DEFAULT_MAX_RENDERED_ENTRIES,
   } = options;
 
   const mode = detectionMode;
@@ -441,6 +443,7 @@ export function createAvalancheDetector(options: DetectorOptions = {}) {
     screenByCommit: screenCapture.byCommit,
     renderedByCommit: {},
   };
+  const renderedEvidence = createRenderedEvidenceStore(state.renderedByCommit, maxRenderedEntries);
 
   // Helper: push to history and trim if needed (called in aggregation, not hot path)
   function _pushToHistory<T>(history: T[], item: T, limit: number): void {
@@ -1329,7 +1332,7 @@ export function createAvalancheDetector(options: DetectorOptions = {}) {
     }
 
     if (perCommit.rendered.length > 0) {
-      state.renderedByCommit[state.commits] = perCommit.rendered;
+      renderedEvidence.add(state.commits, perCommit.rendered);
     }
 
     // Store commitStats: [collateral, sources, restarts, performedWork, effects, memos, callbacks, contextUpdates, unmountedComponents, unmountedSubtrees]
@@ -1404,10 +1407,7 @@ export function createAvalancheDetector(options: DetectorOptions = {}) {
       delete state.unmountsByCommit[Number(key)];
     }
     // Clear rendered component evidence
-    for (const key of Object.keys(state.renderedByCommit)) {
-      // eslint-disable-next-line @typescript-eslint/no-dynamic-delete
-      delete state.renderedByCommit[Number(key)];
-    }
+    renderedEvidence.reset();
     interactionCapture.reset();
     networkCapture.reset();
     screenCapture.reset();
@@ -1928,6 +1928,7 @@ export function createAvalancheDetector(options: DetectorOptions = {}) {
         integrationMode,
         renderTicks: renderTicks.status(),
         network: networkCapture.status(),
+        renderedEvidence: renderedEvidence.status(),
       });
       const hooks = hookRunner.collect();
       if (hooks) report.hooks = hooks;
@@ -2057,9 +2058,9 @@ export function createAvalancheDetector(options: DetectorOptions = {}) {
     },
 
     /** Commit and network request counts, without building a report. */
-    counts(): { commits: number; networkRequests: number } {
+    counts(): { commits: number; networkRequests: number; renderedEvidence: RenderedEvidenceStatus } {
       networkCapture.flush();
-      return { commits: state.commits, networkRequests: networkCapture.requests.length };
+      return { commits: state.commits, networkRequests: networkCapture.requests.length, renderedEvidence: renderedEvidence.status() };
     },
   };
 }

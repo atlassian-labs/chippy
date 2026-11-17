@@ -8,6 +8,7 @@
  * bridge shim must not grow a second copy of a capability.
  */
 
+import type { RenderedEvidenceStatus } from './avalanche/rendered-evidence-store';
 import { createAvalancheDetector, DETECTION_LEVEL } from './avalanche/detector';
 import { type AvalancheHookSummary, summarizeHookResults } from './avalanche/avalanche-hooks';
 import {
@@ -238,6 +239,8 @@ type AvalancheApi = {
     metricsAdapter: string | null;
     /** Network requests captured so far (Resource Timing). */
     networkRequests: number;
+    /** `renderedByCommit` budget and what it dropped; null when not installed. */
+    renderedEvidence: RenderedEvidenceStatus | null;
     /** Loaded packs and how to read their data. */
     packs: Array<{ id: string; label: string; instructions: string | null; extensions: PackStatus['extensions']; compileErrors: string[]; initErrors: string[] }>;
     /** Pack extension results keyed by report key, without per-commit steps; null when none ran. */
@@ -397,10 +400,11 @@ const api: AvalancheApi = {
     try { hasMetricsGlobal = !!getCommitMetricsAdapter()?.isAvailable(); } catch (_) {}
     let commitCount = 0;
     let networkRequests = 0;
+    let renderedEvidence: RenderedEvidenceStatus | null = null;
     try {
       // Counting must not build and walk a full report.
       const counts = detector ? detector.counts() : null;
-      if (counts) ({ commits: commitCount, networkRequests } = counts);
+      if (counts) ({ commits: commitCount, networkRequests, renderedEvidence } = counts);
     } catch (_) {}
     const integrationMode = detector
       ? (detector as any).getIntegrationMode?.() ?? 'none'
@@ -412,7 +416,7 @@ const api: AvalancheApi = {
     const packs = listPacks().map(({ id, label, instructions, extensions, compileErrors, initErrors }) => ({ id, label, instructions, extensions, compileErrors, initErrors }));
     let hooks: Record<string, AvalancheHookSummary> | null = null;
     try { hooks = summarizeHookResults(detector?.hookResults()); } catch (_) {}
-    return { installed, hasMetricsGlobal, commitCount, integrationMode, metricsAdapter, networkRequests, packs, hooks };
+    return { installed, hasMetricsGlobal, commitCount, integrationMode, metricsAdapter, networkRequests, renderedEvidence, packs, hooks };
   },
   registerCommitMetricsAdapter,
   enablePlugins,

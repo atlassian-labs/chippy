@@ -26,6 +26,8 @@ export type AvalancheApiStatus = {
   metricsAdapter?: string | null;
   /** Network requests captured so far. Absent on bundles before network capture. */
   networkRequests?: number;
+  /** `renderedByCommit` budget and what it dropped. Absent on bundles before the budget. */
+  renderedEvidence?: { maxEntries: number; entries: number; commits: number; evicted: { commits: number; entries: number; throughCommit: number } | null } | null;
 };
 
 export type ReadStatusResult =
@@ -381,6 +383,10 @@ export function evalAvalanche(
         if (include.includes('rendered')) {
           out.rendered = rendered.slice(0, maxItems);
           out.renderedTotal = rendered.length;
+          // The capture's entry budget dropped the oldest commits' rendered evidence.
+          const evicted = (ser.meta as { renderedEvidence?: { evicted?: { throughCommit?: number } | null } } | undefined)
+            ?.renderedEvidence?.evicted;
+          if (!rendered.length && evicted && Number(evicted.throughCommit) >= commitId) out.renderedEvicted = true;
         }
         if (include.includes('network')) {
           out.network = compactNetwork(networkByCommit(ser, command?.window).get(commitId), maxItems);
