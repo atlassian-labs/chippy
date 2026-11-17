@@ -651,6 +651,7 @@
         at: Date.now(),
         helperBaseUrl: config.helperBaseUrl,
         plugins: Array.isArray(startup.plugins) ? startup.plugins : undefined,
+        packs: Array.isArray(startup.packs) ? startup.packs : undefined,
         avalanche: avalanche,
       }));
     } catch (e) {

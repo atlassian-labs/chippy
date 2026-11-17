@@ -24,6 +24,7 @@
     helperBaseUrl: handoff.helperBaseUrl,
     avalanche: handoff.avalanche,
     plugins: Array.isArray(handoff.plugins) ? handoff.plugins : undefined,
+    packs: Array.isArray(handoff.packs) ? handoff.packs : undefined,
     contextUiEnabled: true,
     startupSource: 'armed-reload-handoff',
   };

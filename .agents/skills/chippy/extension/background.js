@@ -75,7 +75,14 @@ async function ensureContentScript(tabId, frameId = 0) {
 }
 
 
-async function getStartupConfig(origin, helperBaseUrl, clientId, plugins) {
+// The panel keeps a library of packs and the ids switched on; only those load.
+function activePacks(stored) {
+  const library = Array.isArray(stored.packs) ? stored.packs : [];
+  const active = Array.isArray(stored.activePacks) ? stored.activePacks : [];
+  return library.filter((pack) => pack && active.includes(pack.id));
+}
+
+async function getStartupConfig(origin, helperBaseUrl, clientId, plugins, packs) {
   const helperBase = (helperBaseUrl || DEFAULT_HELPER).replace(/\/+$/, '');
   const config = {
     enabled: true,
@@ -83,6 +90,8 @@ async function getStartupConfig(origin, helperBaseUrl, clientId, plugins) {
     avalanche: null,
     // Plugins the user enabled in the panel settings, or the build's defaults.
     plugins: Array.isArray(plugins) ? plugins : [],
+    // Active packs: JSON component rules, Avalanche scripts, and agent instructions.
+    packs: Array.isArray(packs) ? packs : [],
     contextUiEnabled: true,
     integration: EXTENSION_INTEGRATION,
   };
@@ -323,12 +332,12 @@ chrome.webNavigation.onCommitted.addListener(async (details) => {
     }
     const origin = originOf(url);
     if (!origin) return;
-    const stored = await chrome.storage.local.get({ helperBaseUrl: DEFAULT_HELPER, enabledOrigins: {}, plugins: BUILD_DEFAULT_PLUGINS });
+    const stored = await chrome.storage.local.get({ helperBaseUrl: DEFAULT_HELPER, enabledOrigins: {}, plugins: BUILD_DEFAULT_PLUGINS, packs: [], activePacks: [] });
     if (!stored.enabledOrigins?.[origin]) return;
     // Armed captures keyed by client id belong to the top page; an iframe
     // follows the arm state of its own origin.
     const clientId = frameId === 0 ? await lookupClientIdForTab(tabId, stored.helperBaseUrl) : null;
-    const startupConfig = await getStartupConfig(origin, stored.helperBaseUrl, clientId, stored.plugins);
+    const startupConfig = await getStartupConfig(origin, stored.helperBaseUrl, clientId, stored.plugins, activePacks(stored));
     await injectEarlyStartup(tabId, startupConfig, frameId);
     if (startupConfig && startupConfig.avalanche && startupConfig.avalanche.autoStart) {
       try {
@@ -349,12 +358,12 @@ chrome.webNavigation.onCommitted.addListener(async (details) => {
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
   if (changeInfo.status !== 'complete' || !tab.url) return;
 
-  chrome.storage.local.get({ helperBaseUrl: DEFAULT_HELPER, enabledOrigins: {}, plugins: BUILD_DEFAULT_PLUGINS }, async (stored) => {
+  chrome.storage.local.get({ helperBaseUrl: DEFAULT_HELPER, enabledOrigins: {}, plugins: BUILD_DEFAULT_PLUGINS, packs: [], activePacks: [] }, async (stored) => {
     try {
       const origin = new URL(tab.url).origin;
       if (!stored.enabledOrigins?.[origin]) return;
       const clientId = await lookupClientIdForTab(tabId, stored.helperBaseUrl);
-      const startupConfig = await getStartupConfig(origin, stored.helperBaseUrl, clientId, stored.plugins);
+      const startupConfig = await getStartupConfig(origin, stored.helperBaseUrl, clientId, stored.plugins, activePacks(stored));
       const options = startupConfig.avalanche ? { avalanche: startupConfig.avalanche } : {};
       ensureAll(tabId, stored.helperBaseUrl, options).catch((e) => {
         console.warn(`[chippy-bg] late-inject failed for ${origin} in tab ${tabId}: ${e.message}`);

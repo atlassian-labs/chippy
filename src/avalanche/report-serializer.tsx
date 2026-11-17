@@ -33,6 +33,7 @@
  * gone, so it carries evidence and summaries rather than live object identity.
  */
 
+import type { AvalancheHookResult } from './avalanche-hooks';
 import type { CommitMetricsDelta, IntegrationMode } from './commit-metrics-adapter';
 import type { InputEventDetails } from './input-details';
 import type { NetworkCaptureStatus, NetworkRequest } from './network-capture';
@@ -286,6 +287,8 @@ export interface ReportDTO {
   networkRequests?: NetworkRequestDTO[];
   /** Screen area each commit changed. Absent when screen capture is off. */
   screenByCommit?: Record<number, ScreenChange>;
+  /** Plugin Avalanche hook results (packs), keyed by hook id. */
+  hooks?: Record<string, AvalancheHookResult>;
 }
 
 // ============================================================================
@@ -335,6 +338,7 @@ export function serializeReport(report: {
   commitTimings?: Record<number, CommitTimingDTO>;
   networkRequests?: NetworkRequestDTO[];
   screenByCommit?: Record<number, ScreenChange>;
+  hooks?: Record<string, AvalancheHookResult>;
 }): ReportDTO {
   // Just extract the fields we need - no conversion necessary
   const sources: SourceDTO[] = report.sources.map((source) => ({
@@ -395,5 +399,6 @@ export function serializeReport(report: {
     ...(report.commitTimings && { commitTimings: report.commitTimings }),
     ...(report.networkRequests && { networkRequests: report.networkRequests.map((request) => ({ ...request })) }),
     ...(report.screenByCommit && { screenByCommit: report.screenByCommit }),
+    ...(report.hooks && { hooks: report.hooks }),
   };
 }

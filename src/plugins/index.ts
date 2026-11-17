@@ -10,6 +10,7 @@
  * build can name defaults for pages that do neither.
  */
 
+import { type AvalancheHooks, registerAvalancheHooks } from '../avalanche/avalanche-hooks';
 import { type CommitMetricsAdapter, registerCommitMetricsAdapter } from '../avalanche/commit-metrics-adapter';
 import { type ContextProvider, registerContextProvider } from '../layout-lab/marker-context';
 import { atlCommitMetricsAdapter } from './atl/commit-metrics-adapter';
@@ -22,6 +23,9 @@ export type ChippyPlugin = {
   label?: string;
   contextProvider?: ContextProvider;
   commitMetricsAdapter?: CommitMetricsAdapter;
+  /** Per-recording callbacks whose results land in the Avalanche report under `hooks[<id>]`. */
+  /** One hook set, or several (for example a pack's named Avalanche extensions). */
+  avalancheHooks?: AvalancheHooks | AvalancheHooks[];
 };
 
 export type PluginStatus = { id: string; label: string; enabled: boolean };
@@ -37,9 +41,11 @@ const active = new Map<string, () => void>();
 let explicitSelection = false;
 
 function activate(plugin: ChippyPlugin): void {
+  const hookSets = plugin.avalancheHooks ? ([] as AvalancheHooks[]).concat(plugin.avalancheHooks) : [];
   const unregister = [
     plugin.contextProvider && registerContextProvider(plugin.contextProvider),
     plugin.commitMetricsAdapter && registerCommitMetricsAdapter(plugin.commitMetricsAdapter),
+    ...hookSets.map(registerAvalancheHooks),
   ].filter((fn): fn is () => void => typeof fn === 'function');
   active.set(plugin.id, () => {
     for (const fn of unregister.reverse()) fn();

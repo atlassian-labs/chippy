@@ -57,6 +57,7 @@ import {
   registerContextProvider,
 } from './layout-lab/marker-context';
 import { enableDefaultPlugins, enablePlugins, listPlugins, registerBuiltinPlugins, registerPlugin, selectPlugins } from './plugins';
+import { type PackLoadResult, type PackStatus, listPacks, registerPack, registerPacks, unregisterPack } from './plugins/pack';
 import {
   PROBE_INTENTS,
   normalizeProbeAnnotation,
@@ -110,6 +111,8 @@ import type { DescribeComponentDeps } from './chippy-bridge/describe-component';
 type StartupConfig = {
   /** Plugin ids to enable before React evaluates, e.g. `['jira', 'atl']`. */
   plugins?: string[];
+  /** Chippy packs (JSON) the extension stored; registered and enabled at load. */
+  packs?: unknown[];
   avalanche?: {
     autoStart?: boolean;
     /** Detector options applied when autoStart installs Avalanche. */
@@ -139,6 +142,10 @@ type GlobalWithChippyRuntime = typeof globalThis & {
   __CHIPPY_STARTUP_CONFIG?: StartupConfig;
   /** Plugin ids for pages that load the bundle without a startup config. */
   __CHIPPY_PLUGINS?: string[];
+  /** Chippy packs for pages that load the bundle without a startup config. */
+  __CHIPPY_PACKS?: unknown[];
+  /** Load result of every startup pack, including the invalid ones. */
+  __CHIPPY_PACK_RESULTS__?: PackLoadResult[];
   __REACT_DEVTOOLS_GLOBAL_HOOK__?: DevtoolsHook;
   top?: typeof globalThis & {
     __REACT_DEVTOOLS_GLOBAL_HOOK__?: DevtoolsHook;
@@ -163,6 +170,12 @@ registerBuiltinPlugins();
   const fromGlobal = runtime.__CHIPPY_PLUGINS;
   if (Array.isArray(fromConfig) || Array.isArray(fromGlobal)) {
     selectPlugins([...(fromConfig ?? []), ...(fromGlobal ?? [])]);
+  }
+  // Packs register after the built-ins, so a pack with a built-in id replaces it.
+  const packsFromConfig = runtime.__CHIPPY_STARTUP_CONFIG?.packs;
+  const packsFromGlobal = runtime.__CHIPPY_PACKS;
+  if (Array.isArray(packsFromConfig) || Array.isArray(packsFromGlobal)) {
+    runtime.__CHIPPY_PACK_RESULTS__ = registerPacks([...(packsFromConfig ?? []), ...(packsFromGlobal ?? [])]);
   }
 }
 
@@ -224,6 +237,8 @@ type AvalancheApi = {
     metricsAdapter: string | null;
     /** Network requests captured so far (Resource Timing). */
     networkRequests: number;
+    /** Loaded packs and how to read their data. */
+    packs: Array<{ id: string; label: string; instructions: string | null; extensions: PackStatus['extensions']; compileErrors: string[]; initErrors: string[] }>;
   };
   registerCommitMetricsAdapter: typeof registerCommitMetricsAdapter;
   /** Enable plugins by id (built-in: `'jira'`, `'atl'`); returns the running ids. */
@@ -233,6 +248,11 @@ type AvalancheApi = {
   /** Enable a packed build's defaults unless the page chose its own plugins. */
   enableDefaultPlugins: typeof enableDefaultPlugins;
   listPlugins: typeof listPlugins;
+  /** Register and enable a Chippy pack (JSON object or text); a same-id pack is replaced. */
+  registerPack: typeof registerPack;
+  unregisterPack: typeof unregisterPack;
+  /** Loaded packs with their agent instructions, kinds, scripts, and compile errors. */
+  listPacks: typeof listPacks;
   runPrePageHooks: typeof runPrePageHooks;
   DETECTION_LEVEL: typeof DETECTION_LEVEL;
   replay: {
@@ -385,13 +405,18 @@ const api: AvalancheApi = {
     const metricsAdapter = detector
       ? (detector as any).getMetricsAdapterId?.() ?? null
       : getCommitMetricsAdapter()?.id ?? null;
-    return { installed, hasMetricsGlobal, commitCount, integrationMode, metricsAdapter, networkRequests };
+    // Pack instructions ride on status so an agent reads them before the data.
+    const packs = listPacks().map(({ id, label, instructions, extensions, compileErrors, initErrors }) => ({ id, label, instructions, extensions, compileErrors, initErrors }));
+    return { installed, hasMetricsGlobal, commitCount, integrationMode, metricsAdapter, networkRequests, packs };
   },
   registerCommitMetricsAdapter,
   enablePlugins,
   registerPlugin,
   enableDefaultPlugins,
   listPlugins,
+  registerPack,
+  unregisterPack,
+  listPacks,
   runPrePageHooks,
   DETECTION_LEVEL,
   replay: {

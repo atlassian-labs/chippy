@@ -97,13 +97,71 @@ describe('Chippy embedded extension settings', () => {
     );
     await flushTasks();
 
-    expect(writes).toEqual([{ helperBaseUrl: 'http://127.0.0.1:9000', plugins: ['atl'] }]);
+    expect(writes).toEqual([{ helperBaseUrl: 'http://127.0.0.1:9000', plugins: ['atl'], packs: [], activePacks: [] }]);
     expect(commands).toEqual([{
       type: 'apply-config',
       helperBaseUrl: 'http://127.0.0.1:9000',
       activated: true,
     }]);
     expect(settingsRoot?.querySelector('[data-status]')?.textContent).toBe('Saved.');
+    dom.window.close();
+  });
+
+  it('keeps a library of packs, toggles which are active, and removes one', async () => {
+    const dom = new JSDOM('<!doctype html><html><body><div data-chippy-settings-slot></div></body></html>', {
+      url: 'https://example.test/page',
+      runScripts: 'outside-only',
+    });
+    const win = dom.window as unknown as Window & Record<string, any>;
+    let settingsRoot: ShadowRoot | null = null;
+    const attachShadow = win.Element.prototype.attachShadow;
+    win.Element.prototype.attachShadow = function captureClosedRoot(init: ShadowRootInit) {
+      settingsRoot = attachShadow.call(this, init);
+      return settingsRoot;
+    };
+    const writes: Array<Record<string, any>> = [];
+    win.chrome = {
+      storage: {
+        local: {
+          get: async () => ({ helperBaseUrl: 'http://127.0.0.1:7823', plugins: [], packs: [{ id: 'one', label: 'One' }], activePacks: ['one'] }),
+          set: async (value: Record<string, unknown>) => { writes.push(value); },
+        },
+      },
+    };
+    win.eval(SETTINGS_SOURCE);
+    await flushTasks();
+    const root = settingsRoot!;
+    const toggle = (id: string) => root.querySelector(`[data-pack][value="${id}"]`) as HTMLInputElement;
+    const submit = async () => {
+      (root.querySelector('form') as HTMLFormElement).dispatchEvent(new win.Event('submit', { bubbles: true, cancelable: true }));
+      await flushTasks();
+    };
+    expect(toggle('one').checked).toBe(true);
+
+    const input = root.querySelector('[data-pack-input]') as HTMLTextAreaElement;
+    input.value = '{"id": "Bad"}';
+    await submit();
+    expect(writes).toEqual([]);
+    expect(root.querySelector('[data-status]')?.getAttribute('data-error')).toBe('true');
+
+    input.value = JSON.stringify([{ id: 'two' }, { id: 'one', label: 'One v2' }]);
+    toggle('one').checked = false;
+    await submit();
+    // A re-added pack replaces the earlier copy and starts active.
+    expect(writes.at(-1)).toMatchObject({
+      packs: [{ id: 'two' }, { id: 'one', label: 'One v2' }],
+      activePacks: ['two', 'one'],
+    });
+    expect(input.value).toBe('');
+
+    toggle('two').checked = false;
+    await submit();
+    expect(writes.at(-1)).toMatchObject({ activePacks: ['one'] });
+
+    (root.querySelector('[data-remove-pack="one"]') as HTMLButtonElement).click();
+    await flushTasks();
+    expect(writes.at(-1)).toEqual({ packs: [{ id: 'two' }], activePacks: [] });
+    expect(toggle('one')).toBeNull();
     dom.window.close();
   });
 

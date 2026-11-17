@@ -110,6 +110,97 @@ import { atlCommitMetricsAdapter, registerCommitMetricsAdapter } from '@atlassia
 registerCommitMetricsAdapter(atlCommitMetricsAdapter);
 ```
 
+## Packs
+
+A pack adds product knowledge as data, not code: one JSON document that a
+product team keeps and shares itself, then loads into an installed Chippy.
+Chippy ships no product packs. A pack has four parts, all optional except `id`:
+
+| Field | Becomes |
+| --- | --- |
+| `id`, `label` | The plugin id and its label. A pack whose id matches a built-in plugin replaces it. |
+| `instructions` | Markdown for agents on how to read the pack's data. It appears in `status().packs` and in every report the pack contributes to. |
+| `components` | Component rules compiled into a context provider. |
+| `avalancheExtensions` | Named extensions, such as `{ "counters": { ... } }`. Each has its own optional `instructions`, an `onInit` script run once when the pack loads, and `onStart`, `onStep`, and `onEnd` script bodies run with each Avalanche recording. |
+
+```json
+{
+  "id": "regions",
+  "instructions": "A `region` boundary names the owning area; `teamName` is its owner. `hooks[\"regions.counters\"].steps[commitId]` is the change in `window.__APP_COUNTERS` during that commit.",
+  "components": [
+    {
+      "kind": "region",
+      "accent": "#0c66e4",
+      "match": { "names": ["RegionMark"], "pattern": "^Region___" },
+      "nameParts": { "separator": "___", "keys": ["marker", "name", "package"] },
+      "title": ["parts.name", "props.name", "name"],
+      "data": { "name": ["parts.name", "props.name"], "teamName": "props.teamName" },
+      "fields": [{ "label": "team", "value": "props.teamName" }]
+    },
+    {
+      "kind": "error",
+      "match": { "names": ["AppErrorBoundary"] },
+      "data": { "id": "props.id", "teamName": "props.teamName" }
+    }
+  ],
+  "avalancheExtensions": {
+    "counters": {
+      "onInit": "window.__APP_COUNTERS = window.__APP_COUNTERS || {};",
+      "onStart": "ctx.state.last = Object.assign({}, window.__APP_COUNTERS);",
+      "onStep": "var m = window.__APP_COUNTERS || {}, d = {}; for (var k in m) if (m[k] !== ctx.state.last[k]) d[k] = m[k] - (ctx.state.last[k] || 0); ctx.state.last = Object.assign({}, m); return d;"
+    }
+  }
+}
+```
+
+**Component rules.** Each rule matches the nearest component in the probed
+ancestry by exact `names` or a `pattern` regular expression. A rule of a new
+`kind` becomes that kind's boundary, with `distance`, `componentName`, and its
+`data`. A rule of kind `error` adds its `data` to the core error boundary
+instead; `showError` asks the probe card to show the error boundary. Values are
+references, or lists of references tried in order until one is non-empty:
+`name` (the display name), `props.<key>` (a scalar prop), or `parts.<key>` (a
+segment of the display name split by `nameParts`).
+
+**Initializing the page.** A pack must not expect the globals it reads to
+exist; `onInit` creates them. It runs once when the pack registers, with
+`ctx = { id }` (the extension's report key), before any recording. A pack loaded from the extension settings
+or the startup config registers before the page's own scripts run, so `onInit`
+can create a slot an instrumented renderer must find while it evaluates. A pack
+loaded later with `registerPack` initializes too late for that; reload the page.
+Write `onInit` to be idempotent, because the bundle can evaluate twice on one
+page, and to leave a global the host already owns alone. A throwing `onInit`
+is reported in `status().packs[].initErrors` as `"<report key>: <error>"`; the
+pack still loads.
+
+**Avalanche extensions.** Each extension is separate: it has its own `ctx.state`,
+errors, and report entry under `hooks["<pack id>.<extension name>"]`, so one pack
+can combine, for example, a counter reader and a slot initializer. Extension
+names match `/^[a-z][a-z0-9-]*$/`. An extension without `instructions` carries the
+pack's. Each recording script is a function body called with `ctx`:
+`ctx.state` lasts for one recording, `ctx.commits` counts captured commits, and
+in `onStep`, `ctx.commit` holds `{ id, components, startTime, endTime, root }`.
+Return values become report evidence under the extension's key: `start`,
+`steps[commitId]`, and `end`, next to its `instructions`. A throwing
+script is recorded in `errors` and never stops capture; an `onStep` that fails
+20 times stops for the rest of the recording. Scripts compile with
+`new Function`, so a page whose Content Security Policy forbids `unsafe-eval`
+reports the compile error in `status().packs[].compileErrors` and from each phase.
+
+**Loading packs.**
+
+| Route | When it applies |
+| --- | --- |
+| Paste into **Packs** in the Chippy panel's settings | From the next page load. The panel keeps several packs; switch each on or off, and only the active ones load. |
+| Set `window.__CHIPPY_PACKS = [pack]` before the bundle loads | Console import and custom builds |
+| `__CHIPPY_STARTUP_CONFIG.packs` | Hosts that write the startup config |
+| `__AVALANCHE__.registerPack(pack)`, `unregisterPack(id)`, `listPacks()` | Immediately, for the current page only. A pack loaded during a recording steps from the next commit without running `onStart`; reset the recording for a full run. |
+
+Packs loaded at startup that fail validation are listed in
+`window.__CHIPPY_PACK_RESULTS__`. A pack runs page script on every origin where
+Chippy is enabled, so load only packs you trust. The page cannot write packs
+into the extension's storage.
+
 ## Packing a custom build
 
 An organization can ship its own plugins, defaults, and documentation as a
