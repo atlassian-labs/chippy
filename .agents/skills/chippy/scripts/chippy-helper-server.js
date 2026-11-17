@@ -9,6 +9,7 @@ const {
   getPlaywrightAvailability,
   launchSession,
 } = require('../browser-scripts/playwright-session');
+const { createWsFrameReader } = require('./ws-frames');
 const { createProbeAnnotationChannel } = require('./probe-annotation-channel');
 const helperAccess = require('./helper-access');
 const pageSocketTrust = require('./page-socket-trust');
@@ -430,9 +431,14 @@ function detectionModeError(options) {
   return `detectionMode must be one of ${DETECTION_MODES.join(', ')} (got ${JSON.stringify(mode)})`;
 }
 
+// Responses up to this size are indented for reading; larger ones, such as a
+// full Avalanche export, are compact (indentation more than doubled them).
+const PRETTY_JSON_MAX_BYTES = 256 * 1024;
+
 function json(res, code, payload) {
   res.writeHead(code, { 'Content-Type': 'application/json; charset=utf-8', ...CORS_HEADERS });
-  res.end(JSON.stringify(payload, null, 2));
+  const compact = JSON.stringify(payload);
+  res.end(compact !== undefined && compact.length <= PRETTY_JSON_MAX_BYTES ? JSON.stringify(payload, null, 2) : compact);
 }
 
 function text(res, code, payload, contentType = 'text/plain; charset=utf-8') {
@@ -461,49 +467,6 @@ function wsSend(socket, payload, opcode = 0x1) {
   socket.write(Buffer.concat([header, body]));
 }
 
-function wsParseFrames(buffer, frag = {}) {
-  const messages = [];
-  let off = 0;
-  while (off + 2 <= buffer.length) {
-    const b0 = buffer[off], b1 = buffer[off + 1];
-    const fin = (b0 & 0x80) !== 0;
-    const opcode = b0 & 0x0f;
-    const masked = (b1 & 0x80) !== 0;
-    let pLen = b1 & 0x7f, hLen = 2;
-    if (pLen === 126) {
-      if (off + 4 > buffer.length) break;
-      pLen = buffer.readUInt16BE(off + 2); hLen = 4;
-    } else if (pLen === 127) {
-      if (off + 10 > buffer.length) break;
-      pLen = Number(buffer.readBigUInt64BE(off + 2)); hLen = 10;
-    }
-    const mLen = masked ? 4 : 0;
-    const total = hLen + mLen + pLen;
-    if (off + total > buffer.length) break;
-    const payload = Buffer.from(buffer.subarray(off + hLen + mLen, off + hLen + mLen + pLen));
-    if (masked) {
-      const mask = buffer.subarray(off + hLen, off + hLen + 4);
-      for (let i = 0; i < payload.length; i++) payload[i] ^= mask[i % 4];
-    }
-    off += total;
-
-    // Control frames (close/ping/pong) pass through directly
-    if (opcode === 0x8 || opcode === 0x9 || opcode === 0xA) {
-      messages.push({ opcode, payload });
-      continue;
-    }
-    // Data frame: start new or continue fragment
-    if (opcode !== 0) { frag.opcode = opcode; frag.chunks = [payload]; }
-    else if (frag.chunks) { frag.chunks.push(payload); }
-
-    if (fin && frag.chunks) {
-      const full = frag.chunks.length === 1 ? frag.chunks[0] : Buffer.concat(frag.chunks);
-      messages.push({ opcode: frag.opcode, payload: full });
-      frag.chunks = null; frag.opcode = null;
-    }
-  }
-  return { messages, remainder: buffer.subarray(off) };
-}
 
 // ─── Duplicate-page detection ─────────────────────────────────────────────────
 
@@ -893,16 +856,12 @@ function attachSocket(socket, socketOrigin) {
   };
   clients.set(id, client);
 
-  let buf = Buffer.alloc(0);
-  const frag = {};
+  const readFrames = createWsFrameReader();
 
   wsSend(socket, JSON.stringify({ type: 'connected', clientId: id, connectedAt: client.connectedAt }));
 
   socket.on('data', (chunk) => {
-    buf = Buffer.concat([buf, chunk]);
-    const { messages, remainder } = wsParseFrames(buf, frag);
-    buf = remainder;
-    for (const frame of messages) {
+    for (const frame of readFrames(chunk)) {
       if (frame.opcode === 0x8) { socket.end(); return; }
       if (frame.opcode === 0x9) { wsSend(socket, frame.payload, 0xA); continue; }
       if (frame.opcode !== 0x1) continue;

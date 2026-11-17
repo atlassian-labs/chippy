@@ -20,3 +20,16 @@ Implications for any environment that uses the bridge:
 - **Post-install capture tests** — for end-to-end Avalanche behavior on an injected page, pair a CONTROL test (trigger after install; it must capture) with a GAP test (trigger before install; it documents the boot-time limitation) for each fixture.
 - **Failure signature** — when the bridge module is missing, every shim returns its declared fallback shape, e.g. `{ count: 0, items: [], error: 'bridge module not loaded' }`. If a test sees this string, the cause is missing `avalanche.iife.js` injection, not a logic bug.
 - **Bundle source of truth** — never duplicate a function body in `chippy-page-bridge.js`. If a function needs to live in the bridge, write a one-line shim and put the implementation in `src/chippy-bridge/*` or `src/debug-render/*`. Run `yarn avalanche:sync` to rebuild + copy `dist/avalanche.iife.js` into the extension.
+
+## Measuring Chippy's own cost
+
+The `Avalanche/StressLab` story renders about 7,000 component fibers per full
+re-render. `bench/avalanche-stress.mjs` drives it in headless Chromium and
+reports click time with and without Avalanche, detector overhead per commit,
+page export size, and the time of `avalanche-export`, `avalanche-save`,
+`avalanche-commit-list`, and `avalanche-timeline`. It needs Storybook on 6007
+and the helper on 7823; set `PROFILE=1` for the top self-time functions.
+
+```bash
+OPENSSL_CONF=/dev/null node bench/avalanche-stress.mjs 15
+```

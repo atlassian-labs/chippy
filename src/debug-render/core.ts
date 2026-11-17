@@ -77,21 +77,23 @@ export type DebugRenderModule = {
 // Stack parsing — zero-loss. Caller decides what to filter.
 // ---------------------------------------------------------------------------
 
+function parseStackLine(line: string): StackFrame | null {
+  const m =
+    line.match(/^\s*at\s+([^\s(]+)\s*\(([^)]+)\)/) ||
+    line.match(/^\s*at\s+()(.+)$/);
+  if (!m) return null;
+  const name = (m[1] || '').trim();
+  const locRaw = (m[2] || '').trim();
+  const tail = locRaw.match(/:(\d+):(\d+)\)?$/);
+  const loc = tail ? `${tail[1]}:${tail[2]}` : locRaw;
+  return name ? { name, loc } : null;
+}
+
 export function parseStackFrames(stack: string): StackFrame[] {
   return stack
     .split('\n')
     .slice(1)
-    .map((line) => {
-      const m =
-        line.match(/^\s*at\s+([^\s(]+)\s*\(([^)]+)\)/) ||
-        line.match(/^\s*at\s+()(.+)$/);
-      if (!m) return null;
-      const name = (m[1] || '').trim();
-      const locRaw = (m[2] || '').trim();
-      const tail = locRaw.match(/:(\d+):(\d+)\)?$/);
-      const loc = tail ? `${tail[1]}:${tail[2]}` : locRaw;
-      return name ? { name, loc } : null;
-    })
+    .map(parseStackLine)
     .filter((f): f is StackFrame => !!f);
 }
 
@@ -201,6 +203,34 @@ export function deriveComponentName(frames: StackFrame[]): string {
   return 'Unknown';
 }
 
+const isWrapperFrame = (name: string) => name === 'atlDispatcherHook' || name.endsWith('.atlDispatcherHook');
+const isComponentFrame = (name: string) => !!name && !isReactInternalFrameName(name) && !isHookFrameName(name);
+
+/**
+ * `deriveComponentName(parseStackFrames(stack))`, reading only the frames it
+ * needs. The recorder runs on every hook call during render, and the component
+ * frame is usually a few lines below the dispatcher wrapper.
+ */
+export function deriveComponentNameFromStack(stack: string): string {
+  const seen: StackFrame[] = [];
+  let afterWrapper = false;
+  let start = stack.indexOf('\n');
+  while (start >= 0) {
+    const end = stack.indexOf('\n', start + 1);
+    const frame = parseStackLine(stack.slice(start + 1, end < 0 ? undefined : end));
+    start = end;
+    if (!frame) continue;
+    if (afterWrapper) {
+      if (isComponentFrame(frame.name)) return frame.name;
+    } else if (isWrapperFrame(frame.name)) {
+      afterWrapper = true;
+    } else {
+      seen.push(frame);
+    }
+  }
+  return afterWrapper ? 'Unknown' : deriveComponentName(seen);
+}
+
 // ---------------------------------------------------------------------------
 // Module factory
 // ---------------------------------------------------------------------------
@@ -223,21 +253,22 @@ export function createDebugRender(options: { maxEventsPerComponent?: number } = 
   function record(primitive: string, args: unknown[]): void {
     // Capture once. No filtering. Filtering is a projection concern.
     const stack = new Error().stack || '';
-    const frames = parseStackFrames(stack);
-    const componentName = deriveComponentName(frames);
+    const componentName = deriveComponentNameFromStack(stack);
+    let frames: StackFrame[] | null = null;
     const event: HookCallEvent = {
       primitive,
       stack,
-      frames,
+      // Parsed on first read: most events are never inspected.
+      get frames() { return frames ??= parseStackFrames(stack); },
+      set frames(value) { frames = value; },
       componentName,
       args,
     };
-    const list = eventsByComponent.get(componentName) || [];
+    let list = eventsByComponent.get(componentName);
+    if (!list) eventsByComponent.set(componentName, list = []);
     list.push(event);
-    if (list.length > maxEventsPerComponent) {
-      list.splice(0, list.length - maxEventsPerComponent);
-    }
-    eventsByComponent.set(componentName, list);
+    // Trim in batches; readers see only the newest maxEventsPerComponent.
+    if (list.length > maxEventsPerComponent * 2) list.splice(0, list.length - maxEventsPerComponent);
   }
 
   function patchDispatcher(dispatcher: unknown): void {
@@ -357,7 +388,7 @@ export function createDebugRender(options: { maxEventsPerComponent?: number } = 
   }
 
   function rawEvents(componentName: string): HookCallEvent[] {
-    return (eventsByComponent.get(componentName) || []).slice();
+    return (eventsByComponent.get(componentName) || []).slice(-maxEventsPerComponent);
   }
 
   function allComponents(): string[] {
@@ -371,7 +402,7 @@ export function createDebugRender(options: { maxEventsPerComponent?: number } = 
     const rendererCount = getReactRenderers().length;
     const hasDispatcherRef = !!(dispatcherSlot || getDispatcherSlot());
     let totalCapturedEvents = 0;
-    for (const list of eventsByComponent.values()) totalCapturedEvents += list.length;
+    for (const list of eventsByComponent.values()) totalCapturedEvents += Math.min(list.length, maxEventsPerComponent);
 
     let reason: string | undefined;
     let hint: string | undefined;

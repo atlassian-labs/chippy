@@ -1797,16 +1797,17 @@ this.__AVALANCHE__ = (function() {
     }
     return null;
   }
+  function parseStackLine(line) {
+    const m = line.match(/^\s*at\s+([^\s(]+)\s*\(([^)]+)\)/) || line.match(/^\s*at\s+()(.+)$/);
+    if (!m) return null;
+    const name = (m[1] || "").trim();
+    const locRaw = (m[2] || "").trim();
+    const tail = locRaw.match(/:(\d+):(\d+)\)?$/);
+    const loc = tail ? `${tail[1]}:${tail[2]}` : locRaw;
+    return name ? { name, loc } : null;
+  }
   function parseStackFrames(stack) {
-    return stack.split("\n").slice(1).map((line) => {
-      const m = line.match(/^\s*at\s+([^\s(]+)\s*\(([^)]+)\)/) || line.match(/^\s*at\s+()(.+)$/);
-      if (!m) return null;
-      const name = (m[1] || "").trim();
-      const locRaw = (m[2] || "").trim();
-      const tail = locRaw.match(/:(\d+):(\d+)\)?$/);
-      const loc = tail ? `${tail[1]}:${tail[2]}` : locRaw;
-      return name ? { name, loc } : null;
-    }).filter((f) => !!f);
+    return stack.split("\n").slice(1).map(parseStackLine).filter((f) => !!f);
   }
   const HOOK_METHODS = [
     "useCallback",
@@ -1862,6 +1863,27 @@ this.__AVALANCHE__ = (function() {
     }
     return "Unknown";
   }
+  const isWrapperFrame = (name) => name === "atlDispatcherHook" || name.endsWith(".atlDispatcherHook");
+  const isComponentFrame = (name) => !!name && !isReactInternalFrameName(name) && !isHookFrameName(name);
+  function deriveComponentNameFromStack(stack) {
+    const seen = [];
+    let afterWrapper = false;
+    let start = stack.indexOf("\n");
+    while (start >= 0) {
+      const end = stack.indexOf("\n", start + 1);
+      const frame = parseStackLine(stack.slice(start + 1, end < 0 ? void 0 : end));
+      start = end;
+      if (!frame) continue;
+      if (afterWrapper) {
+        if (isComponentFrame(frame.name)) return frame.name;
+      } else if (isWrapperFrame(frame.name)) {
+        afterWrapper = true;
+      } else {
+        seen.push(frame);
+      }
+    }
+    return afterWrapper ? "Unknown" : deriveComponentName(seen);
+  }
   function createDebugRender(options = {}) {
     const maxEventsPerComponent = options.maxEventsPerComponent ?? 600;
     const eventsByComponent = /* @__PURE__ */ new Map();
@@ -1872,21 +1894,25 @@ this.__AVALANCHE__ = (function() {
     let lastSeenDispatcher = null;
     function record(primitive, args) {
       const stack = new Error().stack || "";
-      const frames = parseStackFrames(stack);
-      const componentName = deriveComponentName(frames);
+      const componentName = deriveComponentNameFromStack(stack);
+      let frames = null;
       const event = {
         primitive,
         stack,
-        frames,
+        // Parsed on first read: most events are never inspected.
+        get frames() {
+          return frames ?? (frames = parseStackFrames(stack));
+        },
+        set frames(value) {
+          frames = value;
+        },
         componentName,
         args
       };
-      const list = eventsByComponent.get(componentName) || [];
+      let list = eventsByComponent.get(componentName);
+      if (!list) eventsByComponent.set(componentName, list = []);
       list.push(event);
-      if (list.length > maxEventsPerComponent) {
-        list.splice(0, list.length - maxEventsPerComponent);
-      }
-      eventsByComponent.set(componentName, list);
+      if (list.length > maxEventsPerComponent * 2) list.splice(0, list.length - maxEventsPerComponent);
     }
     function patchDispatcher(dispatcher) {
       if (!dispatcher || typeof dispatcher !== "object") return;
@@ -1977,7 +2003,7 @@ this.__AVALANCHE__ = (function() {
       eventsByComponent.clear();
     }
     function rawEvents(componentName) {
-      return (eventsByComponent.get(componentName) || []).slice();
+      return (eventsByComponent.get(componentName) || []).slice(-maxEventsPerComponent);
     }
     function allComponents() {
       return Array.from(eventsByComponent.keys());
@@ -1988,7 +2014,7 @@ this.__AVALANCHE__ = (function() {
       const rendererCount = getReactRenderers().length;
       const hasDispatcherRef = !!(dispatcherSlot || getDispatcherSlot());
       let totalCapturedEvents = 0;
-      for (const list of eventsByComponent.values()) totalCapturedEvents += list.length;
+      for (const list of eventsByComponent.values()) totalCapturedEvents += Math.min(list.length, maxEventsPerComponent);
       let reason;
       let hint;
       if (!hasDevtoolsHook) {
@@ -3612,6 +3638,9 @@ this.__AVALANCHE__ = (function() {
         /** Linked thrashing: keyed by sourceId, tracks per-component thrashing with linkage */
         linkedThrashing: /* @__PURE__ */ new Map(),
         rendered: [],
+        // Index into `rendered` by sourceId; a linear search per fiber made the
+        // walk quadratic in rendered components.
+        renderedIndexBySourceId: /* @__PURE__ */ new Map(),
         selfFibers: /* @__PURE__ */ new WeakMap(),
         sourceFibers: /* @__PURE__ */ new Set(),
         // Track source fibers to exclude from collateral count
@@ -3779,9 +3808,7 @@ this.__AVALANCHE__ = (function() {
             const componentSourceId = sourceIdManager.getSourceId(fiber, type, depth);
             const parentFiber = fiber.return && isComponentFiber$1(fiber.return.tag) ? fiber.return : null;
             const parentSourceId = parentFiber ? sourceIdManager.getSourceId(parentFiber, parentFiber.type, depth - 1) : null;
-            const existingRenderEvidenceIndex = perCommit.rendered.findIndex(
-              (entry) => entry.sourceId === componentSourceId
-            );
+            const existingRenderEvidenceIndex = perCommit.renderedIndexBySourceId.get(componentSourceId) ?? -1;
             const initialRenderEvidence = {
               sourceId: componentSourceId,
               name: getComponentName(fiber),
@@ -3797,6 +3824,7 @@ this.__AVALANCHE__ = (function() {
             if (existingRenderEvidenceIndex >= 0) {
               perCommit.rendered[existingRenderEvidenceIndex] = initialRenderEvidence;
             } else {
+              perCommit.renderedIndexBySourceId.set(componentSourceId, perCommit.rendered.length);
               perCommit.rendered.push(initialRenderEvidence);
             }
             if (enableAmplifiers) {
@@ -3883,7 +3911,8 @@ this.__AVALANCHE__ = (function() {
               }
               perCommit.totalCollateral++;
             }
-            const renderedEntry = perCommit.rendered.find((entry) => entry.sourceId === componentSourceId);
+            const renderedIndex = perCommit.renderedIndexBySourceId.get(componentSourceId);
+            const renderedEntry = renderedIndex === void 0 ? void 0 : perCommit.rendered[renderedIndex];
             if (renderedEntry) {
               renderedEntry.ownerSourceId = ownerSourceId;
               renderedEntry.isSelfSource = isRealSource && changedIndices.length > 0;
@@ -3939,7 +3968,8 @@ this.__AVALANCHE__ = (function() {
                       fiber: captureFibers ? fiber : void 0
                     }
                   });
-                  const renderedEntry2 = perCommit.rendered.find((entry) => entry.sourceId === amplifierSourceId);
+                  const amplifierIndex = perCommit.renderedIndexBySourceId.get(amplifierSourceId);
+                  const renderedEntry2 = amplifierIndex === void 0 ? void 0 : perCommit.rendered[amplifierIndex];
                   if (renderedEntry2) {
                     renderedEntry2.trasherCounts = { effects, callbacks, memos };
                   }

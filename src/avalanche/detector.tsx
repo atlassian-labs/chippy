@@ -638,6 +638,9 @@ export function createAvalancheDetector(options: DetectorOptions = {}) {
         }
       >(),
       rendered: [] as RenderedComponentEvidence[],
+      // Index into `rendered` by sourceId; a linear search per fiber made the
+      // walk quadratic in rendered components.
+      renderedIndexBySourceId: new Map<string, number>(),
       selfFibers: new WeakMap<Fiber, number>(),
       sourceFibers: new Set<Fiber>(), // Track source fibers to exclude from collateral count
       blastBySourceId: new Map<string, number>(),
@@ -866,9 +869,7 @@ export function createAvalancheDetector(options: DetectorOptions = {}) {
           const parentSourceId = parentFiber
             ? sourceIdManager.getSourceId(parentFiber, parentFiber.type, depth - 1)
             : null;
-          const existingRenderEvidenceIndex = perCommit.rendered.findIndex(
-            (entry) => entry.sourceId === componentSourceId
-          );
+          const existingRenderEvidenceIndex = perCommit.renderedIndexBySourceId.get(componentSourceId) ?? -1;
           const initialRenderEvidence: RenderedComponentEvidence = {
             sourceId: componentSourceId,
             name: getComponentName(fiber),
@@ -884,6 +885,7 @@ export function createAvalancheDetector(options: DetectorOptions = {}) {
           if (existingRenderEvidenceIndex >= 0) {
             perCommit.rendered[existingRenderEvidenceIndex] = initialRenderEvidence;
           } else {
+            perCommit.renderedIndexBySourceId.set(componentSourceId, perCommit.rendered.length);
             perCommit.rendered.push(initialRenderEvidence);
           }
 
@@ -1029,7 +1031,8 @@ export function createAvalancheDetector(options: DetectorOptions = {}) {
             perCommit.totalCollateral++;
           }
 
-          const renderedEntry = perCommit.rendered.find((entry) => entry.sourceId === componentSourceId);
+          const renderedIndex = perCommit.renderedIndexBySourceId.get(componentSourceId);
+          const renderedEntry = renderedIndex === undefined ? undefined : perCommit.rendered[renderedIndex];
           if (renderedEntry) {
             renderedEntry.ownerSourceId = ownerSourceId;
             renderedEntry.isSelfSource = isRealSource && changedIndices.length > 0;
@@ -1101,7 +1104,8 @@ export function createAvalancheDetector(options: DetectorOptions = {}) {
                   },
                 });
 
-                const renderedEntry = perCommit.rendered.find((entry) => entry.sourceId === amplifierSourceId);
+                const amplifierIndex = perCommit.renderedIndexBySourceId.get(amplifierSourceId);
+                const renderedEntry = amplifierIndex === undefined ? undefined : perCommit.rendered[amplifierIndex];
                 if (renderedEntry) {
                   renderedEntry.trasherCounts = { effects, callbacks, memos };
                 }

@@ -1209,6 +1209,19 @@ function main(argv) {
     process.stdout.write(JSON.stringify(trimmed));
     return;
   }
+  if (argv[0] === "save") {
+    const out = argv[2];
+    if (!out) fail("save requires <count> <file>");
+    const report2 = unwrapSavedReport(parseJson((0, import_node_fs.readFileSync)(0, "utf8"), "helper response"));
+    if (!report2) fail("response has no Avalanche export (expected meta and commitStats); check avalanche-status");
+    const trimmed = keepLastCommits(report2, Number(argv[1]) || 0);
+    const text = JSON.stringify(trimmed);
+    (0, import_node_fs.writeFileSync)(out, text);
+    const commits = Object.keys(trimmed.commitStats || {}).length;
+    process.stdout.write(`${JSON.stringify({ ok: true, file: out, bytes: Buffer.byteLength(text), commits })}
+`);
+    return;
+  }
   const [file, command, ...rest] = argv;
   if (!command) fail("command missing");
   const report = unwrapSavedReport(parseJson((0, import_node_fs.readFileSync)(file, "utf8"), file));

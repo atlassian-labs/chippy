@@ -1102,16 +1102,7 @@ case "$cmd" in
     else
       body="{\"action\":\"export\",\"timeoutMs\":$save_timeout_ms}"
     fi
-    response=$(post_avalanche "$client_id" "$body")
-    if [[ -z "$response" ]]; then
-      echo "avalanche-save: empty response from helper" >&2
-      exit 1
-    fi
-    payload=$(node "$SCRIPT_DIR/avalanche-analyze.cjs" normalize "$count" <<<"$response") || exit 1
-    printf '%s' "$payload" > "$out_file"
-    bytes=$(wc -c < "$out_file" | tr -d ' ')
-    commits=$(node "$SCRIPT_DIR/avalanche-analyze.cjs" "$out_file" summary | node -e 'process.stdout.write(String(JSON.parse(require("fs").readFileSync(0,"utf8")).commits))')
-    echo "{\"ok\":true,\"file\":\"$out_file\",\"bytes\":$bytes,\"commits\":$commits}"
+    post_avalanche "$client_id" "$body" | node "$SCRIPT_DIR/avalanche-analyze.cjs" save "$count" "$out_file"
     ;;
   avalanche-offline)
     shift

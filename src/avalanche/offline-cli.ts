@@ -1,7 +1,8 @@
 // Entry point bundled to .agents/skills/chippy/scripts/avalanche-analyze.cjs.
 //   avalanche-analyze.cjs <file> <command> [args]   analyze a saved export
 //   avalanche-analyze.cjs normalize [count] < resp  unwrap a helper export response
-import { readFileSync } from 'node:fs';
+//   avalanche-analyze.cjs save <count> <file> < resp  unwrap and write it, print {ok,file,bytes,commits}
+import { readFileSync, writeFileSync } from 'node:fs';
 import { analyzeSavedReport, keepLastCommits, unwrapSavedReport } from './offline';
 
 const USAGE = `Usage: avalanche-analyze.cjs <file> <command> [args]
@@ -59,6 +60,20 @@ function main(argv: string[]) {
     if (!report) fail('response has no Avalanche export (expected meta and commitStats); check avalanche-status');
     const trimmed = keepLastCommits(report, Number(argv[1]) || 0);
     process.stdout.write(JSON.stringify(trimmed));
+    return;
+  }
+  if (argv[0] === 'save') {
+    // One pass for avalanche-save: a large export no longer goes through shell
+    // variables, and the commit count comes from the parsed report.
+    const out = argv[2];
+    if (!out) fail('save requires <count> <file>');
+    const report = unwrapSavedReport(parseJson(readFileSync(0, 'utf8'), 'helper response'));
+    if (!report) fail('response has no Avalanche export (expected meta and commitStats); check avalanche-status');
+    const trimmed = keepLastCommits(report, Number(argv[1]) || 0) as { commitStats?: object };
+    const text = JSON.stringify(trimmed);
+    writeFileSync(out, text);
+    const commits = Object.keys(trimmed.commitStats || {}).length;
+    process.stdout.write(`${JSON.stringify({ ok: true, file: out, bytes: Buffer.byteLength(text), commits })}\n`);
     return;
   }
   const [file, command, ...rest] = argv;
