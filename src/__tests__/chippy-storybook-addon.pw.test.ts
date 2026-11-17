@@ -191,7 +191,18 @@ describe('Chippy extension with the Storybook addon', () => {
 
       const page = await context.newPage();
       await page.goto(`${siteUrl}/?path=/story/${STORY}`);
-      const [preview] = await waitFor(storybookPages, (matches: any[]) => matches.length === 1);
+      const [preview] = await waitFor(storybookPages, (matches: any[]) => matches.length === 1).catch(async (error) => {
+        const frames = await Promise.all(page.frames().map((frame) => frame.evaluate(() => ({
+          url: location.href,
+          owner: (window as any).__CHIPPY_OWNER__ || null,
+          ownerResult: (window as any).__CHIPPY_OWNER_RESULT__ || null,
+          config: (window as any).__CHIPPY?.config || null,
+          bridge: (window as any).__CHIPPY?.pageBridge?.getState?.() || null,
+          standDown: (window as any).__CHIPPY?.standDown || null,
+        })).catch((frameError) => ({ url: frame.url(), error: String(frameError) }))));
+        const all = ((await (await api('/api/pages')).json()) as any).pages;
+        throw new Error(`${error.message}\npages: ${JSON.stringify(all)}\nframes: ${JSON.stringify(frames)}`);
+      });
       // The extension ran in the manager (it wrote its startup config) and then yielded.
       await waitFor(
         () => page.evaluate(() => ({ started: !!(window as any).__CHIPPY_STARTUP_CONFIG, owner: (window as any).__CHIPPY_OWNER__?.integration?.kind })),

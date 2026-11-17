@@ -235,24 +235,40 @@ async function ensureBundleScripts(tabId, helperBaseUrl, options = {}, frameId =
 
   if (options.avalanche) config.avalanche = options.avalanche;
 
+  // The page can claim an owner between the check above and this write, so the
+  // write checks again in the same task. The pending flag tells the bridge
+  // injected below that it comes from the extension: an owner that claims the
+  // frame before it loads keeps its own bridge.
+  let claimed = null;
   try {
-    await chrome.scripting.executeScript({
+    const results = await chrome.scripting.executeScript({
       target: frameTarget(tabId, frameId),
       func: (nextConfig) => {
+        const owner = window.__CHIPPY_OWNER__;
+        if (owner?.integration && owner.integration.kind !== 'extension' &&
+          (!owner.staleAfterMs || Date.now() - (owner.heartbeatAt || 0) <= owner.staleAfterMs)) {
+          return { kind: owner.integration.kind || null, who: owner.integration.who || null };
+        }
         window.__CHIPPY = window.__CHIPPY || {};
         window.__CHIPPY.config = {
           ...(window.__CHIPPY.config || {}),
           ...nextConfig,
         };
+        window.__CHIPPY_EXTENSION_BRIDGE_PENDING__ = true;
         try {
           window.__CHIPPY?.pageBridge?.applyConfig?.(window.__CHIPPY.config);
         } catch {}
+        return null;
       },
       args: [config],
       world: 'MAIN',
     });
+    claimed = results?.[0]?.result || null;
   } catch (e) {
     return { ok: false, step: 'set-config', error: e.message };
+  }
+  if (claimed) {
+    return { ok: true, yielded: true, detail: `extension yielded to ${claimed.who || claimed.kind}` };
   }
 
   for (const file of LATE_BUNDLE_SCRIPTS) {

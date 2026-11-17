@@ -18,6 +18,14 @@
   });
   // Read and removed by startup-handoff.js on the next document.
   const STARTUP_HANDOFF_KEY = '__chippyStartupHandoff';
+  // The extension sets this flag just before it injects this script. When the
+  // Storybook addon or an import claimed the frame in between, its bridge stays.
+  const extensionInjected = /** @type {any} */ (global).__CHIPPY_EXTENSION_BRIDGE_PENDING__ === true;
+  delete (/** @type {any} */ (global)).__CHIPPY_EXTENSION_BRIDGE_PENDING__;
+  if (extensionInjected && isLiveForeignOwner(global.__CHIPPY_OWNER__)) {
+    chippy.standDown = { at: Date.now(), owner: global.__CHIPPY_OWNER__.integration || null };
+    return;
+  }
   if (chippy.pageBridge) {
     // Always tear down and reinstall — version-equality skip caused stale code to win.
     try { chippy.pageBridge.destroy?.(); } catch (e) {}
@@ -2040,7 +2048,7 @@
     const api = getAvalancheApi();
     let status = null;
     try { status = api?.status?.() || null; } catch (e) {}
-    const startup = global.__CHIPPY_STARTUP_CONFIG || null;
+    const startup = /** @type {any} */ (global).__CHIPPY_STARTUP_CONFIG || null;
     const installed = !!status?.installed;
     return {
       available: !!api,
