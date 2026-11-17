@@ -252,14 +252,7 @@ describe('serializeReport — DTO field parity', () => {
           depth: 2,
           parentSourceId: 'Parent#1@1',
           ownerSourceId: 'Parent#1@1',
-          isSelfSource: false,
-          propChanges: [{
-            name: 'onClick',
-            kind: 'ref-changed',
-            prev: { type: 'function', isArray: false, isFunction: true, isNull: false, preview: 'fn' },
-            current: { type: 'function', isArray: false, isFunction: true, isNull: false, preview: 'fn' },
-          }],
-          hasPropChanges: true,
+          propChanges: [{ name: 'onClick', kind: 'ref-changed', current: 'function onClick' }],
           trasherCounts: { effects: 1, callbacks: 2, memos: 3 },
         }],
       },
@@ -270,11 +263,8 @@ describe('serializeReport — DTO field parity', () => {
     expect(rendered.depth).toBe(2);
     expect(rendered.parentSourceId).toBe('Parent#1@1');
     expect(rendered.ownerSourceId).toBe('Parent#1@1');
-    expect(rendered.isSelfSource).toBe(false);
-    expect(rendered.hasPropChanges).toBe(true);
-    expect(rendered.propChanges[0].name).toBe('onClick');
-    expect(rendered.propChanges[0].kind).toBe('ref-changed');
-    expect(rendered.propChanges[0].prev.isFunction).toBe(true);
+    expect(rendered.isSelfSource).toBeUndefined();
+    expect(rendered.propChanges).toEqual([{ name: 'onClick', kind: 'ref-changed', current: 'function onClick' }]);
     expect(rendered.trasherCounts).toEqual({ effects: 1, callbacks: 2, memos: 3 });
   });
 

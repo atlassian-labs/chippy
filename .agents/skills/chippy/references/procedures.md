@@ -138,12 +138,12 @@ Maps the four verdicts to the exact Avalanche fields that produce them. Read `co
 
 | Verdict | `commitCount` after nudge | `sourcesByCommit` pattern | `renderedByCommit` pattern | Next play |
 |---|---|---|---|---|
-| **clean** | 1 | nudged sourceId only (or empty) | nudged target only; every `trasherCounts` field is zero | None — invariant holds |
-| **leak** | 1 | nudged sourceId only | high collateral count under target; `propChanges` empty on collateral entries (cascade from non-memoized children) | step 10 — find collateral without memo |
-| **leak+cascade** | >1 | same sourceId repeats across commits | `isSelfSource: true` on the same sourceId; `propChanges` empty | P-07 on the self-source's hook |
+| **clean** | 1 | nudged sourceId only (or empty) | nudged target only; no `trasherCounts` | None — invariant holds |
+| **leak** | 1 | nudged sourceId only | high collateral count under target; no `propChanges` on collateral entries (cascade from non-memoized children) | step 10 — find collateral without memo |
+| **leak+cascade** | >1 | same sourceId repeats across commits | `isSelfSource: true` on the same sourceId; no `propChanges` | P-07 on the self-source's hook |
 | **trasher** | ≥2 | the same component source persists across commits | non-zero `trasherCounts` on that component in at least two commits | step 11 — `debug-hook` the recorded amplifier hook |
 
-`renderedByCommit` is recorded in every detection mode, but `stats` leaves `isSelfSource` false and only `full` (or `amplifiers`) records `trasherCounts`. Re-arm with `detectionMode: 'full'` before reading the trasher verdict.
+`renderedByCommit` is recorded in every detection mode, but `stats` never sets `isSelfSource` and only `full` (or `amplifiers`) records `trasherCounts`. Re-arm with `detectionMode: 'full'` before reading the trasher verdict.
 
 Verdicts are mutually exclusive: persistent non-zero `trasherCounts` takes precedence. Without that signal, repeated self-source commits are `leak+cascade`; a different source alone is not a trasher.
 

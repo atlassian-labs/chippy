@@ -222,7 +222,7 @@ Pass criteria:
 - commit count increased
 - `commit-peek` accepts `rendered`
 - `renderedTotal > 0`
-- rendered entries include `sourceId`, `name`, `parentId`, `isSelfSource`, `propChanges`, `trasherCounts`
+- rendered entries include `sourceId`, `name` and `depth`, plus `propChanges` and `trasherCounts` where present
 - for the fixture's `TrasherChild`, `propChanges` shows `ref-changed` for `payload` and/or `onReport`
 - at least one relevant entry has non-zero `trasherCounts.effects` or `trasherCounts.memos`
 
@@ -329,9 +329,9 @@ avalanche-commit-peek <clientId> <commitId> rendered 3 50
 ```
 
 Pass criteria — rendered entry for `Target`:
-- `isSelfSource: false`
-- `propChanges` contains `{ name: "isEnabled", kind: "scalar-changed", prev.type: "boolean", current.type: "boolean" }`
-- `propChanges` contains `{ name: "toggle", kind: "ref-changed", prev.type: "function", current.type: "function" }`
+- no `isSelfSource`
+- `propChanges` contains `{ name: "isEnabled", kind: "scalar-changed", prev: "false", current: "true" }` (or the reverse)
+- `propChanges` contains `{ name: "toggle", kind: "ref-changed", current: "function" }` (an anonymous callback)
 
 Reading: callback identity churn caused by `useCallback(fn, [isEnabled])`. Fix layer is *above source* — caller must stabilize via functional updater (`setEnabled((v) => !v)` removes the dep) or hoist.
 
@@ -345,9 +345,9 @@ avalanche-commit-peek <clientId> <commitId> rendered 3 50
 ```
 
 Pass criteria — rendered entry for `Child` (`React.memo`'d):
-- `isSelfSource: false`
-- `propChanges` contains `{ name: "items", kind: "ref-changed", prev.type: "object", current.type: "object" }`
-- `trasherCounts.effects/callbacks/memos: 0` — there is no hook churn; this is pure caller-side identity leak.
+- no `isSelfSource`
+- `propChanges` contains `{ name: "items", kind: "ref-changed", current: "array(3)[1, 2, 3]" }`
+- no `trasherCounts` — there is no hook churn; this is pure caller-side identity leak.
 
 Reading: `items = [1, 2, 3]` literal is recreated every parent render. `React.memo` shallow-compare cannot see equal contents. Fix layer is *above source* — hoist literal to module scope, `useMemo(() => [1, 2, 3], [])`, or pass a stable reference.
 
@@ -361,8 +361,8 @@ avalanche-commit-peek <clientId> <commitId> rendered 3 50
 ```
 
 Pass criteria — rendered entry for `MemoizedParent`:
-- `isSelfSource: false`
-- `propChanges` contains `{ name: "children", kind: "ref-changed", prev.type: "object", current.type: "object" }`
+- no `isSelfSource`
+- `propChanges` contains `{ name: "children", kind: "ref-changed", current: "array(2)[element <…>, element <…>]" }`
 
 Reading: JSX in caller creates a fresh `ReactElement` (array) for `children` every render. `React.memo` on the parent cannot help. This is the canonical "unavoidable in the parent" case — only fix is in the caller: hoist `<ChildA/><ChildB/>` into a stable variable or pass a memoized children array. Document this case as **caller-only fix layer** in the proof packet.
 

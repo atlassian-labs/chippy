@@ -167,8 +167,8 @@ Read in this order:
 | Verdict | `commitCount` | `commit-peek.sources` pattern | `commit-peek.rendered` pattern |
 |---|---|---|---|
 | **clean** | 1 | nudged sourceId only (or empty) | nudged target only; every `trasherCounts` field is zero |
-| **leak** | 1 | nudged sourceId only | high collateral count under target; `propChanges` empty on collateral entries |
-| **leak+cascade** | >1 | same sourceId repeats across commits | `isSelfSource: true` on that source; `propChanges` empty |
+| **leak** | 1 | nudged sourceId only | high collateral count under target; no `propChanges` on collateral entries |
+| **leak+cascade** | >1 | same sourceId repeats across commits | `isSelfSource: true` on that source; no `propChanges` |
 | **trasher** | ≥2 | the same component source persists across commits | non-zero `trasherCounts` on that component in at least two commits |
 
 Apply the rows as mutually exclusive classifications: persistent non-zero `trasherCounts` takes precedence. A different source or a high render count without that field is not enough for `trasher`; if no row matches, report the unmatched signature and return to real interaction capture.
@@ -177,7 +177,7 @@ Apply the rows as mutually exclusive classifications: persistent non-zero `trash
 
 For **leak** (Case A):
 - `avalanche-commit-list <clientId> 20 collateral`.
-- Walk the top commit's `commit-peek <commitId> rendered` entries with `isSelfSource: false` top → bottom from the nudged fiber.
+- Walk the top commit's `commit-peek <commitId> rendered` entries without `isSelfSource` top → bottom from the nudged fiber.
 - The first collateral with stable inputs but no `React.memo` is the boundary fix. The first collateral with `React.memo` but unstable props (inline object, fresh callback, new JSX) is a boundary that needs prop stabilization above it.
 
 > **Attribute the leak.** When the offending fiber is identified but its hook role is unclear, run [debug-hook](./debug-hook.md) on **the same nudged source** with the changed `hookIndex` from this commit. Do not switch sources. The primitive + `parents` chain pins down whether the cause is selector identity, dispatcher churn, or unstable deps.

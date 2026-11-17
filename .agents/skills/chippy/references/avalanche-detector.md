@@ -395,50 +395,52 @@ Suspense reading:
 
 ## `renderedByCommit` — per-component render evidence
 
-Populated in every detection mode. The mode decides which fields carry evidence: `stats` has no source tracking, so `isSelfSource` stays `false`; `trasherCounts` stay zero unless the mode is `full` or `amplifiers`. Pulled into `commit-peek` output via `include=rendered`.
+Populated in every detection mode. The mode decides which fields carry evidence: `stats` has no source tracking, so `isSelfSource` is never set; `trasherCounts` appear only when the mode is `full` or `amplifiers`. Pulled into `commit-peek` output via `include=rendered`.
 
-Top-level shape (`?` = optional, may be absent; everything else is always present):
+Entries are compact: a field at its default value is left out. No `null` ids, no `false`, no empty list, no all-zero counts. A typical collateral render is one short line:
+
+```json
+{"sourceId":"T7#1@14","name":"Title","depth":14,"ownerSourceId":"T1#1@4"}
+```
+
+Shape (`?` = absent when at its default):
 
 ```text
 renderedByCommit: Record<commitId: number, RenderedComponentEvidence[]>
 
 RenderedComponentEvidence = {
-  sourceId:       string,          // internal id 'T<typeId>#<n>@<depth>'; hot-sources and sources use '<Name>#<n>@<depth>', so join on name plus the '#<n>@<depth>' suffix
-  name:           string,          // display name; 'Unknown' when unresolved
-  depth:          number,
-  parentSourceId: string | null,   // nearest rendered component parent
-  ownerSourceId:  string | null,   // source whose wave carried this render
-  isSelfSource:   boolean,
-  propChanges:    PropChangeEvidence[],  // [] when no prop changed
-  hasPropChanges: boolean,
-  trasherCounts:  { effects: number; callbacks: number; memos: number }
+  sourceId:        string,         // internal id 'T<typeId>#<n>@<depth>'; hot-sources and sources use '<Name>#<n>@<depth>', so join on name plus the '#<n>@<depth>' suffix
+  name:            string,         // display name; 'Unknown' when unresolved
+  depth:           number,
+  parentSourceId?: string,         // nearest parent when it is a component
+  ownerSourceId?:  string,         // source whose wave carried this render
+  isSelfSource?:   true,           // this component's own state changed
+  propChanges?:    PropChangeEvidence[],  // absent when no prop changed
+  trasherCounts?:  { effects: number; callbacks: number; memos: number }  // absent when all are zero
 }
 
 PropChangeEvidence = {
-  name:    string,                 // prop key
-  kind:    'added' | 'removed' | 'scalar-changed' | 'ref-changed',  // unchanged props are not listed
-  prev:    PropValueSummary,       // summary of undefined for 'added'
-  current: PropValueSummary        // summary of undefined for 'removed'
-}
-
-PropValueSummary = {               // bounded, no deep clone
-  type:       string,              // typeof value
-  isArray:    boolean,
-  isFunction: boolean,
-  isNull:     boolean,
-  preview:    string,              // human-readable summary
-  display?:   string,
-  length?:    number,
-  keysTop?:   string[],
-  sample?:    unknown[]
+  name:     string,                // prop key
+  kind:     'added' | 'removed' | 'scalar-changed' | 'ref-changed',  // unchanged props are not listed
+  prev?:    string,                // value summary; absent for 'added', and for 'ref-changed' when the shape did not change
+  current?: string                 // value summary; absent for 'removed'
 }
 ```
 
-`renderedByCommit` is bounded by the capture's entry budget (see `avalanche-status`). A commit whose evidence was dropped has no entry; `commit-peek ... rendered` then returns `rendered: []` with `renderedEvicted: true`, and `meta.renderedEvidence.evicted` records the dropped range.
+A value summary is one bounded line:
 
-Changed hook dependencies are not on rendered entries. Read them from `commit-peek N sources`: each source row carries `trashers: [{ index, prevValue, currentValue }]` when the detection mode records amplifiers.
+| Value | Summary |
+|---|---|
+| `undefined`, `null`, booleans, numbers, bigints | `undefined`, `null`, `true`, `21`, `10n` |
+| string | `"text"`, quoted, so `21` and `"21"` differ; after 64 characters, `"…"(len 200)` |
+| function | `function onClick`, or `function` when anonymous |
+| array | `array(5)[1, "a", object{id}]`: the length and the first three items, not nested further |
+| React element | `element <Row>`, `element <div>` |
+| other object | `object{id,title,"a,b",…+3}`: the first five keys, quoted when not plain names, and how many more |
 
-Cross-reference: the producer is `src/avalanche/detector.tsx` (`diffProps`, `summarizePropValue`, `detectHookThrashing`); the DTO mapper is `src/avalanche/report-serializer.tsx` (`RenderedComponentEvidenceDTO`).
+A `ref-changed` prop with only `current` got a new identity with the same shape: an equal-looking object or callback was recreated.
+
+Saves made before this format use the older expanded entries: `prev`/`current` as objects with `type`, `isFunction`, `preview` and `keysTop`, plus `hasPropChanges` and default-valued fields.
 
 ### Reading `trasherCounts`
 
@@ -448,18 +450,18 @@ Reading rules:
 - `trasherCounts.effects > 0` — at least one `useEffect` re-ran from changed deps.
 - `trasherCounts.callbacks > 0` — at least one `useCallback` produced a new function identity.
 - `trasherCounts.memos > 0` — at least one `useMemo` recomputed.
-- All three zero in `renderedByCommit` while the component still appears in `sourcesByCommit` → render trigger is *not* amplifier-driven; look at `propChanges` for ref-changed props from above, or treat as self-update (`isSelfSource: true`).
+- No `trasherCounts` in `renderedByCommit` while the component still appears in `sourcesByCommit` → render trigger is *not* amplifier-driven; look at `propChanges` for ref-changed props from above, or treat as self-update (`isSelfSource: true`).
 - Same `sourceId` appears in `renderedByCommit` across many commits with persistent non-zero `trasherCounts` → confirmed trasher; trace the hook with `avalanche-debug-hook <clientId> <sourceId> <hookIndex>`.
 
 ### Reading `propChanges`
 
-`propChanges` lists only the props that differed between prev and current. An empty array means the parent passed the same prop identities — re-render trigger is internal (state/context/store/parent re-render of a non-memoized child).
+`propChanges` lists only the props that differed between prev and current. No `propChanges` means the parent passed the same prop identities — re-render trigger is internal (state/context/store/parent re-render of a non-memoized child).
 
 Reading rules:
 - `kind: 'ref-changed'` on a callback or object prop → likely upstream amplifier; trace the parent's `useCallback`/`useMemo` deps.
 - `kind: 'scalar-changed'` → data actually changed; the render is justified if the component should react to that value.
 - `kind: 'added'` / `'removed'` on optional props → parent toggled a feature; verify the toggle is intentional.
-- `propChanges` empty but component re-rendered → ancestor cascade. Look up the parent chain, not at this component.
+- No `propChanges` but component re-rendered → ancestor cascade. Look up the parent chain, not at this component.
 
 ### `renderedByCommit` prop-change taxonomy — read the simple case first
 
@@ -470,7 +472,7 @@ Reading rules:
 | 0 | `isSelfSource: true` | This component scheduled work for itself in this commit. | **self-source** | Inspect this component's changed hooks / callbacks / effects (P-07). |
 | 1 | only `scalar-changed` props | Data actually changed (`number`, `string`, `boolean`, `null`). | **legitimate re-render** unless invariant says the scalar should not affect this child. | Verify invariant. If legitimate, stop; if not, move the scalar boundary up. |
 | 2 | `added` / `removed` optional props | Parent toggled a feature or branch. | **conditional prop / branch change** | Verify the toggle is intentional; inspect the parent conditional if unexpected. |
-| 3 | no prop changes and `isSelfSource: false` | Parent/ancestor rendered and this component came along. | **cascade collateral** | Walk to `parentSourceId`; do not blame this component. |
+| 3 | no `propChanges` and no `isSelfSource` | Parent/ancestor rendered and this component came along. | **cascade collateral** | Walk to `parentSourceId`; do not blame this component. |
 | 4 | `ref-changed` function prop | Callback identity changed. | **identity churn** or legitimate callback update. | Walk to parent; inspect `useCallback` deps or inline function creation. |
 | 5 | `ref-changed` object/array prop | Object identity changed. Contents may still be equal. | **identity leak** or legitimate data object change. | Walk to parent; inspect literal creation, selectors, `useMemo`, data normalization. |
 | 6 | `ref-changed` `children` | JSX children identity changed. | **caller-created ReactElement churn** | Caller-only fix: hoist/memoize children at the caller. |
@@ -479,8 +481,8 @@ Reading rules:
 General rules:
 - Start with the simple explanation. A `scalar-changed` prop is often correct behavior, not a performance bug.
 - `ref-changed` means identity changed, not automatically "bad". It becomes a bug only when the component should not observe that identity change or when it defeats a memo boundary.
-- If `trasherCounts` are all zero and the only suspicious signal is `ref-changed`, treat it as a **caller-side identity question** first. Walk to `parentSourceId`; do not hunt for amplifier hooks in the child.
-- If `propChanges` is empty and `isSelfSource` is false, this entry is collateral. Keep walking upward until the first self-source, context wave, or identity-changing parent.
+- If there are no `trasherCounts` and the only suspicious signal is `ref-changed`, treat it as a **caller-side identity question** first. Walk to `parentSourceId`; do not hunt for amplifier hooks in the child.
+- If an entry has neither `propChanges` nor `isSelfSource`, it is collateral. Keep walking upward until the first self-source, context wave, or identity-changing parent.
 
 #### Common identity fingerprints
 
@@ -488,19 +490,19 @@ These are common examples, not an exhaustive taxonomy:
 
 | Pattern | Fingerprint | Reading | Caller-side remediation |
 |---|---|---|---|
-| Callback dep churn | `{ name: <callback>, kind: "ref-changed", prev.type: "function", current.type: "function" }` often with a scalar dep also `scalar-changed` in the same commit | `useCallback(fn, [dep])` is tied to a dep that changes during the same interaction. | Use a functional updater (`setX((v) => !v)`) to remove the dep, or otherwise stabilize the callback identity. |
-| Array/object literal | `{ name: <prop>, kind: "ref-changed", prev.type: "object", current.type: "object" }` and source shows a literal or freshly allocated object | Parent recreates an equal-looking object each render; `React.memo` shallow compare fails. | Hoist literal to module scope, `useMemo(() => […], [])`, or pass a stable reference. |
-| JSX children pass-through | `{ name: "children", kind: "ref-changed", prev.type: "object", current.type: "object" }` on a memoized parent | Inline JSX creates fresh `ReactElement` objects/arrays each parent render; the memoized parent cannot save itself. | Caller-only: hoist children into a stable variable or pass memoized element children. |
+| Callback dep churn | `{ name: <callback>, kind: "ref-changed", current: "function <name>" }` often with a scalar dep also `scalar-changed` in the same commit | `useCallback(fn, [dep])` is tied to a dep that changes during the same interaction. | Use a functional updater (`setX((v) => !v)`) to remove the dep, or otherwise stabilize the callback identity. |
+| Array/object literal | `{ name: <prop>, kind: "ref-changed", current: "object{…}" }` or `"array(n)[…]"`, with no `prev` and source shows a literal or freshly allocated object | Parent recreates an equal-looking object each render; `React.memo` shallow compare fails. | Hoist literal to module scope, `useMemo(() => […], [])`, or pass a stable reference. |
+| JSX children pass-through | `{ name: "children", kind: "ref-changed", current: "element <Row>" }` or `"array(n)[element <Row>, …]"` on a memoized parent | Inline JSX creates fresh `ReactElement` objects/arrays each parent render; the memoized parent cannot save itself. | Caller-only: hoist children into a stable variable or pass memoized element children. |
 
 ### Reading `propChanges` + `trasherCounts` together — the source classification table
 
-| `isSelfSource` | `propChanges` has changes | `trasherCounts > 0` | Classification | Next step |
+| `isSelfSource` | `propChanges` | `trasherCounts` | Classification | Next step |
 |---|---|---|---|---|
 | `true` | n/a | n/a | **self-source** (component triggered its own re-render) | P-07 hook interrogation on this component |
-| `false` | yes (ref-changed) | n/a | **collateral from upstream amplifier** | Walk to `parentSourceId`, run P-06 on that |
-| `false` | yes (scalar-changed only) | n/a | **legitimate re-render** (data changed) | Verify invariant — may be correct behavior |
-| `false` | empty | yes | **trasher** (this component is the amplifier) | P-07 on the changed hook |
-| `false` | empty | no | **pure cascade collateral** | Walk to `parentSourceId`, look for the real trigger |
+| absent | yes (ref-changed) | n/a | **collateral from upstream amplifier** | Walk to `parentSourceId`, run P-06 on that |
+| absent | yes (scalar-changed only) | n/a | **legitimate re-render** (data changed) | Verify invariant — may be correct behavior |
+| absent | absent | yes | **trasher** (this component is the amplifier) | P-07 on the changed hook |
+| absent | absent | absent | **pure cascade collateral** | Walk to `parentSourceId`, look for the real trigger |
 
 ## Reading signals correctly
 

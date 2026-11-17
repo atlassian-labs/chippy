@@ -97,7 +97,7 @@ Load [active-stimulus](active-stimulus.md) before an active command. A `fiber:*`
 |---|---|---|
 | `sources` | Default source and commit attribution; rendered components with prop changes and `isSelfSource` | `trasherCounts` stay zero |
 | `full` | Everything in `sources` plus amplifier (`trasherCounts`) evidence | Higher collection cost |
-| `stats` | Aggregate capture statistics; rendered components with prop changes | No source tracking: `isSelfSource` stays false |
+| `stats` | Aggregate capture statistics; rendered components with prop changes | No source tracking: `isSelfSource` is never set |
 | `amplifiers` | Same capture as `full` | Alias kept for compatibility |
 
 `avalanche-arm` and `reload-with-avalanche` also accept `captureFibers=true|false`. Keep it `true` when debug-hook or fiber-backed analysis may follow.

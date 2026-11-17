@@ -48,7 +48,6 @@ import {
   type DetectorOptions,
   type ProfilerState,
   type PropChangeEvidence,
-  type PropValueSummary,
   type RenderedComponentEvidence,
   type Report,
   type ReportOptions,
@@ -76,6 +75,7 @@ import { createAvalancheHookRunner, type AvalancheHookResult } from './avalanche
 import { createScreenCapture } from './screen-changes';
 import { describeSuspenseLocation } from './suspense-location';
 import { createRenderTickTracker } from './render-ticks';
+import { createPropSummarizer } from './prop-summary';
 import { createRenderedEvidenceStore, DEFAULT_MAX_RENDERED_ENTRIES, type RenderedEvidenceStatus } from './rendered-evidence-store';
 import {
   CS_UNMOUNTED_COMPONENTS,
@@ -491,89 +491,7 @@ export function createAvalancheDetector(options: DetectorOptions = {}) {
     return null;
   }
 
-  // Summaries are read-only once built, so identical ones are shared: a
-  // function's summary depends only on its name, and callbacks and objects
-  // recreated on every render would otherwise add two summaries per prop per
-  // commit.
-  const functionSummaryByName = new Map<string, PropValueSummary>();
-  const objectSummaryByKeys = new Map<string, PropValueSummary>();
-  const primitiveSummaryByValue = new Map<string, PropValueSummary>();
-  let undefinedSummary: PropValueSummary | null = null;
-  const MAX_SHARED_SUMMARIES = 10_000;
-  const NO_TRASHER_COUNTS = { effects: 0, callbacks: 0, memos: 0 };
-
-  function summarizePropValue(value: unknown): PropValueSummary {
-    if (value === undefined) return undefinedSummary ??= buildPropValueSummary(value);
-    if (typeof value === 'function') return sharedSummary(functionSummaryByName, (value as Function).name || '', value);
-    // A non-array object's summary depends only on its keys (first five + count),
-    // read now, so sharing stays correct when the object is mutated later.
-    if (value !== null && typeof value === 'object' && !Array.isArray(value)) {
-      const keys = Object.keys(value);
-      const shape = keys.length > 5 ? `${keys.slice(0, 5).join('\u0001')}\u0000${keys.length}` : keys.join('\u0001');
-      return sharedSummary(objectSummaryByKeys, shape, value);
-    }
-    // Short primitives repeat: a scalar change's previous value is the value
-    // summarized as current in the commit before.
-    const type = typeof value;
-    if (value === null || type === 'boolean' || type === 'number' || (type === 'string' && (value as string).length <= 64)) {
-      return sharedSummary(primitiveSummaryByValue, `${type}:${String(value)}`, value);
-    }
-    return buildPropValueSummary(value);
-  }
-
-  function sharedSummary(cache: Map<string, PropValueSummary>, key: string, value: unknown): PropValueSummary {
-    let summary = cache.get(key);
-    if (!summary) {
-      summary = buildPropValueSummary(value);
-      // Start over rather than stop sharing when values keep changing.
-      if (cache.size >= MAX_SHARED_SUMMARIES) cache.clear();
-      cache.set(key, summary);
-    }
-    return summary;
-  }
-
-  function buildPropValueSummary(value: unknown): PropValueSummary {
-    const isArray = Array.isArray(value);
-    const type = value === null ? 'null' : isArray ? 'array' : typeof value;
-    const isFunction = typeof value === 'function';
-    const isNull = value === null;
-    const isPrimitive = value == null ||
-      type === 'string' ||
-      type === 'number' ||
-      type === 'boolean' ||
-      type === 'undefined' ||
-      type === 'symbol' ||
-      type === 'bigint';
-    const primitiveDisplay = isPrimitive ? String(value) : undefined;
-    const summary: PropValueSummary = {
-      type,
-      isArray,
-      isFunction,
-      isNull,
-      preview: primitiveDisplay || (isFunction ? 'function' : isArray ? `array(${value.length})` : 'object'),
-    };
-
-    if (primitiveDisplay !== undefined) {
-      summary.display = primitiveDisplay;
-    }
-    if (typeof value === 'string' || isArray) {
-      summary.length = value.length;
-    }
-    if (isArray) {
-      summary.sample = value.slice(0, 3).map((item) => summarizePropValue(item).preview);
-    } else if (value && typeof value === 'object') {
-      const keys = Object.keys(value as Record<string, unknown>).slice(0, 5);
-      summary.keysTop = keys;
-      summary.length = Object.keys(value as Record<string, unknown>).length;
-      if (keys.length > 0) {
-        summary.preview = `object{${keys.join(',')}}`;
-      }
-    } else if (isFunction) {
-      const fn = value as Function;
-      summary.preview = fn.name ? `function ${fn.name}` : 'function';
-    }
-    return summary;
-  }
+  const summarizePropValue = createPropSummarizer();
 
   // Runs for every rendered component; most props are unchanged, so the common
   // path allocates nothing beyond the result array.
@@ -590,22 +508,29 @@ export function createAvalancheDetector(options: DetectorOptions = {}) {
       if (!hasOwn.call(prev, name)) continue;
       const prevValue = prev[name];
       if (!hasOwn.call(current, name)) {
-        changes.push({ name, kind: 'removed', prev: summarizePropValue(prevValue), current: summarizePropValue(undefined) });
+        changes.push({ name, kind: 'removed', prev: summarizePropValue(prevValue) });
         continue;
       }
       const currentValue = current[name];
       // Evidence surface records changes only; unchanged props stay implicit.
       if (Object.is(prevValue, currentValue)) continue;
-      const kind = prevValue !== null && currentValue !== null &&
+      const isRef = prevValue !== null && currentValue !== null &&
         (typeof prevValue === 'object' || typeof prevValue === 'function' ||
-         typeof currentValue === 'object' || typeof currentValue === 'function')
-        ? 'ref-changed'
-        : 'scalar-changed';
-      changes.push({ name, kind, prev: summarizePropValue(prevValue), current: summarizePropValue(currentValue) });
+         typeof currentValue === 'object' || typeof currentValue === 'function');
+      const currentSummary = summarizePropValue(currentValue);
+      // Recreated callbacks keep their name, so their summary cannot differ.
+      const prevSummary = typeof prevValue === 'function' && typeof currentValue === 'function' &&
+        prevValue.name === currentValue.name ? currentSummary : summarizePropValue(prevValue);
+      // A new identity with the same shape needs one summary, not two.
+      changes.push(isRef
+        ? (prevSummary === currentSummary
+          ? { name, kind: 'ref-changed', current: currentSummary }
+          : { name, kind: 'ref-changed', prev: prevSummary, current: currentSummary })
+        : { name, kind: 'scalar-changed', prev: prevSummary, current: currentSummary });
     }
     for (const name in current) {
       if (!hasOwn.call(current, name) || hasOwn.call(prev, name)) continue;
-      changes.push({ name, kind: 'added', prev: summarizePropValue(undefined), current: summarizePropValue(current[name]) });
+      changes.push({ name, kind: 'added', current: summarizePropValue(current[name]) });
     }
 
     return changes;
@@ -919,19 +844,18 @@ export function createAvalancheDetector(options: DetectorOptions = {}) {
             ? sourceIdManager.getSourceId(parentFiber, parentFiber.type, depth - 1)
             : null;
           const existingRenderEvidenceIndex = perCommit.renderedIndexBySourceId.get(componentSourceId) ?? -1;
+          // Defaults are left out (see RenderedComponentEvidence); the owner
+          // and self-source flag are settled below, once known.
           const initialRenderEvidence: RenderedComponentEvidence = {
             sourceId: componentSourceId,
             name: getComponentName(fiber),
             depth,
-            parentSourceId,
-            ownerSourceId,
-            isSelfSource: false,
-            propChanges: fiber.alternate ? diffProps(fiber.alternate.memoizedProps, fiber.memoizedProps) : [],
-            hasPropChanges: false,
-            // Shared; an amplifier replaces it rather than mutating it.
-            trasherCounts: NO_TRASHER_COUNTS,
           };
-          initialRenderEvidence.hasPropChanges = initialRenderEvidence.propChanges.length > 0;
+          if (parentSourceId) initialRenderEvidence.parentSourceId = parentSourceId;
+          if (fiber.alternate) {
+            const propChanges = diffProps(fiber.alternate.memoizedProps, fiber.memoizedProps);
+            if (propChanges.length) initialRenderEvidence.propChanges = propChanges;
+          }
           if (existingRenderEvidenceIndex >= 0) {
             perCommit.rendered[existingRenderEvidenceIndex] = initialRenderEvidence;
           } else {
@@ -1084,8 +1008,11 @@ export function createAvalancheDetector(options: DetectorOptions = {}) {
           const renderedIndex = perCommit.renderedIndexBySourceId.get(componentSourceId);
           const renderedEntry = renderedIndex === undefined ? undefined : perCommit.rendered[renderedIndex];
           if (renderedEntry) {
-            renderedEntry.ownerSourceId = ownerSourceId;
-            renderedEntry.isSelfSource = isRealSource && changedIndices.length > 0;
+            // `delete` only when present: deleting turns an object into a slow dictionary.
+            if (ownerSourceId) renderedEntry.ownerSourceId = ownerSourceId;
+            else if (renderedEntry.ownerSourceId !== undefined) delete renderedEntry.ownerSourceId;
+            if (isRealSource && changedIndices.length > 0) renderedEntry.isSelfSource = true;
+            else if (renderedEntry.isSelfSource) delete renderedEntry.isSelfSource;
           }
 
           // Amplifier detection (Level 3: counts/full).
@@ -1156,7 +1083,7 @@ export function createAvalancheDetector(options: DetectorOptions = {}) {
 
                 const amplifierIndex = perCommit.renderedIndexBySourceId.get(amplifierSourceId);
                 const renderedEntry = amplifierIndex === undefined ? undefined : perCommit.rendered[amplifierIndex];
-                if (renderedEntry) {
+                if (renderedEntry && (effects || callbacks || memos)) {
                   renderedEntry.trasherCounts = { effects, callbacks, memos };
                 }
 

@@ -210,35 +210,40 @@ export interface UnmountSampleDTO {
 
 export type PropChangeKindDTO = 'same' | 'ref-changed' | 'scalar-changed' | 'added' | 'removed';
 
-export interface PropValueSummaryDTO {
-  type: string;
-  isArray: boolean;
-  isFunction: boolean;
-  isNull: boolean;
-  preview: string;
-  display?: string;
-  length?: number;
-  keysTop?: string[];
-  sample?: unknown[];
-}
+/**
+ * A prop value as one bounded line, such as `21`, `"text"`,
+ * `function onClick`, `array(3)[1, 2, 3]` or `object{id,title}`.
+ * See `prop-summary.ts` for the full format.
+ */
+export type PropValueSummaryDTO = string;
 
+/**
+ * One changed prop. `removed` has only `prev`; `added` only `current`;
+ * `scalar-changed` has both. `ref-changed` has `current`, plus `prev` only
+ * when the previous value's summary differs (its shape changed).
+ */
 export interface PropChangeEvidenceDTO {
   name: string;
   kind: PropChangeKindDTO;
-  prev: PropValueSummaryDTO;
-  current: PropValueSummaryDTO;
+  prev?: PropValueSummaryDTO;
+  current?: PropValueSummaryDTO;
 }
 
+/** Fields at their default value are left out: no `null` ids, no `false`, no empty list, no all-zero counts. */
 export interface RenderedComponentEvidenceDTO {
   sourceId: string;
   name: string;
   depth: number;
-  parentSourceId: string | null;
-  ownerSourceId: string | null;
-  isSelfSource: boolean;
-  propChanges: PropChangeEvidenceDTO[];
-  hasPropChanges: boolean;
-  trasherCounts: { effects: number; callbacks: number; memos: number };
+  /** Absent when the parent fiber is not a component. */
+  parentSourceId?: string;
+  /** Absent when no component's update caused this render. */
+  ownerSourceId?: string;
+  /** Present, and true, only when this component's own state changed. */
+  isSelfSource?: true;
+  /** Absent when no prop changed. */
+  propChanges?: PropChangeEvidenceDTO[];
+  /** Absent when all three are zero. */
+  trasherCounts?: { effects: number; callbacks: number; memos: number };
 }
 
 export interface CommitInteractionActionDTO {

@@ -71,7 +71,7 @@ Every component avalanche sees is one of three roles. Never confuse them.
 |---|---|---|
 | **Trigger** | `commit-peek N sources` entry, or `commit-peek N rendered` entry with `isSelfSource: true` | Hook state changed here. This started the cascade. |
 | **Hotspot** | Appears in `sources` frequently across commits | Renders often — may or may not be a trigger. |
-| **Collateral** | `commit-peek N rendered` entry with `isSelfSource: false` | Re-rendered with no local change. Downstream blast victim. |
+| **Collateral** | `commit-peek N rendered` entry without `isSelfSource` | Re-rendered with no local change. Downstream blast victim. |
 
 A hotspot is not necessarily a trigger. A collateral is not a problem by itself — its parent is. Fix the trigger, not the collateral.
 
@@ -312,7 +312,7 @@ const ctxValue = useMemo(() => ({ user, settings }), [user, settings]);
 
 ## Pattern 2 — setState cascade (source → collateral blast)
 
-**Signal:** One component appears in `sources` across many commits. Its `trashers` in `commit-peek N sources` show state flipping (often back and forth). Many `commit-peek N rendered` entries with `isSelfSource: false` sit below it (`parentSourceId` / `ownerSourceId`).
+**Signal:** One component appears in `sources` across many commits. Its `trashers` in `commit-peek N sources` show state flipping (often back and forth). Many `commit-peek N rendered` entries without `isSelfSource` sit below it (`parentSourceId` / `ownerSourceId`).
 
 **Why it happens:** A `setState` fires on every render or in an effect with unstable deps, causing the component to re-render, which propagates to all its children.
 
@@ -345,7 +345,7 @@ Fix: stabilize the dep (memoize `config`) or derive inside render without an eff
 
 ## Pattern 3 — Collateral blast with no data dependency (missing memo boundary)
 
-**Signal:** A subtree appears as `commit-peek N rendered` entries with `isSelfSource: false` on every commit. The components have no local hook changes and are not data-dependent on what changed. The nearest common ancestor (`P3`) is the blast source.
+**Signal:** A subtree appears as `commit-peek N rendered` entries without `isSelfSource` on every commit. The components have no local hook changes and are not data-dependent on what changed. The nearest common ancestor (`P3`) is the blast source.
 
 **Why it happens:** A parent re-renders (for a legitimate reason) and pulls its entire subtree with it — even parts that don't care about the change. No `memo` boundary exists to stop the propagation.
 

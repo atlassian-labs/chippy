@@ -120,9 +120,12 @@ describe('createAvalancheDetector — structural render evidence', () => {
 
     const report = commit(parent, new Set([parent]));
     const rendered = Object.values(report.renderedByCommit || {}).flat() as any[];
-    const hit = rendered.find((entry) => entry.name === 'Child' && entry.propChanges.length === 0);
+    const hit = rendered.find((entry) => entry.name === 'Child');
     expect(hit).toBeDefined();
-    expect(hit.hasPropChanges).toBe(false);
+    // Defaults are left out of the entry.
+    expect(hit).not.toHaveProperty('propChanges');
+    expect(hit).not.toHaveProperty('isSelfSource');
+    expect(hit).not.toHaveProperty('trasherCounts');
   });
 
   it('records ref-changed for an unstable callback prop', () => {
@@ -136,9 +139,9 @@ describe('createAvalancheDetector — structural render evidence', () => {
 
     const report = commit(parent, new Set([parent]));
     const rendered = Object.values(report.renderedByCommit || {}).flat() as any[];
-    const hit = rendered.find((entry) => entry.name === 'Child' && entry.propChanges.some((p: any) => p.name === 'onPing' && p.kind === 'ref-changed'));
-    expect(hit).toBeDefined();
-    expect(hit.hasPropChanges).toBe(true);
+    const hit = rendered.find((entry) => entry.name === 'Child');
+    // Same shape, new identity: one summary.
+    expect(hit.propChanges).toEqual([{ name: 'onPing', kind: 'ref-changed', current: 'function onPing' }]);
   });
 
   it('records scalar-changed for a scalar prop update', () => {
@@ -152,8 +155,8 @@ describe('createAvalancheDetector — structural render evidence', () => {
 
     const report = commit(parent, new Set([parent]));
     const rendered = Object.values(report.renderedByCommit || {}).flat() as any[];
-    const hit = rendered.find((entry) => entry.name === 'Child' && entry.propChanges.some((p: any) => p.name === 'count' && p.kind === 'scalar-changed'));
-    expect(hit).toBeDefined();
+    const hit = rendered.find((entry) => entry.name === 'Child');
+    expect(hit.propChanges).toEqual([{ name: 'count', kind: 'scalar-changed', prev: '0', current: '1' }]);
   });
   it('summarizes object and function props by their current keys and name', () => {
     function Parent() { return null; }
@@ -176,11 +179,10 @@ describe('createAvalancheDetector — structural render evidence', () => {
       const report = detector.report(20, 'effect') as any;
       const entry = (Object.values(report.renderedByCommit || {}).flat() as any[]).find((e) => e.name === 'Child');
       const change = (name: string) => entry.propChanges.find((p: any) => p.name === name);
-      expect(change('style').prev).toMatchObject({ type: 'object', preview: 'object{color}', keysTop: ['color'], length: 1 });
-      expect(change('other').current).toMatchObject({ preview: 'object{color,size}', keysTop: ['color', 'size'], length: 2 });
-      expect(change('a,b').prev.keysTop).toEqual(['a,b']);
-      expect(change('a,b').current.keysTop).toEqual(['a', 'b']);
-      expect(change('onPing').current).toMatchObject({ type: 'function', isFunction: true, preview: 'function onPing' });
+      expect(change('style')).toEqual({ name: 'style', kind: 'ref-changed', current: 'object{color}' });
+      expect(change('other')).toEqual({ name: 'other', kind: 'ref-changed', prev: 'object{color}', current: 'object{color,size}' });
+      expect(change('a,b')).toEqual({ name: 'a,b', kind: 'ref-changed', prev: 'object{"a,b"}', current: 'object{a,b}' });
+      expect(change('onPing')).toEqual({ name: 'onPing', kind: 'ref-changed', current: 'function onPing' });
     } finally { detector.uninstall(); }
   });
 
@@ -202,7 +204,7 @@ describe('createAvalancheDetector — structural render evidence', () => {
     const report = detector.report(20, 'effect') as any;
     const rendered = Object.values(report.renderedByCommit || {}).flat() as any[];
     expect(rendered.map((entry) => entry.name)).toEqual(expect.arrayContaining(['Parent', 'Child']));
-    expect(rendered.find((entry) => entry.name === 'Child').hasPropChanges).toBe(true);
+    expect(rendered.find((entry) => entry.name === 'Child').propChanges).toHaveLength(1);
   });
 });
 

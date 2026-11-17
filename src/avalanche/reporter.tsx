@@ -374,35 +374,40 @@ export interface InteractionAction {
 
 export type PropChangeKind = 'same' | 'ref-changed' | 'scalar-changed' | 'added' | 'removed';
 
-export interface PropValueSummary {
-  type: string;
-  isArray: boolean;
-  isFunction: boolean;
-  isNull: boolean;
-  preview: string;
-  display?: string;
-  length?: number;
-  keysTop?: string[];
-  sample?: unknown[];
-}
+/**
+ * A prop value as one bounded line, such as `21`, `"text"`,
+ * `function onClick`, `array(3)[1, 2, 3]` or `object{id,title}`.
+ * See `prop-summary.ts` for the full format.
+ */
+export type PropValueSummary = string;
 
+/**
+ * One changed prop. `removed` has only `prev`; `added` only `current`;
+ * `scalar-changed` has both. `ref-changed` has `current`, plus `prev` only
+ * when the previous value's summary differs (its shape changed).
+ */
 export interface PropChangeEvidence {
   name: string;
   kind: PropChangeKind;
-  prev: PropValueSummary;
-  current: PropValueSummary;
+  prev?: PropValueSummary;
+  current?: PropValueSummary;
 }
 
+/** Fields at their default value are left out: no `null` ids, no `false`, no empty list, no all-zero counts. */
 export interface RenderedComponentEvidence {
   sourceId: string;
   name: string;
   depth: number;
-  parentSourceId: string | null;
-  ownerSourceId: string | null;
-  isSelfSource: boolean;
-  propChanges: PropChangeEvidence[];
-  hasPropChanges: boolean;
-  trasherCounts: { effects: number; callbacks: number; memos: number };
+  /** Absent when the parent fiber is not a component. */
+  parentSourceId?: string;
+  /** Absent when no component's update caused this render. */
+  ownerSourceId?: string;
+  /** Present, and true, only when this component's own state changed. */
+  isSelfSource?: true;
+  /** Absent when no prop changed. */
+  propChanges?: PropChangeEvidence[];
+  /** Absent when all three are zero. */
+  trasherCounts?: { effects: number; callbacks: number; memos: number };
 }
 
 export interface CommitInteractionAction {

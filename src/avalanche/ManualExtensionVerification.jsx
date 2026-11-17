@@ -126,7 +126,7 @@ function TogglePanel() {
   // useCallback returns a fresh function every commit. Avalanche should report
   //   propChanges: [
   //     { name: "isEnabled", kind: "scalar-changed", prev, current },
-  //     { name: "toggle",    kind: "ref-changed",    prev, current },
+  //     { name: "toggle",    kind: "ref-changed",    current },
   //   ]
   // on the Target child for every commit triggered by clicking the toggle.
   const toggle = useCallback(() => setEnabled(!isEnabled), [isEnabled]);
@@ -205,7 +205,7 @@ function ChildrenPropPanel() {
   // React.memo(MemoizedParent) cannot shallow-compare children equal —
   // even though the elements are structurally identical.
   // Avalanche should report propChanges:
-  //   [{ name: "children", kind: "ref-changed", prev, current }]
+  //   [{ name: "children", kind: "ref-changed", current }]
   // on MemoizedParent every commit triggered by `bump caller`.
   // The unavoidable fix layer is hoisting <ChildA/> and <ChildB/> into a
   // stable variable (or passing them as a memoized array).

@@ -1277,9 +1277,9 @@ this.__AVALANCHE__ = (function() {
   const CS_UNMOUNTED_SUBTREES = 9;
   const MAX_DEPTH = 2;
   const MAX_ENTRIES = 8;
-  const MAX_STRING = 200;
+  const MAX_STRING$1 = 200;
   function cut(text) {
-    return text.length > MAX_STRING ? text.slice(0, MAX_STRING) + `…(${text.length})` : text;
+    return text.length > MAX_STRING$1 ? text.slice(0, MAX_STRING$1) + `…(${text.length})` : text;
   }
   function constructorName(value) {
     try {
@@ -3412,6 +3412,73 @@ this.__AVALANCHE__ = (function() {
       }
     };
   }
+  const MAX_STRING = 64;
+  const MAX_KEYS = 5;
+  const MAX_ITEMS$1 = 3;
+  const MAX_SHARED = 1e4;
+  const PLAIN_KEY = /^[A-Za-z_$][\w$]*$/;
+  function createPropSummarizer() {
+    const byFunctionName = /* @__PURE__ */ new Map();
+    const byObjectKeys = /* @__PURE__ */ new Map();
+    const byString = /* @__PURE__ */ new Map();
+    const byElementType = /* @__PURE__ */ new Map();
+    function shared(cache, key, build) {
+      let summary = cache.get(key);
+      if (summary === void 0) {
+        summary = build();
+        if (cache.size >= MAX_SHARED) cache.clear();
+        cache.set(key, summary);
+      }
+      return summary;
+    }
+    function summarize2(value, nested = false) {
+      if (value === void 0) return "undefined";
+      if (value === null) return "null";
+      const type = typeof value;
+      if (type === "function") {
+        const name = value.name || "";
+        return shared(byFunctionName, name, () => name ? `function ${name}` : "function");
+      }
+      if (type === "string") {
+        const text = value;
+        if (text.length > MAX_STRING) return `${JSON.stringify(text.slice(0, MAX_STRING)).slice(0, -1)}…"(len ${text.length})`;
+        return shared(byString, text, () => JSON.stringify(text));
+      }
+      if (type === "boolean") return value ? "true" : "false";
+      if (type === "number") return String(value);
+      if (type === "bigint") return `${String(value)}n`;
+      if (type === "symbol") return String(value);
+      if (Array.isArray(value)) {
+        if (nested || value.length === 0) return `array(${value.length})`;
+        const items = value.slice(0, MAX_ITEMS$1).map((item) => summarize2(item, true));
+        return `array(${value.length})[${items.join(", ")}]`;
+      }
+      const element = elementName(value);
+      if (element !== null) return shared(byElementType, element, () => `element <${element}>`);
+      const keys = Object.keys(value);
+      const shown = keys.length > MAX_KEYS ? keys.slice(0, MAX_KEYS) : keys;
+      const shape = keys.length > MAX_KEYS ? `${shown.join("")}\0${keys.length}` : keys.join("");
+      return shared(byObjectKeys, shape, () => {
+        const names = shown.map((key) => PLAIN_KEY.test(key) ? key : JSON.stringify(key));
+        if (keys.length > MAX_KEYS) names.push(`…+${keys.length - MAX_KEYS}`);
+        return `object{${names.join(",")}}`;
+      });
+    }
+    return (value) => summarize2(value);
+  }
+  function elementName(value) {
+    var _a2, _b2, _c2, _d2;
+    const candidate = value;
+    if (typeof candidate.$$typeof !== "symbol" || !("type" in candidate)) return null;
+    const type = candidate.type;
+    if (typeof type === "string") return type;
+    if (typeof type === "symbol") return String(type).replace(/^Symbol\((?:react\.)?(.*)\)$/, "$1");
+    if (type && (typeof type === "function" || typeof type === "object")) {
+      const named = type.displayName || type.name || ((_a2 = type.render) == null ? void 0 : _a2.displayName) || ((_b2 = type.render) == null ? void 0 : _b2.name) || ((_c2 = type.type) == null ? void 0 : _c2.displayName) || ((_d2 = type.type) == null ? void 0 : _d2.name);
+      if (typeof named === "string" && named) return named;
+    }
+    return "Anonymous";
+  }
   const DEFAULT_MAX_RENDERED_ENTRIES = 25e4;
   function createRenderedEvidenceStore(byCommit, maxEntries = DEFAULT_MAX_RENDERED_ENTRIES) {
     const budget = Number.isFinite(maxEntries) && maxEntries > 0 ? Math.floor(maxEntries) : DEFAULT_MAX_RENDERED_ENTRIES;
@@ -3656,70 +3723,7 @@ this.__AVALANCHE__ = (function() {
       }
       return null;
     }
-    const functionSummaryByName = /* @__PURE__ */ new Map();
-    const objectSummaryByKeys = /* @__PURE__ */ new Map();
-    const primitiveSummaryByValue = /* @__PURE__ */ new Map();
-    let undefinedSummary = null;
-    const MAX_SHARED_SUMMARIES = 1e4;
-    const NO_TRASHER_COUNTS = { effects: 0, callbacks: 0, memos: 0 };
-    function summarizePropValue(value) {
-      if (value === void 0) return undefinedSummary ?? (undefinedSummary = buildPropValueSummary(value));
-      if (typeof value === "function") return sharedSummary(functionSummaryByName, value.name || "", value);
-      if (value !== null && typeof value === "object" && !Array.isArray(value)) {
-        const keys = Object.keys(value);
-        const shape = keys.length > 5 ? `${keys.slice(0, 5).join("")}\0${keys.length}` : keys.join("");
-        return sharedSummary(objectSummaryByKeys, shape, value);
-      }
-      const type = typeof value;
-      if (value === null || type === "boolean" || type === "number" || type === "string" && value.length <= 64) {
-        return sharedSummary(primitiveSummaryByValue, `${type}:${String(value)}`, value);
-      }
-      return buildPropValueSummary(value);
-    }
-    function sharedSummary(cache, key, value) {
-      let summary = cache.get(key);
-      if (!summary) {
-        summary = buildPropValueSummary(value);
-        if (cache.size >= MAX_SHARED_SUMMARIES) cache.clear();
-        cache.set(key, summary);
-      }
-      return summary;
-    }
-    function buildPropValueSummary(value) {
-      const isArray = Array.isArray(value);
-      const type = value === null ? "null" : isArray ? "array" : typeof value;
-      const isFunction = typeof value === "function";
-      const isNull = value === null;
-      const isPrimitive = value == null || type === "string" || type === "number" || type === "boolean" || type === "undefined" || type === "symbol" || type === "bigint";
-      const primitiveDisplay = isPrimitive ? String(value) : void 0;
-      const summary = {
-        type,
-        isArray,
-        isFunction,
-        isNull,
-        preview: primitiveDisplay || (isFunction ? "function" : isArray ? `array(${value.length})` : "object")
-      };
-      if (primitiveDisplay !== void 0) {
-        summary.display = primitiveDisplay;
-      }
-      if (typeof value === "string" || isArray) {
-        summary.length = value.length;
-      }
-      if (isArray) {
-        summary.sample = value.slice(0, 3).map((item) => summarizePropValue(item).preview);
-      } else if (value && typeof value === "object") {
-        const keys = Object.keys(value).slice(0, 5);
-        summary.keysTop = keys;
-        summary.length = Object.keys(value).length;
-        if (keys.length > 0) {
-          summary.preview = `object{${keys.join(",")}}`;
-        }
-      } else if (isFunction) {
-        const fn = value;
-        summary.preview = fn.name ? `function ${fn.name}` : "function";
-      }
-      return summary;
-    }
+    const summarizePropValue = createPropSummarizer();
     function diffProps(prevProps, currentProps) {
       const changes = [];
       if (prevProps === currentProps) return changes;
@@ -3730,17 +3734,19 @@ this.__AVALANCHE__ = (function() {
         if (!hasOwn.call(prev, name)) continue;
         const prevValue = prev[name];
         if (!hasOwn.call(current, name)) {
-          changes.push({ name, kind: "removed", prev: summarizePropValue(prevValue), current: summarizePropValue(void 0) });
+          changes.push({ name, kind: "removed", prev: summarizePropValue(prevValue) });
           continue;
         }
         const currentValue = current[name];
         if (Object.is(prevValue, currentValue)) continue;
-        const kind = prevValue !== null && currentValue !== null && (typeof prevValue === "object" || typeof prevValue === "function" || typeof currentValue === "object" || typeof currentValue === "function") ? "ref-changed" : "scalar-changed";
-        changes.push({ name, kind, prev: summarizePropValue(prevValue), current: summarizePropValue(currentValue) });
+        const isRef = prevValue !== null && currentValue !== null && (typeof prevValue === "object" || typeof prevValue === "function" || typeof currentValue === "object" || typeof currentValue === "function");
+        const currentSummary = summarizePropValue(currentValue);
+        const prevSummary = typeof prevValue === "function" && typeof currentValue === "function" && prevValue.name === currentValue.name ? currentSummary : summarizePropValue(prevValue);
+        changes.push(isRef ? prevSummary === currentSummary ? { name, kind: "ref-changed", current: currentSummary } : { name, kind: "ref-changed", prev: prevSummary, current: currentSummary } : { name, kind: "scalar-changed", prev: prevSummary, current: currentSummary });
       }
       for (const name in current) {
         if (!hasOwn.call(current, name) || hasOwn.call(prev, name)) continue;
-        changes.push({ name, kind: "added", prev: summarizePropValue(void 0), current: summarizePropValue(current[name]) });
+        changes.push({ name, kind: "added", current: summarizePropValue(current[name]) });
       }
       return changes;
     }
@@ -3944,16 +3950,13 @@ this.__AVALANCHE__ = (function() {
             const initialRenderEvidence = {
               sourceId: componentSourceId,
               name: getComponentName(fiber),
-              depth,
-              parentSourceId,
-              ownerSourceId,
-              isSelfSource: false,
-              propChanges: fiber.alternate ? diffProps(fiber.alternate.memoizedProps, fiber.memoizedProps) : [],
-              hasPropChanges: false,
-              // Shared; an amplifier replaces it rather than mutating it.
-              trasherCounts: NO_TRASHER_COUNTS
+              depth
             };
-            initialRenderEvidence.hasPropChanges = initialRenderEvidence.propChanges.length > 0;
+            if (parentSourceId) initialRenderEvidence.parentSourceId = parentSourceId;
+            if (fiber.alternate) {
+              const propChanges = diffProps(fiber.alternate.memoizedProps, fiber.memoizedProps);
+              if (propChanges.length) initialRenderEvidence.propChanges = propChanges;
+            }
             if (existingRenderEvidenceIndex >= 0) {
               perCommit.rendered[existingRenderEvidenceIndex] = initialRenderEvidence;
             } else {
@@ -4047,8 +4050,10 @@ this.__AVALANCHE__ = (function() {
             const renderedIndex = perCommit.renderedIndexBySourceId.get(componentSourceId);
             const renderedEntry = renderedIndex === void 0 ? void 0 : perCommit.rendered[renderedIndex];
             if (renderedEntry) {
-              renderedEntry.ownerSourceId = ownerSourceId;
-              renderedEntry.isSelfSource = isRealSource && changedIndices.length > 0;
+              if (ownerSourceId) renderedEntry.ownerSourceId = ownerSourceId;
+              else if (renderedEntry.ownerSourceId !== void 0) delete renderedEntry.ownerSourceId;
+              if (isRealSource && changedIndices.length > 0) renderedEntry.isSelfSource = true;
+              else if (renderedEntry.isSelfSource) delete renderedEntry.isSelfSource;
             }
             if (enableAmplifiers && didFiberUpdate(fiber) && fiber.alternate) {
               const thrashResult = detectHookThrashing(
@@ -4103,7 +4108,7 @@ this.__AVALANCHE__ = (function() {
                   });
                   const amplifierIndex = perCommit.renderedIndexBySourceId.get(amplifierSourceId);
                   const renderedEntry2 = amplifierIndex === void 0 ? void 0 : perCommit.rendered[amplifierIndex];
-                  if (renderedEntry2) {
+                  if (renderedEntry2 && (effects || callbacks || memos)) {
                     renderedEntry2.trasherCounts = { effects, callbacks, memos };
                   }
                   perCommit.effectCount += thrashResult.effects.length;
