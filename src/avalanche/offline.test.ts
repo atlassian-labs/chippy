@@ -7,6 +7,7 @@ import { evalAvalanche } from '../chippy-bridge/avalanche-commands';
 import { createAvalancheDetector } from './detector';
 import { PerformedWork, type Fiber } from './internals';
 import { analyzeSavedReport, keepLastCommits, unwrapSavedReport } from './offline';
+import { registerAvalancheHooks, resetAvalancheHooks, summarizeHookResults } from './avalanche-hooks';
 
 const SCRIPTS = resolve(__dirname, '../../.agents/skills/chippy/scripts');
 const runtime = globalThis as any;
@@ -77,6 +78,30 @@ describe('offline Avalanche analysis', () => {
     expect(analyzeSavedReport(report, 'summary', { _: [] })).toMatchObject({ ok: true, commits: 4 });
     const trimmed = keepLastCommits(report, 2);
     expect(analyzeSavedReport(trimmed, 'summary', { _: [] })).toMatchObject({ commits: 2, firstCommitId: 3, lastCommitId: 4 });
+  });
+
+  it('serves pack hook results through status summary, commit-peek, and saved captures', () => {
+    registerAvalancheHooks({ id: 'demo.count', onStart: () => 'go', onStep: (ctx) => ({ n: ctx.commits }), onEnd: (ctx) => ({ total: ctx.commits }) });
+    try {
+      const { api, saved } = capture(3);
+      expect(summarizeHookResults(detector!.hookResults())).toEqual({
+        'demo.count': { start: 'go', end: { total: 3 }, stepCount: 3, errors: [], errorCount: 0, stepDisabled: false },
+      });
+      const live = evalAvalanche({ action: 'commit-peek', commitId: 2 }, api, null) as any;
+      expect(live.payload.hooks).toEqual({ 'demo.count': { n: 2 } });
+      const report = unwrapSavedReport(saved)!;
+      expect(analyzeSavedReport(report, 'commit-peek', { _: ['2', 'hooks'] })).toMatchObject({ payload: { hooks: { 'demo.count': { n: 2 } } } });
+      expect(analyzeSavedReport(report, 'summary', { _: [] })).toMatchObject({ hooks: { 'demo.count': { stepCount: 3, end: { total: 3 } } } });
+      const trimmed = keepLastCommits(report, 1) as any;
+      expect(Object.keys(trimmed.hooks['demo.count'].steps)).toEqual(['3']);
+    } finally {
+      resetAvalancheHooks();
+    }
+  });
+
+  it('omits the hooks slice when no pack ran', () => {
+    const { api } = capture(1);
+    expect((evalAvalanche({ action: 'commit-peek', commitId: 1 }, api, null) as any).payload).not.toHaveProperty('hooks');
   });
 
   it('finds rendered components by name', () => {

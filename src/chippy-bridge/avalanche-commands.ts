@@ -9,6 +9,7 @@
  * to work unchanged.
  */
 
+import { hookStepsAt } from '../avalanche/avalanche-hooks';
 import { warmComponentTypes, type NameRecoveryStats } from './component-origin';
 import { networkByCommit, networkView, type CommitNetwork } from '../avalanche/network-signals';
 import { buildTimeline } from '../avalanche/timeline';
@@ -305,9 +306,9 @@ export function evalAvalanche(
         }
         const include = Array.isArray(command?.include) && command!.include!.length
           ? command!.include!
-          : ['stats', 'sources', 'timing', 'metrics'];
+          : ['stats', 'sources', 'timing', 'metrics', 'hooks'];
         // `atl` is the deprecated alias of `metrics`, kept for one release.
-        const allowedInclude = ['stats', 'sources', 'timing', 'metrics', 'atl', 'unmounts', 'actions', 'rendered', 'network'];
+        const allowedInclude = ['stats', 'sources', 'timing', 'metrics', 'atl', 'hooks', 'unmounts', 'actions', 'rendered', 'network'];
         const invalidInclude = include.filter((key) => !allowedInclude.includes(key));
         if (invalidInclude.length) {
           return {
@@ -334,7 +335,8 @@ export function evalAvalanche(
         const metrics = metricsMap?.[commitId] || metricsMap?.[String(commitId)] || null;
         const actions = (ser.interactionsByCommit?.[commitId] || ser.interactionsByCommit?.[String(commitId)] || []) as unknown[];
         const rendered = (ser.renderedByCommit?.[commitId] || ser.renderedByCommit?.[String(commitId)] || []) as unknown[];
-        if (!tuple && !sourceIds.length && !timing && !metrics && !actions.length && !rendered.length) {
+        const hookSteps = hookStepsAt(ser.hooks as Parameters<typeof hookStepsAt>[0], commitId);
+        if (!tuple && !sourceIds.length && !timing && !metrics && !actions.length && !rendered.length && !Object.keys(hookSteps).length) {
           return { ok: true, available: true, action, commitId, found: false };
         }
         const sourcesById = new Map<unknown, Record<string, unknown>>();
@@ -370,6 +372,8 @@ export function evalAvalanche(
         if (include.includes('timing')) out.timing = timing;
         if (include.includes('metrics')) out.metrics = metrics;
         if (include.includes('atl')) out.atl = metrics;
+        // Pack extension results for this commit, keyed like report.hooks; absent without packs.
+        if (include.includes('hooks') && ser.hooks) out.hooks = hookSteps;
         if (include.includes('actions')) {
           out.actions = actions.slice(0, maxItems);
           out.actionsTotal = actions.length;

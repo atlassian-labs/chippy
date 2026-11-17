@@ -970,12 +970,12 @@ case "$cmd" in
   avalanche-commit-peek)
     client_id="${2:-}"
     commit_id="${3:-}"
-    include="${4:-stats,sources,timing,metrics}"
+    include="${4:-stats,sources,timing,metrics,hooks}"
     depth="${5:-3}"
     max_items="${6:-20}"
     if [[ -z "$client_id" || -z "$commit_id" ]]; then
       echo "avalanche-commit-peek requires <clientId> <commitId> [include] [depth] [maxItems]" >&2
-      echo "  include csv ⊆ stats,sources,timing,metrics,unmounts,actions,rendered,network (atl: alias of metrics; unmounts is live-only)" >&2
+      echo "  include csv ⊆ stats,sources,timing,metrics,hooks,unmounts,actions,rendered,network (atl: alias of metrics; unmounts is live-only)" >&2
       exit 1
     fi
     include_json="["

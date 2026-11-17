@@ -2665,6 +2665,23 @@ function createAvalancheHookRunner(source = getAvalancheHooks) {
     }
   };
 }
+function summarizeHookResults(results) {
+  if (!results) return null;
+  const out = {};
+  for (const [id, { steps, instructions: _instructions, ...rest }] of Object.entries(results)) {
+    out[id] = { ...rest, stepCount: Object.keys(steps ?? {}).length };
+  }
+  return out;
+}
+function hookStepsAt(results, commitId) {
+  const out = {};
+  for (const [id, result] of Object.entries(results ?? {})) {
+    const steps = (result == null ? void 0 : result.steps) ?? {};
+    const value = steps[commitId] ?? steps[String(commitId)];
+    if (value !== void 0) out[id] = value;
+  }
+  return out;
+}
 const MAX_CELLS = 25e4;
 function rectArea(rect) {
   return Math.max(0, rect.right - rect.left) * Math.max(0, rect.bottom - rect.top);
@@ -4615,6 +4632,10 @@ function createAvalancheDetector(options = {}) {
     getMetricsAdapterId() {
       return (metricsAdapter == null ? void 0 : metricsAdapter.id) ?? null;
     },
+    /** Plugin hook results (runs each set's onEnd), without building a report. */
+    hookResults() {
+      return hookRunner.collect();
+    },
     /** Commit and network request counts, without building a report. */
     counts() {
       networkCapture.flush();
@@ -5896,14 +5917,18 @@ function registerPack(input) {
     label: pack.label ?? pack.id,
     instructions: pack.instructions ?? null,
     kinds: ((contextProvider == null ? void 0 : contextProvider.kinds) ?? []).map((kind) => kind.kind),
-    extensions: extensions.map(({ id, name }) => ({
-      name,
-      reportKey: id,
-      scripts: ["onInit", "onStart", "onStep", "onEnd"].filter((phase) => {
-        var _a3;
-        return !!((_a3 = pack.avalancheExtensions) == null ? void 0 : _a3[name][phase]);
-      })
-    })),
+    extensions: extensions.map(({ id, name }) => {
+      var _a3;
+      return {
+        name,
+        reportKey: id,
+        scripts: ["onInit", "onStart", "onStep", "onEnd"].filter((phase) => {
+          var _a4;
+          return !!((_a4 = pack.avalancheExtensions) == null ? void 0 : _a4[name][phase]);
+        }),
+        ...((_a3 = pack.avalancheExtensions) == null ? void 0 : _a3[name].instructions) && { instructions: pack.avalancheExtensions[name].instructions }
+      };
+    }),
     compileErrors,
     initErrors
   };
@@ -6795,7 +6820,7 @@ function buildTimeline(report, options = {}) {
   if (windowIds.length === 0) return { ok: false, error: `no commits between ${fromCommit} and ${toCommit}` };
   const windowStart = startOf(windowIds[0]);
   const windowEnd = startOf(windowIds[windowIds.length - 1]);
-  const originInput = [...inputs].reverse().find((input2) => input2.t <= windowStart && windowStart - input2.t <= 5e3);
+  const originInput = inputs.find((input2) => input2.t <= windowStart && windowStart - input2.t <= 5e3);
   const origin = originInput ? originInput.t : windowStart;
   const rel = (t) => round$2(t - origin);
   const input = inputs.filter((i) => i.t >= origin && i.t <= windowEnd).map((i) => ({ ...i, t: rel(i.t) }));
@@ -7210,8 +7235,8 @@ function evalAvalanche(command, api2, mod) {
         if (!Number.isFinite(commitId)) {
           return { ok: false, available: true, action, error: "commit-peek requires numeric commitId" };
         }
-        const include = Array.isArray(command == null ? void 0 : command.include) && command.include.length ? command.include : ["stats", "sources", "timing", "metrics"];
-        const allowedInclude = ["stats", "sources", "timing", "metrics", "atl", "unmounts", "actions", "rendered", "network"];
+        const include = Array.isArray(command == null ? void 0 : command.include) && command.include.length ? command.include : ["stats", "sources", "timing", "metrics", "hooks"];
+        const allowedInclude = ["stats", "sources", "timing", "metrics", "atl", "hooks", "unmounts", "actions", "rendered", "network"];
         const invalidInclude = include.filter((key) => !allowedInclude.includes(key));
         if (invalidInclude.length) {
           return {
@@ -7235,7 +7260,8 @@ function evalAvalanche(command, api2, mod) {
         const metrics = (metricsMap == null ? void 0 : metricsMap[commitId]) || (metricsMap == null ? void 0 : metricsMap[String(commitId)]) || null;
         const actions = ((_k = ser.interactionsByCommit) == null ? void 0 : _k[commitId]) || ((_l = ser.interactionsByCommit) == null ? void 0 : _l[String(commitId)]) || [];
         const rendered = ((_m = ser.renderedByCommit) == null ? void 0 : _m[commitId]) || ((_n = ser.renderedByCommit) == null ? void 0 : _n[String(commitId)]) || [];
-        if (!tuple && !sourceIds.length && !timing && !metrics && !actions.length && !rendered.length) {
+        const hookSteps = hookStepsAt(ser.hooks, commitId);
+        if (!tuple && !sourceIds.length && !timing && !metrics && !actions.length && !rendered.length && !Object.keys(hookSteps).length) {
           return { ok: true, available: true, action, commitId, found: false };
         }
         const sourcesById = /* @__PURE__ */ new Map();
@@ -7267,6 +7293,7 @@ function evalAvalanche(command, api2, mod) {
         if (include.includes("timing")) out.timing = timing;
         if (include.includes("metrics")) out.metrics = metrics;
         if (include.includes("atl")) out.atl = metrics;
+        if (include.includes("hooks") && ser.hooks) out.hooks = hookSteps;
         if (include.includes("actions")) {
           out.actions = actions.slice(0, maxItems);
           out.actionsTotal = actions.length;
@@ -9323,7 +9350,12 @@ const api = {
     const integrationMode = detector ? ((_b2 = detector.getIntegrationMode) == null ? void 0 : _b2.call(detector)) ?? "none" : "none";
     const metricsAdapter = detector ? ((_c2 = detector.getMetricsAdapterId) == null ? void 0 : _c2.call(detector)) ?? null : ((_d2 = getCommitMetricsAdapter()) == null ? void 0 : _d2.id) ?? null;
     const packs2 = listPacks().map(({ id, label, instructions, extensions, compileErrors, initErrors }) => ({ id, label, instructions, extensions, compileErrors, initErrors }));
-    return { installed, hasMetricsGlobal, commitCount, integrationMode, metricsAdapter, networkRequests, packs: packs2 };
+    let hooks = null;
+    try {
+      hooks = summarizeHookResults(detector == null ? void 0 : detector.hookResults());
+    } catch (_) {
+    }
+    return { installed, hasMetricsGlobal, commitCount, integrationMode, metricsAdapter, networkRequests, packs: packs2, hooks };
   },
   registerCommitMetricsAdapter,
   enablePlugins,

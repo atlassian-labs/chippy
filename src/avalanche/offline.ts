@@ -5,6 +5,7 @@
  * offline commands run the same dispatcher as the live page, so `commit-list`,
  * `commit-peek`, and `hot-sources` return identical shapes online and offline.
  */
+import { summarizeHookResults } from './avalanche-hooks';
 import { evalAvalanche, tupleToStats, UPSTREAM_COMMIT_STAT_KEYS, type AvalancheCommand } from '../chippy-bridge/avalanche-commands';
 
 type SavedReport = {
@@ -46,6 +47,15 @@ export function keepLastCommits(report: SavedReport, count: number): SavedReport
     if (!map || typeof map !== 'object') continue;
     out[key] = Object.fromEntries(Object.entries(map as Record<string, unknown>).filter(([id]) => keep.has(id)));
   }
+  // Pack extension results keep per-commit steps inside each hook set.
+  if (report.hooks && typeof report.hooks === 'object') {
+    out.hooks = Object.fromEntries(
+      Object.entries(report.hooks as Record<string, { steps?: Record<string, unknown> }>).map(([id, result]) => [
+        id,
+        { ...result, steps: Object.fromEntries(Object.entries(result?.steps ?? {}).filter(([commitId]) => keep.has(commitId))) },
+      ]),
+    );
+  }
   out.meta = { ...report.meta, keptLastCommits: keep.size };
   return out;
 }
@@ -72,6 +82,7 @@ export function summary(report: SavedReport) {
     lastCommitId: ids.at(-1) ?? null,
     sources: report.sources?.length ?? 0,
     totals,
+    hooks: summarizeHookResults(report.hooks as Parameters<typeof summarizeHookResults>[0]),
     meta: report.meta,
   };
 }

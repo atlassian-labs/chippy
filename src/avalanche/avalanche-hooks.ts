@@ -218,3 +218,38 @@ export function createAvalancheHookRunner(source: () => AvalancheHooks[] = getAv
 export function resetAvalancheHooks(): void {
   registered.clear();
 }
+
+export type AvalancheHookSummary = Omit<AvalancheHookResult, 'steps' | 'instructions'> & {
+  /** Commits with an onStep result; read them with commit-peek `hooks`. */
+  stepCount: number;
+};
+
+/**
+ * Compact results for status: everything but the per-commit steps, which
+ * commit-peek reads one commit at a time. Instructions are left out because
+ * status already lists them with the packs.
+ */
+export function summarizeHookResults(
+  results: Record<string, AvalancheHookResult> | null | undefined,
+): Record<string, AvalancheHookSummary> | null {
+  if (!results) return null;
+  const out: Record<string, AvalancheHookSummary> = {};
+  for (const [id, { steps, instructions: _instructions, ...rest }] of Object.entries(results)) {
+    out[id] = { ...rest, stepCount: Object.keys(steps ?? {}).length };
+  }
+  return out;
+}
+
+/** Each hook set's onStep result for one commit; sets without one are absent. */
+export function hookStepsAt(
+  results: Record<string, Pick<AvalancheHookResult, 'steps'>> | null | undefined,
+  commitId: number,
+): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const [id, result] of Object.entries(results ?? {})) {
+    const steps = (result?.steps ?? {}) as Record<string, unknown>;
+    const value = steps[commitId] ?? steps[String(commitId)];
+    if (value !== undefined) out[id] = value;
+  }
+  return out;
+}

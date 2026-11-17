@@ -12,6 +12,13 @@ import { describeComponent, describeFiberTarget } from '../layout-lab/fiber-walk
 import { describeInputEvent } from './input-details';
 import type { CommitInteractionAction, InteractionAction, InteractionCaptureLevel } from './reporter';
 
+// Chippy marks its page UI with these attributes.
+const CHIPPY_UI_SELECTOR = '[data-chippy-ui], [data-layout-lab-panel]';
+
+function isChippyUi(node: EventTarget): boolean {
+  return typeof Element !== 'undefined' && node instanceof Element && node.matches(CHIPPY_UI_SELECTOR);
+}
+
 const EXPLICIT_INTERACTION_EVENTS = ['click', 'keydown', 'keyup', 'input', 'change', 'submit'];
 const NOISY_INTERACTION_EVENTS = ['wheel', 'scroll', 'pointermove', 'mousemove', 'touchmove'];
 const ALL_INTERACTION_EVENTS = [
@@ -115,7 +122,10 @@ export function createInteractionCapture(options: InteractionCaptureOptions = {}
   }
 
   function capture(event: Event): void {
-    const pathTarget = typeof event.composedPath === 'function' ? event.composedPath()[0] : null;
+    const path = typeof event.composedPath === 'function' ? event.composedPath() : [];
+    // Clicks on Chippy's own panel (Record, Stop, probes) are not page input.
+    if (path.some(isChippyUi)) return;
+    const pathTarget = path[0] ?? null;
     const target = pathTarget instanceof Element ? pathTarget : event.target;
     // Keep a bounded queue because a long-lived page can receive noisy events
     // continuously. Older anchors cannot link to a future commit once they

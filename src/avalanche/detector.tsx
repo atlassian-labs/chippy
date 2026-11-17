@@ -72,7 +72,7 @@ import { createCommitSurfaceOwnership } from './commit-surface-ownership';
 import { createInteractionCapture } from './interaction-capture';
 import { createNetworkCapture } from './network-capture';
 import { createPaintTracker } from './paint-timing';
-import { createAvalancheHookRunner } from './avalanche-hooks';
+import { createAvalancheHookRunner, type AvalancheHookResult } from './avalanche-hooks';
 import { createScreenCapture } from './screen-changes';
 import { describeSuspenseLocation } from './suspense-location';
 import { createRenderTickTracker } from './render-ticks';
@@ -1998,6 +1998,11 @@ export function createAvalancheDetector(options: DetectorOptions = {}) {
     /** Id of the commit metrics adapter resolved on install, or null. */
     getMetricsAdapterId(): string | null {
       return metricsAdapter?.id ?? null;
+    },
+
+    /** Plugin hook results (runs each set's onEnd), without building a report. */
+    hookResults(): Record<string, AvalancheHookResult> | null {
+      return hookRunner.collect();
     },
 
     /** Commit and network request counts, without building a report. */

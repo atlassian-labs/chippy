@@ -23,7 +23,13 @@ export type PackStatus = {
   /** Boundary kinds the pack's component rules add. */
   kinds: string[];
   /** Named Avalanche extensions: report key and the script phases each runs. */
-  extensions: Array<{ name: string; reportKey: string; scripts: Array<'onInit' | 'onStart' | 'onStep' | 'onEnd'> }>;
+  extensions: Array<{
+    name: string;
+    reportKey: string;
+    scripts: Array<'onInit' | 'onStart' | 'onStep' | 'onEnd'>;
+    /** Present only when the extension has its own; otherwise the pack's apply. */
+    instructions?: string;
+  }>;
   /** Scripts the page refused to compile, for example under a strict CSP. */
   compileErrors: string[];
   /** What an extension's `onInit` threw, as `<report key>: <error>`. */
@@ -66,6 +72,7 @@ export function registerPack(input: unknown): PackStatus {
       name,
       reportKey: id,
       scripts: (['onInit', 'onStart', 'onStep', 'onEnd'] as const).filter((phase) => !!pack.avalancheExtensions?.[name][phase]),
+      ...(pack.avalancheExtensions?.[name].instructions && { instructions: pack.avalancheExtensions[name].instructions }),
     })),
     compileErrors,
     initErrors,

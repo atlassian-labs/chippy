@@ -181,7 +181,10 @@ pack's. Each recording script is a function body called with `ctx`:
 `ctx.state` lasts for one recording, `ctx.commits` counts captured commits, and
 in `onStep`, `ctx.commit` holds `{ id, components, startTime, endTime, root }`.
 Return values become report evidence under the extension's key: `start`,
-`steps[commitId]`, and `end`, next to its `instructions`. A throwing
+`steps[commitId]`, and `end`, next to its `instructions`. Agents read them
+without the full export: `avalanche-status` returns each extension's `start`,
+`end`, and errors under `hooks`, and `avalanche-commit-peek` returns one
+commit's step results in its `hooks` slice. A throwing
 script is recorded in `errors` and never stops capture; an `onStep` that fails
 20 times stops for the rest of the recording. Scripts compile with
 `new Function`, so a page whose Content Security Policy forbids `unsafe-eval`

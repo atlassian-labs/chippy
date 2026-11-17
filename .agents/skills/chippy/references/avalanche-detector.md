@@ -126,13 +126,15 @@ chippy.sh avalanche-commit-peek my-client 42 stats,rendered 3 20
 ```
 Pull one commit across slices. Use `include` CSV to limit payload. `actions` returns full event breadcrumbs attached to this commit. `rendered` returns bounded structural evidence for components that rendered in the commit, including parent/source ids, shallow prop-change facts, self-source flag, and linked trasher counts.
 
-Defaults: include `stats,sources,timing,metrics`, maxItems 20 (MCP and HTTP default to 50). `depth` is accepted for compatibility and has no effect. `maxItems` bounds the `sources`, `actions`, `rendered`, `unmounts`, and `network` arrays; each of those slices also reports its untrimmed `...Total`.
+Defaults: include `stats,sources,timing,metrics,hooks`, maxItems 20 (MCP and HTTP default to 50). `depth` is accepted for compatibility and has no effect. `maxItems` bounds the `sources`, `actions`, `rendered`, `unmounts`, and `network` arrays; each of those slices also reports its untrimmed `...Total`.
 
 `network` returns `{landedBefore, landedBeforeTotal, startedAfter, startedAfterTotal, startedDuringRender, startedDuringRenderTotal, inFlight}`: the requests whose response finished just before this commit's render started, the requests that started just after it ended, the requests that started while it rendered, and how many were in flight when it committed. Rows have the `avalanche-network` shape. The link window is 250 ms; pass `window` through MCP or HTTP to change it.
 
+`hooks` returns each loaded pack extension's `onStep` result for this commit, keyed like `report.hooks` (`{"<pack>.<extension>": value}`); extensions with no result for the commit are absent, and the slice is absent when no pack ran. Read the pack's `instructions` in `avalanche-status` first. `avalanche-status` also carries `hooks`: each extension's `start`, `end`, `stepCount`, `errors`, `errorCount`, and `stepDisabled`, without the per-commit steps.
+
 Valid include values (live and offline):
 ```text
-stats,sources,timing,metrics,unmounts,actions,rendered,network
+stats,sources,timing,metrics,hooks,unmounts,actions,rendered,network
 ```
 
 `atl` is a deprecated alias of `metrics`; it returns the same slice under `atl`.
@@ -146,7 +148,7 @@ stats,sources,timing,metrics,unmounts,actions,rendered,network
 Response envelopes (live responses also add `targetClientId`, `resolvedFrom`, and `requestId`):
 - commit-list: `{by,total,rows:[{commitId,stat,sourceCount,ticks,network,latestAction}]}`. Rows are top-level, not under `payload`.
 - hot-sources: `{total,payload:{count,items:[...]}}`.
-- commit-peek: `{payload:{commitId,found:true,stats,sources,sourcesTotal,timing,metrics,actions,actionsTotal,rendered,renderedTotal,unmounts,unmountsTotal,network}}`, containing only the requested slices. An unknown commit returns flat `{commitId,found:false}` without `payload`.
+- commit-peek: `{payload:{commitId,found:true,stats,sources,sourcesTotal,timing,metrics,hooks,actions,actionsTotal,rendered,renderedTotal,unmounts,unmountsTotal,network}}`, containing only the requested slices. An unknown commit returns flat `{commitId,found:false}` without `payload`.
 
 ### `avalanche-describe-action <clientId> <actionId>`
 ```bash

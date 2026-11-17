@@ -111,7 +111,7 @@ The built-in Jira and ATL plugins are off by default. The user enables them in
 the Chippy panel's settings, after which the page must reload; on a page already loaded,
 `__AVALANCHE__.enablePlugins(['jira', 'atl'])` enables Jira for later probes and
 ATL for the next Avalanche install, without initial-load metrics. `status().metricsAdapter` names the active adapter; `listPlugins()` lists the registered plugins and which ones run.
-Packs are JSON plugins a product team shares and loads into Chippy. `status().packs` lists the loaded packs and each pack's `extensions[].reportKey`; before reading a pack's boundary kinds or its `report.hooks["<pack>.<extension>"]` evidence, read the `instructions`, which also travel in each `report.hooks[<key>].instructions`. Treat `hooks[<key>].errors`, `compileErrors`, and `initErrors` as a broken pack, not as page behavior.
+Packs are JSON plugins a product team shares and loads into Chippy. `status().packs` lists the loaded packs and each pack's `extensions[].reportKey`; before reading a pack's boundary kinds or its `report.hooks["<pack>.<extension>"]` evidence, read the `instructions`, which also travel in each `report.hooks[<key>].instructions`. `avalanche-status` returns each extension's `start`, `end`, and errors under `hooks`, and `avalanche-commit-peek` returns its per-commit result in the `hooks` slice, included by default. Treat `hooks[<key>].errors`, `compileErrors`, and `initErrors` as a broken pack, not as page behavior.
 React must see the DevTools hook when its renderer evaluates for commit capture
 and dispatcher-backed replay; importing Chippy afterward cannot retroactively
 register a renderer. Use fiber-only reads when that integration is unavailable.

@@ -4,6 +4,25 @@
 // src/avalanche/offline-cli.ts
 var import_node_fs = require("node:fs");
 
+// src/avalanche/avalanche-hooks.ts
+function summarizeHookResults(results) {
+  if (!results) return null;
+  const out = {};
+  for (const [id, { steps, instructions: _instructions, ...rest }] of Object.entries(results)) {
+    out[id] = { ...rest, stepCount: Object.keys(steps ?? {}).length };
+  }
+  return out;
+}
+function hookStepsAt(results, commitId) {
+  const out = {};
+  for (const [id, result] of Object.entries(results ?? {})) {
+    const steps = result?.steps ?? {};
+    const value = steps[commitId] ?? steps[String(commitId)];
+    if (value !== void 0) out[id] = value;
+  }
+  return out;
+}
+
 // src/chippy-bridge/source-map.ts
 var DIGITS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 var VALUE_OF = new Int8Array(128).fill(-1);
@@ -774,8 +793,8 @@ function evalAvalanche(command, api, mod) {
         if (!Number.isFinite(commitId)) {
           return { ok: false, available: true, action, error: "commit-peek requires numeric commitId" };
         }
-        const include = Array.isArray(command?.include) && command.include.length ? command.include : ["stats", "sources", "timing", "metrics"];
-        const allowedInclude = ["stats", "sources", "timing", "metrics", "atl", "unmounts", "actions", "rendered", "network"];
+        const include = Array.isArray(command?.include) && command.include.length ? command.include : ["stats", "sources", "timing", "metrics", "hooks"];
+        const allowedInclude = ["stats", "sources", "timing", "metrics", "atl", "hooks", "unmounts", "actions", "rendered", "network"];
         const invalidInclude = include.filter((key) => !allowedInclude.includes(key));
         if (invalidInclude.length) {
           return {
@@ -799,7 +818,8 @@ function evalAvalanche(command, api, mod) {
         const metrics = metricsMap?.[commitId] || metricsMap?.[String(commitId)] || null;
         const actions = ser.interactionsByCommit?.[commitId] || ser.interactionsByCommit?.[String(commitId)] || [];
         const rendered = ser.renderedByCommit?.[commitId] || ser.renderedByCommit?.[String(commitId)] || [];
-        if (!tuple && !sourceIds.length && !timing && !metrics && !actions.length && !rendered.length) {
+        const hookSteps = hookStepsAt(ser.hooks, commitId);
+        if (!tuple && !sourceIds.length && !timing && !metrics && !actions.length && !rendered.length && !Object.keys(hookSteps).length) {
           return { ok: true, available: true, action, commitId, found: false };
         }
         const sourcesById = /* @__PURE__ */ new Map();
@@ -831,6 +851,7 @@ function evalAvalanche(command, api, mod) {
         if (include.includes("timing")) out.timing = timing;
         if (include.includes("metrics")) out.metrics = metrics;
         if (include.includes("atl")) out.atl = metrics;
+        if (include.includes("hooks") && ser.hooks) out.hooks = hookSteps;
         if (include.includes("actions")) {
           out.actions = actions.slice(0, maxItems);
           out.actionsTotal = actions.length;
@@ -1003,6 +1024,14 @@ function keepLastCommits(report, count) {
     if (!map || typeof map !== "object") continue;
     out[key] = Object.fromEntries(Object.entries(map).filter(([id]) => keep.has(id)));
   }
+  if (report.hooks && typeof report.hooks === "object") {
+    out.hooks = Object.fromEntries(
+      Object.entries(report.hooks).map(([id, result]) => [
+        id,
+        { ...result, steps: Object.fromEntries(Object.entries(result?.steps ?? {}).filter(([commitId]) => keep.has(commitId))) }
+      ])
+    );
+  }
   out.meta = { ...report.meta, keptLastCommits: keep.size };
   return out;
 }
@@ -1027,6 +1056,7 @@ function summary(report) {
     lastCommitId: ids.at(-1) ?? null,
     sources: report.sources?.length ?? 0,
     totals,
+    hooks: summarizeHookResults(report.hooks),
     meta: report.meta
   };
 }
@@ -1138,7 +1168,7 @@ Commands:
 
 commit-list sort keys: collateral sources restarts performedWork effects memos
   callbacks contextUpdates unmountedComponents unmountedSubtrees ticks network
-commit-peek include values: stats,sources,timing,metrics,actions,rendered,network (atl: deprecated alias of metrics)
+commit-peek include values: stats,sources,timing,metrics,hooks,actions,rendered,network (atl: deprecated alias of metrics)
 `;
 function fail(message) {
   process.stderr.write(`avalanche-analyze: ${message}

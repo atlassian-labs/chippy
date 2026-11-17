@@ -9,6 +9,7 @@
  */
 
 import { createAvalancheDetector, DETECTION_LEVEL } from './avalanche/detector';
+import { type AvalancheHookSummary, summarizeHookResults } from './avalanche/avalanche-hooks';
 import {
   type IntegrationMode,
   getCommitMetricsAdapter,
@@ -239,6 +240,8 @@ type AvalancheApi = {
     networkRequests: number;
     /** Loaded packs and how to read their data. */
     packs: Array<{ id: string; label: string; instructions: string | null; extensions: PackStatus['extensions']; compileErrors: string[]; initErrors: string[] }>;
+    /** Pack extension results keyed by report key, without per-commit steps; null when none ran. */
+    hooks: Record<string, AvalancheHookSummary> | null;
   };
   registerCommitMetricsAdapter: typeof registerCommitMetricsAdapter;
   /** Enable plugins by id (built-in: `'jira'`, `'atl'`); returns the running ids. */
@@ -407,7 +410,9 @@ const api: AvalancheApi = {
       : getCommitMetricsAdapter()?.id ?? null;
     // Pack instructions ride on status so an agent reads them before the data.
     const packs = listPacks().map(({ id, label, instructions, extensions, compileErrors, initErrors }) => ({ id, label, instructions, extensions, compileErrors, initErrors }));
-    return { installed, hasMetricsGlobal, commitCount, integrationMode, metricsAdapter, networkRequests, packs };
+    let hooks: Record<string, AvalancheHookSummary> | null = null;
+    try { hooks = summarizeHookResults(detector?.hookResults()); } catch (_) {}
+    return { installed, hasMetricsGlobal, commitCount, integrationMode, metricsAdapter, networkRequests, packs, hooks };
   },
   registerCommitMetricsAdapter,
   enablePlugins,

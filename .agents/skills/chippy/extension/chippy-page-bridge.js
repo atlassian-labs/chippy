@@ -704,6 +704,9 @@
         });
         break;
       }
+      case 'avalanche-recording-saved':
+        onRecordingSaved(command);
+        break;
       case 'show-status':
         showStatus(command.text || 'Chippy is connected.');
         break;
@@ -1988,6 +1991,113 @@
     try { frameLink?.stop(); } catch (e) {}
   }
 
+  // ─── Panel recording ─────────────────────────────────────────────────────
+  //
+  // The panel's Record button clears Avalanche's capture, and Stop sends the
+  // export to the helper, which saves it as a file that avalanche-offline
+  // reads. Avalanche stays installed and keeps capturing after Stop; only the
+  // saved file is fixed. The Avalanche pill reloads the page with Avalanche
+  // installed before React's first commit, as reload-with-avalanche does.
+  const RECORDING_SAVE_TIMEOUT_MS = 60000;
+  let recording = { state: 'idle', startedAt: null, stoppedAt: null, file: null, commits: null, error: null };
+  let recordingTimer = null;
+
+  function notifyRecording() {
+    try { global.dispatchEvent(new CustomEvent('chippy-recording-state', { detail: getRecordingState() })); } catch (e) {}
+  }
+
+  function setRecording(next) {
+    recording = { ...recording, ...next };
+    notifyRecording();
+  }
+
+  function readAvalancheCapture() {
+    const api = getAvalancheApi();
+    let status = null;
+    try { status = api?.status?.() || null; } catch (e) {}
+    const startup = global.__CHIPPY_STARTUP_CONFIG || null;
+    const installed = !!status?.installed;
+    return {
+      available: !!api,
+      installed,
+      // Installed by an armed reload before React's first commit, so the
+      // capture includes the initial mount.
+      fromPageStart: installed && !!startup?.avalanche?.autoStart,
+      commits: Number(status?.commitCount) || 0,
+    };
+  }
+
+  function getRecordingState() {
+    return { ...recording, avalanche: readAvalancheCapture(), helperConnected: chippy.connState === 'connected' };
+  }
+
+  function startRecording() {
+    const api = getAvalancheApi();
+    if (!api?.status?.()?.installed) {
+      setRecording({ state: 'idle', error: 'Avalanche is not installed: reload with Avalanche first.' });
+      return getRecordingState();
+    }
+    api.reset?.();
+    setRecording({ state: 'recording', startedAt: Date.now(), stoppedAt: null, file: null, commits: null, error: null });
+    sendActivity('avalanche-recording-started', null);
+    return getRecordingState();
+  }
+
+  function stopRecording() {
+    if (recording.state !== 'recording') return Promise.resolve(getRecordingState());
+    const stoppedAt = Date.now();
+    setRecording({ state: 'saving', stoppedAt });
+    const command = { action: 'export' };
+    const b = getBridge();
+    const named = resolveBuildMode() !== 'dev' && b?.evalAvalancheWithNames
+      ? b.evalAvalancheWithNames(command, getAvalancheApi(), getAvalancheModule())
+      : null;
+    return Promise.resolve(named).catch(() => null).then((result) => {
+      const exported = result || evalAvalanche(command);
+      if (!exported?.ok || !exported.payload) {
+        setRecording({ state: 'idle', error: exported?.error || 'The Avalanche export failed.' });
+        return getRecordingState();
+      }
+      const requestId = 'recording-' + stoppedAt;
+      const sent = send({
+        type: 'avalanche-recording',
+        clientId,
+        requestId,
+        page: getPageState(),
+        startedAt: recording.startedAt,
+        stoppedAt,
+        payload: exported.payload,
+      });
+      if (!sent) {
+        setRecording({ state: 'idle', error: 'The helper is not connected, so the recording was not saved.' });
+        return getRecordingState();
+      }
+      clearTimeout(recordingTimer);
+      recordingTimer = setTimeout(() => {
+        if (recording.state === 'saving') setRecording({ state: 'idle', error: 'The helper did not confirm the save.' });
+      }, RECORDING_SAVE_TIMEOUT_MS);
+      return getRecordingState();
+    });
+  }
+
+  function onRecordingSaved(command) {
+    clearTimeout(recordingTimer);
+    if (command.ok === false) {
+      setRecording({ state: 'idle', error: command.error || 'The helper could not save the recording.' });
+      return;
+    }
+    setRecording({ state: 'idle', file: command.file || null, commits: command.commits ?? null, error: null });
+  }
+
+  function reloadWithAvalanche() {
+    const avalanche = { autoStart: true, options: { captureFibers: true, detectionMode: 'sources' } };
+    return prepareReload(avalanche).then(function(earlyStartup) {
+      sendActivity('avalanche-panel-reload', { earlyStartup: earlyStartup });
+      setTimeout(function() { try { global.location.reload(); } catch (e) {} }, 50);
+      return earlyStartup;
+    });
+  }
+
   // ─── Public API ──────────────────────────────────────────────────────────
 
   chippy.evalElementDom = evalElementDom;
@@ -2015,6 +2125,12 @@
     clearProbes,
     showStatus,
     hideStatus,
+    recording: {
+      state: getRecordingState,
+      start: startRecording,
+      stop: stopRecording,
+      reloadWithAvalanche,
+    },
     avalanche: {
       install() { return evalAvalanche({ action: 'install' }); },
       start(options) { return evalAvalanche({ action: 'start', max: options?.max }); },

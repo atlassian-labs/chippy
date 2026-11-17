@@ -52,6 +52,21 @@ describe('createInteractionCapture — install / uninstall / reset', () => {
     expect(cap.state.actions).toHaveLength(1);
   });
 
+  it('ignores input on Chippy UI, including inside its shadow root', () => {
+    cap.install();
+    const panel = document.createElement('div');
+    panel.setAttribute('data-layout-lab-panel', '');
+    const button = document.createElement('button');
+    panel.attachShadow({ mode: 'closed' }).appendChild(button);
+    document.body.appendChild(panel);
+    dispatchClick(button);
+    dispatchClick(panel);
+    expect(cap.state.actions).toHaveLength(0);
+    dispatchClick();
+    expect(cap.state.actions).toHaveLength(1);
+    panel.remove();
+  });
+
   it('uninstall stops capture', () => {
     cap.install();
     cap.uninstall();
