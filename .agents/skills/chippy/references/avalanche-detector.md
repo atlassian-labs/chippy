@@ -193,7 +193,7 @@ chippy.sh avalanche-offline capture.json timeline --fromCommit 40 --format full
 ```
 Puts user input, network requests, Suspense fallbacks, and commits on one clock, in milliseconds from an origin. Use it to answer why an interaction or load felt slow, not only why it cost CPU. Defaults: the window runs from the first commit after the first recorded interaction to the last commit. Requests shorter than 50 ms are left out, and the 30 longest are kept (`--top` offline, `top` over HTTP). `exclude` is a case-insensitive URL regex. Pass `""` to skip a position.
 
-The origin is the latest interaction up to 5 s before the window's first commit, else that commit (`origin.kind`). Times before the origin are negative.
+The origin is the first interaction up to 5 s before the window's first commit, else that commit (`origin.kind`). Times before the origin are negative.
 
 Commits are classified by what the user can see:
 - `lock`: a Suspense boundary showed its fallback.

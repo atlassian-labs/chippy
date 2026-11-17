@@ -368,7 +368,7 @@ function buildTimeline(report, options = {}) {
   if (windowIds.length === 0) return { ok: false, error: `no commits between ${fromCommit} and ${toCommit}` };
   const windowStart = startOf(windowIds[0]);
   const windowEnd = startOf(windowIds[windowIds.length - 1]);
-  const originInput = [...inputs].reverse().find((input2) => input2.t <= windowStart && windowStart - input2.t <= 5e3);
+  const originInput = inputs.find((input2) => input2.t <= windowStart && windowStart - input2.t <= 5e3);
   const origin = originInput ? originInput.t : windowStart;
   const rel = (t) => round2(t - origin);
   const input = inputs.filter((i) => i.t >= origin && i.t <= windowEnd).map((i) => ({ ...i, t: rel(i.t) }));

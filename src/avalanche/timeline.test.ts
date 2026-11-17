@@ -155,6 +155,22 @@ describe('buildTimeline', () => {
     expect(t.mermaid).toContain('input keydown character with Shift dispatched card');
   });
 
+  it('starts at the first input when page code dispatches another before the first commit', () => {
+    const t = buildTimeline({
+      ...report,
+      interactionsByCommit: {
+        ...report.interactionsByCommit,
+        1: [
+          { id: 7, action: 'click', timestamp: 1000, location: { dom: { nearestTestId: 'card' } }, event: { trusted: true } },
+          { id: 8, action: 'click', timestamp: 1008, location: { dom: { tag: 'a' } }, event: { trusted: false } },
+        ],
+      },
+    } as never);
+    if ('error' in t) throw new Error(t.error);
+    expect(t.origin).toEqual({ at: 1000, kind: 'interaction' });
+    expect(t.lanes.input.slice(0, 2).map((i) => [i.t, i.target])).toEqual([[0, 'card'], [8, 'a']]);
+  });
+
   it('places what the user sees at paint time when the report records it', () => {
     // Commits 3 and 4 ran in one long task that ended at 2300.
     const painted = {

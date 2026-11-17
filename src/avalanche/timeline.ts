@@ -243,8 +243,9 @@ export function buildTimeline(report: ReportLike, options: TimelineOptions = {})
   if (windowIds.length === 0) return { ok: false, error: `no commits between ${fromCommit} and ${toCommit}` };
   const windowStart = startOf(windowIds[0]);
   const windowEnd = startOf(windowIds[windowIds.length - 1]);
-  // The origin is the latest interaction at or before the window, within 5 s.
-  const originInput = [...inputs].reverse().find((input) => input.t <= windowStart && windowStart - input.t <= 5000);
+  // The origin is the first interaction at or before the window, within 5 s, so
+  // events that page code dispatched after it do not hide it.
+  const originInput = inputs.find((input) => input.t <= windowStart && windowStart - input.t <= 5000);
   const origin = originInput ? originInput.t : windowStart;
   const rel = (t: number) => round(t - origin);
 
