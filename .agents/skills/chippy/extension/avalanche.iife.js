@@ -5818,7 +5818,12 @@ this.__AVALANCHE__ = (function() {
     result.text = renderText(result);
     return result;
   }
-  const safe = (s) => s.replace(/[:#;]/g, " ").replace(/\s+/g, " ").trim();
+  const GANTT_KEYWORDS = /^(click|call|href|section|title|dateformat|axisformat|tickinterval|excludes|includes|todaymarker|weekday|weekend|inclusiveenddates|topaxis|acctitle|accdescr|displaymode|gantt)\b/i;
+  function ganttTaskName(raw) {
+    const name = raw.replace(/[:#;]/g, " ").replace(/%%/g, "% %").replace(/\s+/g, " ").trim() || "unnamed";
+    return GANTT_KEYWORDS.test(name) ? "· " + name : name;
+  }
+  const safe = ganttTaskName;
   function renderMermaid(result) {
     const { input, network, suspense, commits } = result.lanes;
     const end = result.window.end;
@@ -5834,7 +5839,7 @@ this.__AVALANCHE__ = (function() {
     ];
     if (input.length) {
       lines.push("  section Input");
-      input.forEach((i, n) => lines.push(`  ${safe(i.action + (i.target ? " " + i.target : ""))} :milestone, in${n}, ${i.t}, ${i.t}`));
+      input.forEach((i, n) => lines.push(`  ${safe("user " + i.action + (i.target ? " " + i.target : ""))} :milestone, in${n}, ${i.t}, ${i.t}`));
     }
     if (network.length) {
       lines.push("  section Network");

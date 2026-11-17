@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildTimeline, requestLabel, type TimelineResult } from './timeline';
+import { buildTimeline, ganttTaskName, requestLabel, type TimelineResult } from './timeline';
 
 // Click at 1000. Commit 1 shows a fallback at depth 10; a request ends at
 // 1400; commit 2 is an update while waiting; commit 3 reveals the content.
@@ -89,6 +89,18 @@ describe('buildTimeline', () => {
       expect(line.slice(0, line.lastIndexOf(' :'))).not.toMatch(/[:#;]/);
     }
     expect(t.text).toContain('all cleared at +500');
+  });
+
+  it('never starts a task line with a gantt keyword', () => {
+    const t = built();
+    expect(t.mermaid).toContain('user click card :milestone, in0, 0, 0');
+    const keyword = /^(click|call|href|section|title|dateformat|axisformat|tickinterval|excludes|includes|todaymarker|weekday|weekend|acctitle|accdescr)\b/i;
+    const tasks = t.mermaid.split('\n').slice(4).map((line) => line.trim()).filter((line) => !line.startsWith('section '));
+    for (const line of tasks) expect(line).not.toMatch(keyword);
+    expect(ganttTaskName('click card')).toBe('· click card');
+    expect(ganttTaskName('Section header')).toBe('· Section header');
+    expect(ganttTaskName('Clicker list')).toBe('Clicker list');
+    expect(ganttTaskName('a: b # c ; d %% e')).toBe('a b c d % % e');
   });
 
   it('labels requests by GraphQL operation, else by path', () => {

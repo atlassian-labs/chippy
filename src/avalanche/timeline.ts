@@ -272,8 +272,16 @@ export function buildTimeline(report: ReportLike, options: TimelineOptions = {})
   return result;
 }
 
+// Gantt statements that start with one of these words are directives, not
+// tasks: a task named "click card" fails to parse as a click binding.
+const GANTT_KEYWORDS = /^(click|call|href|section|title|dateformat|axisformat|tickinterval|excludes|includes|todaymarker|weekday|weekend|inclusiveenddates|topaxis|acctitle|accdescr|displaymode|gantt)\b/i;
+
 // Mermaid task names cannot contain ':' or '#', and ';' ends a statement.
-const safe = (s: string) => s.replace(/[:#;]/g, ' ').replace(/\s+/g, ' ').trim();
+export function ganttTaskName(raw: string): string {
+  const name = raw.replace(/[:#;]/g, ' ').replace(/%%/g, '% %').replace(/\s+/g, ' ').trim() || 'unnamed';
+  return GANTT_KEYWORDS.test(name) ? '· ' + name : name;
+}
+const safe = ganttTaskName;
 
 function renderMermaid(result: TimelineResult): string {
   const { input, network, suspense, commits } = result.lanes;
@@ -290,7 +298,7 @@ function renderMermaid(result: TimelineResult): string {
   ];
   if (input.length) {
     lines.push('  section Input');
-    input.forEach((i, n) => lines.push(`  ${safe(i.action + (i.target ? ' ' + i.target : ''))} :milestone, in${n}, ${i.t}, ${i.t}`));
+    input.forEach((i, n) => lines.push(`  ${safe('user ' + i.action + (i.target ? ' ' + i.target : ''))} :milestone, in${n}, ${i.t}, ${i.t}`));
   }
   if (network.length) {
     lines.push('  section Network');
