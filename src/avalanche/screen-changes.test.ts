@@ -116,6 +116,27 @@ describe('createScreenCapture', () => {
     expect(capture.byCommit[2].removedArea).toBeGreaterThan(95_000);
   });
 
+  it('measures through an empty portal wrapper to its positioned children', () => {
+    const wrapper = element();
+    const blanket = document.createElement('div');
+    blanket.setAttribute('data-testid', 'modal--blanket');
+    const inner = document.createElement('div');
+    const dialog = document.createElement('section');
+    dialog.setAttribute('data-testid', 'modal-dialog');
+    inner.appendChild(dialog);
+    wrapper.append(blanket, inner);
+    const rects = new Map<Node, Rect>([
+      [wrapper, { left: 0, top: 0, right: 1000, bottom: 0 }],
+      [blanket, { left: 0, top: 0, right: 1000, bottom: 500 }],
+      [inner, { left: 0, top: 0, right: 0, bottom: 0 }],
+      [dialog, { left: 100, top: 50, right: 900, bottom: 450 }],
+    ]);
+    const capture = createScreenCapture({}, geometry(rects));
+    capture.record(1, tree(fiber(3), [fiber(5, { stateNode: wrapper, alternate: null })]));
+    expect(capture.byCommit[1].share).toBe(1);
+    expect(capture.byCommit[1].regions.map((r) => r.label)).toEqual(['modal--blanket', 'modal-dialog']);
+  });
+
   it('records nothing for commits that changed no box', () => {
     const capture = createScreenCapture({}, geometry(new Map()));
     capture.record(1, tree(fiber(3), [fiber(0, { flags: 1 })]));

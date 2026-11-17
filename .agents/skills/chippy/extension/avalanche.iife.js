@@ -2639,6 +2639,33 @@ this.__AVALANCHE__ = (function() {
     return ((_c2 = element == null ? void 0 : element.tagName) == null ? void 0 : _c2.toLowerCase()) || "unknown";
   }
   const round$4 = (n) => Math.round(n);
+  const MAX_DESCENT = 32;
+  function isEmptyBox(box) {
+    return !box || box.right - box.left <= 0 || box.bottom - box.top <= 0;
+  }
+  function unionRect(boxes) {
+    return {
+      left: Math.min(...boxes.map((b) => b.left)),
+      top: Math.min(...boxes.map((b) => b.top)),
+      right: Math.max(...boxes.map((b) => b.right)),
+      bottom: Math.max(...boxes.map((b) => b.bottom))
+    };
+  }
+  function measureVisible(node, geometry) {
+    const own = geometry.rect(node);
+    if (!isEmptyBox(own)) return [{ node, box: own }];
+    const out = [];
+    const queue = node.nodeType === 1 ? Array.from(node.children) : [];
+    let visited = 0;
+    while (queue.length && visited < MAX_DESCENT) {
+      const element = queue.shift();
+      visited++;
+      const box = geometry.rect(element);
+      if (!isEmptyBox(box)) out.push({ node: element, box });
+      else queue.push(...Array.from(element.children));
+    }
+    return out;
+  }
   function createScreenCapture(options = {}, geometry = domScreenGeometry) {
     const enabled = options.screenCapture !== false && typeof document !== "undefined" && typeof window !== "undefined";
     const byCommit = {};
@@ -2655,16 +2682,23 @@ this.__AVALANCHE__ = (function() {
       const rects = [];
       const regions = /* @__PURE__ */ new Map();
       for (const { node, fiber, removed: isRemoved } of found) {
-        const box = isRemoved ? lastRects.get(node) ?? null : geometry.rect(node);
-        if (!box) continue;
-        if (!isRemoved) lastRects.set(node, { left: box.left, top: box.top, right: box.right, bottom: box.bottom });
-        const clipped = intersectRect(box, viewport);
-        if (!clipped) continue;
-        const area2 = rectArea(clipped);
-        (isRemoved ? removed : changed).add(clipped);
-        rects.push({ rect: clipped, area: area2 });
-        const label = regionLabel(node, fiber);
-        regions.set(label, (regions.get(label) || 0) + area2);
+        let boxes;
+        if (isRemoved) {
+          const last = lastRects.get(node);
+          boxes = last ? [{ node, box: last }] : [];
+        } else {
+          boxes = measureVisible(node, geometry);
+          if (boxes.length) lastRects.set(node, unionRect(boxes.map((b) => b.box)));
+        }
+        for (const { node: measured, box } of boxes) {
+          const clipped = intersectRect(box, viewport);
+          if (!clipped) continue;
+          const area2 = rectArea(clipped);
+          (isRemoved ? removed : changed).add(clipped);
+          rects.push({ rect: clipped, area: area2 });
+          const label = regionLabel(measured, fiber);
+          regions.set(label, (regions.get(label) || 0) + area2);
+        }
       }
       if (rects.length === 0) return;
       const full = Math.max(1, rectArea(viewport));

@@ -20,6 +20,10 @@
  * - removed: deleted DOM nodes. A removed node has no box any more; its last
  *   measured box is used when this capture measured it earlier.
  *
+ * An inserted node whose own box is empty (portal and layer wrappers whose
+ * children are fixed or absolutely positioned) is measured through its
+ * nearest non-empty descendants instead.
+ *
  * Boxes are read in the commit hook, after React has applied DOM changes and
  * layout effects; reading them forces the browser's pending layout early,
  * which it would otherwise do before the next paint. The cost is recorded per
@@ -232,6 +236,44 @@ function regionLabel(node: Node, fiber: Fiber): string {
 
 const round = (n: number) => Math.round(n);
 
+const MAX_DESCENT = 32;
+
+function isEmptyBox(box: Rect | null): boolean {
+  return !box || box.right - box.left <= 0 || box.bottom - box.top <= 0;
+}
+
+function unionRect(boxes: Rect[]): Rect {
+  return {
+    left: Math.min(...boxes.map((b) => b.left)),
+    top: Math.min(...boxes.map((b) => b.top)),
+    right: Math.max(...boxes.map((b) => b.right)),
+    bottom: Math.max(...boxes.map((b) => b.bottom)),
+  };
+}
+
+/**
+ * Boxes that show a node's content. Usually the node's own box. Portal and
+ * layer wrappers are often empty (0 x 0, or full width and 0 high) while
+ * their fixed or absolute children cover the screen, so an empty box is
+ * replaced by the nearest non-empty descendant boxes, up to `MAX_DESCENT`
+ * elements.
+ */
+export function measureVisible(node: Node, geometry: ScreenGeometry): Array<{ node: Node; box: Rect }> {
+  const own = geometry.rect(node);
+  if (!isEmptyBox(own)) return [{ node, box: own! }];
+  const out: Array<{ node: Node; box: Rect }> = [];
+  const queue: Element[] = node.nodeType === 1 ? Array.from((node as Element).children) : [];
+  let visited = 0;
+  while (queue.length && visited < MAX_DESCENT) {
+    const element = queue.shift()!;
+    visited++;
+    const box = geometry.rect(element);
+    if (!isEmptyBox(box)) out.push({ node: element, box: box! });
+    else queue.push(...Array.from(element.children));
+  }
+  return out;
+}
+
 export function createScreenCapture(options: ScreenCaptureOptions = {}, geometry: ScreenGeometry = domScreenGeometry) {
   const enabled = options.screenCapture !== false && typeof document !== 'undefined' && typeof window !== 'undefined';
   const byCommit: Record<number, ScreenChange> = {};
@@ -252,16 +294,24 @@ export function createScreenCapture(options: ScreenCaptureOptions = {}, geometry
     const regions = new Map<string, number>();
 
     for (const { node, fiber, removed: isRemoved } of found) {
-      const box = isRemoved ? lastRects.get(node) ?? null : geometry.rect(node);
-      if (!box) continue;
-      if (!isRemoved) lastRects.set(node, { left: box.left, top: box.top, right: box.right, bottom: box.bottom });
-      const clipped = intersectRect(box, viewport);
-      if (!clipped) continue;
-      const area = rectArea(clipped);
-      (isRemoved ? removed : changed).add(clipped);
-      rects.push({ rect: clipped, area });
-      const label = regionLabel(node, fiber);
-      regions.set(label, (regions.get(label) || 0) + area);
+      let boxes: Array<{ node: Node; box: Rect }>;
+      if (isRemoved) {
+        const last = lastRects.get(node);
+        boxes = last ? [{ node, box: last }] : [];
+      } else {
+        boxes = measureVisible(node, geometry);
+        // Remember the union, so a later removal of this node covers it all.
+        if (boxes.length) lastRects.set(node, unionRect(boxes.map((b) => b.box)));
+      }
+      for (const { node: measured, box } of boxes) {
+        const clipped = intersectRect(box, viewport);
+        if (!clipped) continue;
+        const area = rectArea(clipped);
+        (isRemoved ? removed : changed).add(clipped);
+        rects.push({ rect: clipped, area });
+        const label = regionLabel(measured, fiber);
+        regions.set(label, (regions.get(label) || 0) + area);
+      }
     }
     if (rects.length === 0) return;
 
