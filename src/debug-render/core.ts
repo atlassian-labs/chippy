@@ -187,8 +187,12 @@ export function isHookFrameName(name: string): boolean {
   return /^use[A-Z0-9_]/.test(name.slice(name.lastIndexOf('.') + 1));
 }
 
-function deriveComponentName(frames: StackFrame[]): string {
-  for (const { name } of frames) {
+export function deriveComponentName(frames: StackFrame[]): string {
+  // Frames above the dispatcher wrapper belong to the recorder. Bundlers may
+  // rename the recorder (for example `record` to `record2` on a name clash),
+  // so start after the wrapper instead of trusting its callee names.
+  const wrapper = frames.findIndex((frame) => frame.name === 'atlDispatcherHook' || frame.name.endsWith('.atlDispatcherHook'));
+  for (const { name } of wrapper >= 0 ? frames.slice(wrapper + 1) : frames) {
     if (!name) continue;
     if (isReactInternalFrameName(name)) continue;
     if (isHookFrameName(name)) continue; // skip use-prefixed (custom + primitive)
