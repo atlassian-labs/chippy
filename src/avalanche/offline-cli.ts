@@ -12,11 +12,13 @@ Commands:
   commit-peek   <commitId> [include] [max]  (--include csv --maxItems N)
   hot-sources   [limit]
   describe-action <actionId>
+  network       [top] [by] [match] [initiators] [windowMs]
+                (--top N --by start|end|duration --match regex --initiators csv --window ms)
   source-search --name <regex> [--top N]
 
 commit-list sort keys: collateral sources restarts performedWork effects memos
-  callbacks contextUpdates unmountedComponents unmountedSubtrees ticks
-commit-peek include values: stats,sources,timing,metrics,actions,rendered (atl: deprecated alias of metrics)
+  callbacks contextUpdates unmountedComponents unmountedSubtrees ticks network
+commit-peek include values: stats,sources,timing,metrics,actions,rendered,network (atl: deprecated alias of metrics)
 `;
 
 function fail(message: string): never {

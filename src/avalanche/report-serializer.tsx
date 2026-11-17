@@ -34,6 +34,10 @@
  */
 
 import type { CommitMetricsDelta, IntegrationMode } from './commit-metrics-adapter';
+import type { NetworkCaptureStatus, NetworkRequest } from './network-capture';
+
+/** A network request as it travels in a report: already plain data. */
+export type NetworkRequestDTO = NetworkRequest;
 
 // ============================================================================
 // DTO TYPES (Serializable - no function refs, no Fiber refs)
@@ -118,6 +122,8 @@ export interface ReportMetaDTO {
   dataAvailability?: Record<string, boolean>;
   /** Render-tick signal: `sources` in use, or `reason` when unavailable. */
   renderTicks?: { available: boolean; sources: string[]; reason: string | null };
+  /** Resource Timing capture behind `networkRequests`. Absent before report v8. */
+  network?: NetworkCaptureStatus;
   amplifiersMetrics?: {
     totalHookThrashes: number;
     affectedComponentCount: number;
@@ -252,6 +258,8 @@ export interface ReportDTO {
   /** @deprecated Alias of `metricsByCommit`, kept for one release. */
   atlByCommit?: Record<number, CommitMetricsDeltaDTO>;
   commitTimings?: Record<number, CommitTimingDTO>;
+  /** Requests that finished during the capture. Absent before report v8. */
+  networkRequests?: NetworkRequestDTO[];
 }
 
 // ============================================================================
@@ -299,6 +307,7 @@ export function serializeReport(report: {
   /** @deprecated Alias of `metricsByCommit`, kept for one release. */
   atlByCommit?: Record<number, CommitMetricsDeltaDTO>;
   commitTimings?: Record<number, CommitTimingDTO>;
+  networkRequests?: NetworkRequestDTO[];
 }): ReportDTO {
   // Just extract the fields we need - no conversion necessary
   const sources: SourceDTO[] = report.sources.map((source) => ({
@@ -355,5 +364,6 @@ export function serializeReport(report: {
       atlByCommit: report.metricsByCommit || report.atlByCommit,
     }),
     ...(report.commitTimings && { commitTimings: report.commitTimings }),
+    ...(report.networkRequests && { networkRequests: report.networkRequests.map((request) => ({ ...request })) }),
   };
 }

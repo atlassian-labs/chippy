@@ -283,7 +283,7 @@ describe('evalAvalanche', () => {
 
   it('commit-peek: rejects unknown include keys', () => {
     const r = evalAvalanche({ action: 'commit-peek', commitId: 0, include: ['stats', 'bogus'] }, makeApi(), null);
-    expect(r).toMatchObject({ ok: false, validInclude: ['stats', 'sources', 'timing', 'metrics', 'atl', 'unmounts', 'actions', 'rendered'] });
+    expect(r).toMatchObject({ ok: false, validInclude: ['stats', 'sources', 'timing', 'metrics', 'atl', 'unmounts', 'actions', 'rendered', 'network'] });
   });
 
   it('commit-peek: returns full payload for known commit', () => {

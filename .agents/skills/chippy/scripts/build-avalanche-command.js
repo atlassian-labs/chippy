@@ -28,6 +28,8 @@ function buildAvalancheCommand(body = {}, requestId = 'test-request-id') {
   if (body.window != null) command.window = Number(body.window);
   if (body.actionId != null) command.actionId = Number(body.actionId);
   if (Array.isArray(body.include)) command.include = body.include.map(String);
+  if (body.match != null) command.match = String(body.match);
+  if (Array.isArray(body.initiators)) command.initiators = body.initiators.map(String);
   return command;
 }
 

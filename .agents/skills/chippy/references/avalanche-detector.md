@@ -111,10 +111,10 @@ Ranks commits. Rows are intentionally compact. If an event/action breadcrumb is 
 
 Valid sort keys (live and offline):
 ```text
-collateral sources restarts performedWork effects memos callbacks contextUpdates unmountedComponents unmountedSubtrees ticks
+collateral sources restarts performedWork effects memos callbacks contextUpdates unmountedComponents unmountedSubtrees ticks network
 ```
 
-Each row also carries `ticks`, the render slices React ran for that commit (see [Render ticks](#render-ticks)). `by ticks` ranks time-sliced and repeated renders first; commits with unknown ticks (`null`) sort last.
+Each row also carries `ticks`, the render slices React ran for that commit (see [Render ticks](#render-ticks)). `by ticks` ranks time-sliced and repeated renders first; commits with unknown ticks (`null`) sort last. Each row also carries `network: {landedBefore, startedAfter, startedDuringRender}` request counts (see [`avalanche-network`](#avalanche-network-clientid-top-by-match-initiators-windowms)); `by network` ranks commits by `landedBefore`.
 
 Do **not** use undocumented keys like `byDuration`. Live and offline `commit-list` accept the same keys and return `ok:false` with `validBy` for any other key. The live shell command still exits 0: the helper envelope is `ok:true`, and the rejection is in `result.ok:false`, `result.error`, and `result.validBy`, so read `result.ok` before reading rows.
 
@@ -126,11 +126,13 @@ chippy.sh avalanche-commit-peek my-client 42 stats,rendered 3 20
 ```
 Pull one commit across slices. Use `include` CSV to limit payload. `actions` returns full event breadcrumbs attached to this commit. `rendered` returns bounded structural evidence for components that rendered in the commit, including parent/source ids, shallow prop-change facts, self-source flag, and linked trasher counts.
 
-Defaults: include `stats,sources,timing,metrics`, maxItems 20 (MCP and HTTP default to 50). `depth` is accepted for compatibility and has no effect. `maxItems` bounds the `sources`, `actions`, `rendered`, and `unmounts` arrays; each of those slices also reports its untrimmed `...Total`.
+Defaults: include `stats,sources,timing,metrics`, maxItems 20 (MCP and HTTP default to 50). `depth` is accepted for compatibility and has no effect. `maxItems` bounds the `sources`, `actions`, `rendered`, `unmounts`, and `network` arrays; each of those slices also reports its untrimmed `...Total`.
+
+`network` returns `{landedBefore, landedBeforeTotal, startedAfter, startedAfterTotal, startedDuringRender, startedDuringRenderTotal, inFlight}`: the requests whose response finished just before this commit's render started, the requests that started just after it ended, the requests that started while it rendered, and how many were in flight when it committed. Rows have the `avalanche-network` shape. The link window is 250 ms; pass `window` through MCP or HTTP to change it.
 
 Valid include values (live and offline):
 ```text
-stats,sources,timing,metrics,unmounts,actions,rendered
+stats,sources,timing,metrics,unmounts,actions,rendered,network
 ```
 
 `atl` is a deprecated alias of `metrics`; it returns the same slice under `atl`.
@@ -142,15 +144,39 @@ stats,sources,timing,metrics,unmounts,actions,rendered
 `all` is **not** a supported include value, and neither are `collaterals`, `context`, or `amplifiers`. Live and offline `commit-peek` reject unsupported includes and return `ok:false` with `validInclude`; as with `commit-list`, the live rejection arrives in `result` while the shell exits 0. Omit `include` for the default slice set, or pass an explicit CSV like `stats,sources,metrics` or `stats,unmounts`.
 
 Response envelopes (live responses also add `targetClientId`, `resolvedFrom`, and `requestId`):
-- commit-list: `{by,total,rows:[{commitId,stat,sourceCount,latestAction}]}`. Rows are top-level, not under `payload`.
+- commit-list: `{by,total,rows:[{commitId,stat,sourceCount,ticks,network,latestAction}]}`. Rows are top-level, not under `payload`.
 - hot-sources: `{total,payload:{count,items:[...]}}`.
-- commit-peek: `{payload:{commitId,found:true,stats,sources,sourcesTotal,timing,metrics,actions,actionsTotal,rendered,renderedTotal,unmounts,unmountsTotal}}`, containing only the requested slices. An unknown commit returns flat `{commitId,found:false}` without `payload`.
+- commit-peek: `{payload:{commitId,found:true,stats,sources,sourcesTotal,timing,metrics,actions,actionsTotal,rendered,renderedTotal,unmounts,unmountsTotal,network}}`, containing only the requested slices. An unknown commit returns flat `{commitId,found:false}` without `payload`.
 
 ### `avalanche-describe-action <clientId> <actionId>`
 ```bash
 chippy.sh avalanche-describe-action my-client 7
 ```
 Looks up one recorded event/action breadcrumb by id and returns the full payload. Use this after `commit-list` surfaces a useful `latestAction` id. Full payload includes DOM target, nearest test id, target fiber, and complete locality stack. In dev builds the stack is `ownerStackKind: "owners"`; in production bundles owners may be unavailable, so it falls back to `ownerStackKind: "parents"` using the React return chain. This is probe-like grounding for a click/key/input: DOM target + nearest meaningful fiber + locality stack.
+
+### `avalanche-network <clientId> [top] [by] [match] [initiators] [windowMs]`
+```bash
+chippy.sh avalanche-network my-client
+chippy.sh avalanche-network my-client 10 duration
+chippy.sh avalanche-network my-client 20 start '/api/' fetch,xmlhttprequest 500
+```
+Lists the network requests that finished during the capture and links each one to the commits around it. Use it when a commit may be waiting on data, or to see which requests an interaction started. Defaults: top 20, by `start`, window 250 ms. Pass `""` to skip a position.
+
+Sort keys: `start` and `end` ascending, `duration` descending. Any other key returns `ok:false` with `validBy`. `match` is a case-insensitive URL regex; an invalid pattern returns `ok:false`. `initiators` filters by Resource Timing initiator type, such as `fetch`, `xmlhttprequest`, `script`, `img`, `css`, `link`, or `other`.
+
+Output: `payload: {available, capture, windowMs, by, total, summary, rows}`.
+- `available` is `false` when the report has no network data (an export from an earlier release).
+- `capture` is `meta.network` (see [Report shape](#report-shape)).
+- `summary`: `byInitiator` counts, `landedBeforeCommit`, `startedAfterCommit`, `startedDuringRender`, and `longest` (`{id, url, duration}`), all over the filtered requests.
+- `rows[]`: `id`, `url` (cut to 300 characters), `initiatorType`, `startTime`, `endTime`, `duration`, `status` (null when the browser hides it), `cached` (true for a cache hit, false for a network transfer, null when cross-origin timing hides it), `startedBeforeCapture`, and the links below.
+
+Links, each bounded by the window:
+- `startedAfter: {commitId, gapMs}` — the last commit that ended before the request started. A passive effect or follow-up task of that commit may have issued it.
+- `startedDuringRender: commitId` — the commit whose render was running when the request started, such as a render-time data read. Needs render-tick timing; `null` otherwise.
+- `landedBefore: {commitId, gapMs}` — the first commit whose render started at or after the response finished. A state update from the response may have scheduled it.
+- `commitsInFlight` — commits that committed while the request was in flight.
+
+Every link is temporal proximity, not proof of cause. Confirm with the commit's sources (`commit-peek N sources,rendered`). The browser reports a request only when it finishes, so a request still in flight is not listed yet. Requests Chippy makes itself (module and source-map fetches, Chippy assets) are excluded and counted in `meta.network.ignoredOwn`.
 
 ### `avalanche-export <clientId> [lastN] [outFile]`
 ```bash
@@ -177,16 +203,16 @@ avalanche-analyze: response has no Avalanche export (expected meta and commitSta
 
 No file is written. Re-check `avalanche-status` first: `installed`, `hasMetricsGlobal`, and `commitCount` should show a real capture. If status is empty, arm/reload correctly and capture again before saving. With `count=N`, per-commit data keeps the last N commits; aggregate `sources` totals still cover the whole capture.
 
-### `avalanche-offline <path> <summary|commit-list|commit-peek|hot-sources|describe-action|source-search> ...`
+### `avalanche-offline <path> <summary|commit-list|commit-peek|hot-sources|describe-action|network|source-search> ...`
 ```bash
 chippy.sh avalanche-offline .chippy-captures/raf-1846.json summary
 chippy.sh avalanche-offline .chippy-captures/raf-1846.json commit-list 10 collateral
 chippy.sh avalanche-offline .chippy-captures/raf-1846.json commit-peek 42 stats,sources,rendered 20
 chippy.sh avalanche-offline .chippy-captures/raf-1846.json source-search --name 'Issue(Row|List)'
 ```
-Use saved captures without a live page. `commit-list`, `commit-peek`, `hot-sources`, and `describe-action` run the same code as the live commands and return the same shapes, so sort keys and include values match the live tables above (`unmounts` is live-only; a saved capture always returns it empty).
+Use saved captures without a live page. `commit-list`, `commit-peek`, `hot-sources`, `describe-action`, and `network` run the same code as the live commands and return the same shapes, so sort keys and include values match the live tables above (`unmounts` is live-only; a saved capture always returns it empty).
 
-Offline arguments: `commit-list [top] [by]`, `commit-peek <commitId> [include] [maxItems]` (no `depth`; the third value is maxItems, default 50), `hot-sources [limit]`, `describe-action <actionId>`, and `source-search --name <regex> [--top N]` (default top 50). Flags such as `--top`, `--by`, `--include`, and `--maxItems` are accepted in place of positional values.
+Offline arguments: `commit-list [top] [by]`, `commit-peek <commitId> [include] [maxItems]` (no `depth`; the third value is maxItems, default 50), `hot-sources [limit]`, `describe-action <actionId>`, `network [top] [by] [match] [initiators] [windowMs]`, and `source-search --name <regex> [--top N]` (default top 50). Flags such as `--top`, `--by`, `--include`, `--maxItems`, `--match`, `--initiators`, and `--window` are accepted in place of positional values.
 
 `summary` returns commit count, first/last commit id, source count, and totals of the commit stats. `source-search --name <regex>` matches aggregate sources by `sourceId` and rendered components by name with per-instance render and self-source counts.
 
@@ -246,6 +272,9 @@ Start with these fields:
 - `commitTimings[N]` — `startTime`, `endTime`, `timeSinceLastCommit`, `detectorOverhead`, `ticks`, and `render` for commit `N` (`commit-peek ... timing`)
 - `meta.renderTicks` — whether ticks are counted, from which signal, and why not when they are unavailable
 - `meta.timeOrigin` — the page's `performance.timeOrigin` (Unix epoch ms)
+- `networkRequests[]` — requests that finished during the capture, oldest first (`avalanche-network` row fields without the links)
+- `meta.network` — `{supported, enabled, windowStart, requests, dropped, ignoredOwn}`: whether the browser delivers resource entries, whether capture is on, when the capture window opened (`performance.now()`, at install or clear), how many requests are kept, how many of the oldest were dropped past the 500-request limit, and how many of Chippy's own requests were excluded
+- `meta.version` — report format; 8 adds `networkRequests` and `meta.network`
 
 ### Render ticks
 
@@ -274,6 +303,8 @@ Ticks are page-wide: when several roots render between two commits, their slices
 `startTime` is when React called the commit hook: after the commit's DOM mutations and layout effects, before passive effects. It marks the end of React's synchronous commit, not the start of render. Overlapping timestamps show temporal proximity; confirm causality with the commit's sources and rendered components.
 
 `eval-page <clientId> perf-entries` does this alignment in the page. For each buffered entry it returns `commits.during` (commits whose `startTime` falls inside the entry) and `commits.before` (the latest commit at or before the entry, with `gapMs`). Layout shifts and LCP are point-in-time entries reported at the frame after the DOM moved, so `during` is almost always empty for them: read `before`. For long frames and interactions, read `during`. Arguments and limits are in the [snippet catalog](../snippets/README.md).
+
+Network requests use the same clock. Avalanche records them from Resource Timing during the capture, and [`avalanche-network`](#avalanche-network-clientid-top-by-match-initiators-windowms) links each to the commits around it.
 
 `commitStats[N]` tuple:
 ```text

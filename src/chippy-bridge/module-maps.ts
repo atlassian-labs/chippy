@@ -7,6 +7,7 @@
  */
 
 import { inlineSourceMapOf, parseSourceMap, sourceMappingUrlOf, type SourceMap } from './source-map';
+import { markOwnRequest } from '../avalanche/own-requests';
 
 export type FetchModule = (url: string) => Promise<string | null>;
 
@@ -108,6 +109,8 @@ export function createModuleMapCache(fetchModule: FetchModule): ModuleMapCache {
 export async function fetchModuleFromPage(url: string): Promise<string | null> {
   const fetchFn = (globalThis as { fetch?: typeof fetch }).fetch;
   if (!fetchFn) return null;
+  // Network capture reports page traffic; keep this fetch out of it.
+  markOwnRequest(url);
   const controller = typeof AbortController === 'function' ? new AbortController() : null;
   const timeout = controller ? setTimeout(() => controller.abort(), 4000) : null;
   try {

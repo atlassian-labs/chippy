@@ -3,6 +3,7 @@ import { serializeReport } from './report-serializer';
 import type {
   CommitInteractionActionDTO,
   CommitTimingDTO,
+  NetworkRequestDTO,
   ATLCommitDeltaDTO,
   ReportMetaDTO,
   SuspenseBoundaryEventDTO,
@@ -302,6 +303,30 @@ describe('serializeReport — DTO field parity', () => {
     expect(s.sourceIndex).toBe(0);
     expect(s.trashers).toEqual([{ index: 0, prevValue: 'a', currentValue: 'b' }]);
     expect(s.isRepeat).toBe(true);
+  });
+
+  it('round-trips every field on NetworkRequestDTO and meta.network', () => {
+    const request: NetworkRequestDTO = {
+      id: 3,
+      url: 'https://app.test/api/items',
+      initiatorType: 'fetch',
+      startTime: 120.5,
+      endTime: 340.2,
+      duration: 219.7,
+      status: 200,
+      cached: false,
+      startedBeforeCapture: true,
+    };
+    const network = { supported: true, enabled: true, windowStart: 10.5, requests: 1, dropped: 2, ignoredOwn: 4 };
+    const dto = serializeReport({
+      meta: { ...makeMeta(), network },
+      sources: [],
+      commitStats: {},
+      networkRequests: [request],
+    });
+    expect(dto.networkRequests).toEqual([request]);
+    expect(dto.networkRequests![0]).not.toBe(request);
+    expect(dto.meta.network).toEqual(network);
   });
 
   it('round-trips every field on SuspenseBoundaryEventDTO', () => {

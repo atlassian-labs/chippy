@@ -83,10 +83,11 @@ Load [active-stimulus](active-stimulus.md) before an active command. A `fiber:*`
 | `avalanche-commit-list` | Rank compact commits by a supported signal. |
 | `avalanche-commit-peek` | Join bounded detail for one commit. |
 | `avalanche-describe-action` | Expand one action breadcrumb and its owner/parent context. |
+| `avalanche-network` | List the network requests that finished during the capture, with the commits each started after, started during, or landed before. |
 | `avalanche-debug-hook` | Interrogate one captured `sourceId + hookIndex`. |
 | `avalanche-export` | Return the full export, optionally written to a file; `lastN` does not trim it. Use `avalanche-save ... N` for the last N commits. Do not open this first. |
 | `avalanche-save` | Save a full or bounded export for repeated offline analysis. |
-| `avalanche-offline` | Run `summary`, `commit-list`, `commit-peek`, `hot-sources`, `describe-action`, or `source-search --name` over a saved export; shapes match the live commands. |
+| `avalanche-offline` | Run `summary`, `commit-list`, `commit-peek`, `hot-sources`, `describe-action`, `network`, or `source-search --name` over a saved export; shapes match the live commands. |
 
 ### Capture modes
 
@@ -167,11 +168,12 @@ avalanche-hot-sources <clientId> [limit]
 avalanche-commit-list <clientId> [top] [by]
 avalanche-commit-peek <clientId> <commitId> [include] [depth] [maxItems]
 avalanche-describe-action <clientId> <actionId>
+avalanche-network <clientId> [top] [by] [match] [initiators] [windowMs]
 avalanche-install <clientId> [detectionMode]
 avalanche-recapture <clientId> [detectionMode]
 avalanche-debug-hook <clientId> <sourceId> <hookIndex> [window]
 avalanche-save <clientId> <file> [count]
-avalanche-offline <file> <summary|commit-list|commit-peek|hot-sources|describe-action|source-search> [args...]
+avalanche-offline <file> <summary|commit-list|commit-peek|hot-sources|describe-action|network|source-search> [args...]
 eval-page <clientId> <snippet-file-or-name> [--key value ...]
 eval-snippets
 avalanche-arm <clientId> <origin> [maxCommits] [captureFibers=true|false] [detectionMode=sources|full|stats|amplifiers]

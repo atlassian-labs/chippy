@@ -219,6 +219,8 @@ type AvalancheApi = {
     commitCount: number;
     integrationMode: IntegrationMode;
     metricsAdapter: string | null;
+    /** Network requests captured so far (Resource Timing). */
+    networkRequests: number;
   };
   registerCommitMetricsAdapter: typeof registerCommitMetricsAdapter;
   /** Enable plugins by id (built-in: `'jira'`, `'atl'`); returns the running ids. */
@@ -365,6 +367,7 @@ const api: AvalancheApi = {
     let hasMetricsGlobal = false;
     try { hasMetricsGlobal = !!getCommitMetricsAdapter()?.isAvailable(); } catch (_) {}
     let commitCount = 0;
+    let networkRequests = 0;
     try {
       const r = detector ? (detector.report() as any) : null;
       if (r && r.meta && typeof r.meta.commits === 'number') {
@@ -372,6 +375,7 @@ const api: AvalancheApi = {
       } else if (r && Array.isArray(r.commits)) {
         commitCount = r.commits.length;
       }
+      if (r && Array.isArray(r.networkRequests)) networkRequests = r.networkRequests.length;
     } catch (_) {}
     const integrationMode = detector
       ? (detector as any).getIntegrationMode?.() ?? 'none'
@@ -379,7 +383,7 @@ const api: AvalancheApi = {
     const metricsAdapter = detector
       ? (detector as any).getMetricsAdapterId?.() ?? null
       : getCommitMetricsAdapter()?.id ?? null;
-    return { installed, hasMetricsGlobal, commitCount, integrationMode, metricsAdapter };
+    return { installed, hasMetricsGlobal, commitCount, integrationMode, metricsAdapter, networkRequests };
   },
   registerCommitMetricsAdapter,
   enablePlugins,

@@ -211,6 +211,31 @@ this.__AVALANCHE__ = (function() {
     }
     return out;
   }
+  const MAX_OWN_REQUESTS = 2e3;
+  const ownUrls = /* @__PURE__ */ new Set();
+  function absolute(url) {
+    var _a2;
+    try {
+      return new URL(url, (_a2 = globalThis.location) == null ? void 0 : _a2.href).href;
+    } catch {
+      return url;
+    }
+  }
+  function markOwnRequest(url) {
+    if (ownUrls.size >= MAX_OWN_REQUESTS) ownUrls.delete(ownUrls.values().next().value);
+    ownUrls.add(absolute(url));
+  }
+  function isOwnRequest(url) {
+    return ownUrls.has(url) || ownUrls.has(absolute(url));
+  }
+  function isChippyAssetUrl(url) {
+    try {
+      const parsed = new URL(url);
+      return parsed.pathname.startsWith("/__chippy/") || parsed.protocol === "chrome-extension:" || parsed.protocol === "moz-extension:";
+    } catch {
+      return false;
+    }
+  }
   function parseUrl(url, base) {
     try {
       return new URL(url, base);
@@ -279,6 +304,7 @@ this.__AVALANCHE__ = (function() {
   async function fetchModuleFromPage(url) {
     const fetchFn = globalThis.fetch;
     if (!fetchFn) return null;
+    markOwnRequest(url);
     const controller = typeof AbortController === "function" ? new AbortController() : null;
     const timeout = controller ? setTimeout(() => controller.abort(), 4e3) : null;
     try {
@@ -1296,7 +1322,8 @@ this.__AVALANCHE__ = (function() {
         metricsByCommit: report.metricsByCommit || report.atlByCommit,
         atlByCommit: report.metricsByCommit || report.atlByCommit
       },
-      ...report.commitTimings && { commitTimings: report.commitTimings }
+      ...report.commitTimings && { commitTimings: report.commitTimings },
+      ...report.networkRequests && { networkRequests: report.networkRequests.map((request) => ({ ...request })) }
     };
   }
   let active$1 = null;
@@ -1485,8 +1512,8 @@ this.__AVALANCHE__ = (function() {
     const metricsAvailable = metricsAdapter !== null && hasMetricsData;
     const renderTicks = (detectorConfig == null ? void 0 : detectorConfig.renderTicks) ?? { available: false, sources: [], reason: "detector not installed" };
     const meta = {
-      version: 7,
-      // v7: meta.timeOrigin; absolute commitTimings[N].startTime/endTime; action timestamps
+      version: 8,
+      // v8: networkRequests + meta.network; v7: meta.timeOrigin, absolute commit and action timestamps
       timeOrigin: performance.timeOrigin,
       commits: state.commits,
       config: {
@@ -1519,6 +1546,7 @@ this.__AVALANCHE__ = (function() {
         ticks: renderTicks.available
       },
       renderTicks,
+      network: (detectorConfig == null ? void 0 : detectorConfig.network) ?? { supported: false, enabled: false, windowStart: 0, requests: 0, dropped: 0, ignoredOwn: 0 },
       timing: {
         totalDetectorOverhead,
         avgDetectorOverhead,
@@ -1536,6 +1564,7 @@ this.__AVALANCHE__ = (function() {
       unmountsByCommit: state.unmountsByCommit,
       interactionsByCommit: state.interactionsByCommit,
       renderedByCommit: state.renderedByCommit,
+      networkRequests: state.networkRequests.slice(),
       ...hasMetricsData && { metricsByCommit: state.metricsByCommit, atlByCommit: state.metricsByCommit },
       toSerializable() {
         return serializeReport(this);
@@ -2212,6 +2241,110 @@ this.__AVALANCHE__ = (function() {
       }
     };
   }
+  const DEFAULT_MAX_NETWORK_REQUESTS = 500;
+  const MAX_URL_LENGTH = 300;
+  const round$1 = (value) => Math.round(value * 10) / 10;
+  function cacheUse(entry) {
+    if (entry.deliveryType === "cache") return true;
+    const transfer = entry.transferSize ?? 0;
+    const decoded = entry.decodedBodySize ?? 0;
+    if (transfer > 0) return false;
+    return decoded > 0 ? true : null;
+  }
+  function createNetworkCapture(options = {}) {
+    const enabled = options.networkCapture !== false;
+    const limit = Math.max(1, Math.floor(Number(options.maxNetworkRequests) || DEFAULT_MAX_NETWORK_REQUESTS));
+    const requests = [];
+    let nextId = 1;
+    let dropped = 0;
+    let ignoredOwn = 0;
+    let windowStart = performance.now();
+    let observer = null;
+    function observerConstructor() {
+      const ctor = globalThis.PerformanceObserver;
+      if (typeof ctor !== "function") return null;
+      const types = ctor.supportedEntryTypes;
+      return Array.isArray(types) && !types.includes("resource") ? null : ctor;
+    }
+    function record(raw) {
+      const entry = raw;
+      if (!entry || typeof entry.name !== "string" || typeof entry.startTime !== "number") return;
+      const endTime = typeof entry.responseEnd === "number" && entry.responseEnd > 0 ? entry.responseEnd : entry.startTime + (entry.duration ?? 0);
+      if (endTime < windowStart) return;
+      if (isChippyAssetUrl(entry.name)) return;
+      if (entry.initiatorType === "fetch" && isOwnRequest(entry.name)) {
+        ignoredOwn += 1;
+        return;
+      }
+      requests.push({
+        id: nextId++,
+        url: entry.name.length > MAX_URL_LENGTH ? entry.name.slice(0, MAX_URL_LENGTH) : entry.name,
+        initiatorType: entry.initiatorType || "other",
+        startTime: round$1(entry.startTime),
+        endTime: round$1(endTime),
+        duration: round$1(endTime - entry.startTime),
+        status: typeof entry.responseStatus === "number" && entry.responseStatus > 0 ? entry.responseStatus : null,
+        cached: cacheUse(entry),
+        startedBeforeCapture: entry.startTime < windowStart
+      });
+      if (requests.length > limit) {
+        const excess = requests.length - limit;
+        requests.splice(0, excess);
+        dropped += excess;
+      }
+    }
+    function flush() {
+      if (!observer || typeof observer.takeRecords !== "function") return;
+      try {
+        for (const entry of observer.takeRecords()) record(entry);
+      } catch {
+      }
+    }
+    return {
+      requests,
+      flush,
+      install() {
+        if (!enabled || observer) return;
+        const Ctor = observerConstructor();
+        if (!Ctor) return;
+        try {
+          observer = new Ctor((list) => {
+            for (const entry of list.getEntries()) record(entry);
+          });
+          observer.observe({ type: "resource", buffered: true });
+        } catch {
+          observer = null;
+        }
+      },
+      uninstall() {
+        if (!observer) return;
+        flush();
+        try {
+          observer.disconnect();
+        } catch {
+        }
+        observer = null;
+      },
+      reset() {
+        flush();
+        requests.length = 0;
+        nextId = 1;
+        dropped = 0;
+        ignoredOwn = 0;
+        windowStart = performance.now();
+      },
+      status() {
+        return {
+          supported: observerConstructor() !== null,
+          enabled,
+          windowStart: round$1(windowStart),
+          requests: requests.length,
+          dropped,
+          ignoredOwn
+        };
+      }
+    };
+  }
   const SLICE_END_HOOKS = ["markRenderYielded", "markRenderStopped"];
   function createRenderTickTracker(options = {}) {
     const now = options.now ?? (() => performance.now());
@@ -2525,6 +2658,7 @@ this.__AVALANCHE__ = (function() {
     const sourceIdManager = new StableSourceIdManager();
     const debugRender = createDebugRender();
     const interactionCapture = createInteractionCapture(options);
+    const networkCapture = createNetworkCapture(options);
     function getComponentDisplayName(type) {
       if (!type) return "Unknown";
       return type.displayName || type.name || String(type);
@@ -2589,6 +2723,7 @@ this.__AVALANCHE__ = (function() {
       unmountsByCommit: {},
       interactionActions: interactionCapture.state.actions,
       interactionsByCommit: interactionCapture.state.byCommit,
+      networkRequests: networkCapture.requests,
       renderedByCommit: {}
     };
     function trimHistoryToSize(updHistory, limit) {
@@ -3203,6 +3338,7 @@ this.__AVALANCHE__ = (function() {
         delete state.renderedByCommit[Number(key)];
       }
       interactionCapture.reset();
+      networkCapture.reset();
       state.lastMetricsSnapshot = captureMetricsSnapshot();
       state.lastCommitEndTime = performance.now();
       renderTicks.reset();
@@ -3369,6 +3505,7 @@ this.__AVALANCHE__ = (function() {
        */
       install() {
         interactionCapture.install();
+        networkCapture.install();
         const devtoolsGlobal = globalThis;
         metricsAdapter = resolveMetricsAdapter();
         state.lastMetricsSnapshot = captureMetricsSnapshot();
@@ -3543,6 +3680,7 @@ this.__AVALANCHE__ = (function() {
         devtoolsInjectWrapper = void 0;
         debugRender.uninstall();
         interactionCapture.uninstall();
+        networkCapture.uninstall();
         commitSurface.reset();
         pendingDevtoolsUnmounts = { components: 0, subtrees: 0 };
         pendingDevtoolsUnmountSamples = [];
@@ -3583,13 +3721,15 @@ this.__AVALANCHE__ = (function() {
        * @returns Report containing sources, blast radius, and optional thrashing data
        */
       report(topN = 10, sortBy = "effect", reportOptions) {
+        networkCapture.flush();
         return buildReport(state, thrashMode, topN, sortBy, reportOptions, {
           effectThrashMode,
           captureFibers,
           historySize,
           detectionLevel,
           integrationMode,
-          renderTicks: renderTicks.status()
+          renderTicks: renderTicks.status(),
+          network: networkCapture.status()
         });
       },
       /**
@@ -5258,6 +5398,142 @@ this.__AVALANCHE__ = (function() {
       replayErrorDetails: replayErrorDetails || void 0
     };
   }
+  const DEFAULT_NETWORK_WINDOW_MS = 250;
+  const NETWORK_SORT_KEYS = ["start", "end", "duration"];
+  const round = (value) => Math.round(value * 10) / 10;
+  function commitAnchors(commitTimings) {
+    var _a2;
+    const anchors = [];
+    for (const [id, timing] of Object.entries(commitTimings ?? {})) {
+      const commitStart = Number(timing == null ? void 0 : timing.startTime);
+      const commitEnd = Number(timing == null ? void 0 : timing.endTime);
+      if (!Number.isFinite(commitStart) || !Number.isFinite(commitEnd)) continue;
+      const renderStart = Number((_a2 = timing == null ? void 0 : timing.render) == null ? void 0 : _a2.renderStart);
+      const renderStartKnown = Number.isFinite(renderStart) && renderStart <= commitStart;
+      anchors.push({
+        commitId: Number(id),
+        renderStart: renderStartKnown ? renderStart : commitStart,
+        renderStartKnown,
+        commitStart,
+        commitEnd
+      });
+    }
+    return anchors.sort((a, b) => a.commitStart - b.commitStart);
+  }
+  function firstAtOrAfter(anchors, value, key) {
+    let lo = 0;
+    let hi = anchors.length;
+    while (lo < hi) {
+      const mid = lo + hi >> 1;
+      if (anchors[mid][key] < value) lo = mid + 1;
+      else hi = mid;
+    }
+    return lo;
+  }
+  function linkRequest(request, anchors, windowMs) {
+    const { startTime, endTime } = request;
+    const afterIndex = firstAtOrAfter(anchors, startTime, "commitEnd") - 1;
+    const after = afterIndex >= 0 ? anchors[afterIndex] : null;
+    const startedAfter = after && startTime - after.commitEnd <= windowMs ? { commitId: after.commitId, gapMs: round(startTime - after.commitEnd) } : null;
+    const rendering = anchors[firstAtOrAfter(anchors, startTime, "commitStart")];
+    const startedDuringRender = rendering && rendering.renderStartKnown && rendering.renderStart <= startTime ? rendering.commitId : null;
+    let landedBefore = null;
+    for (let i = firstAtOrAfter(anchors, endTime, "commitStart"); i < anchors.length; i++) {
+      const anchor = anchors[i];
+      if (anchor.renderStart - endTime > windowMs) break;
+      if (anchor.renderStart >= endTime) {
+        landedBefore = { commitId: anchor.commitId, gapMs: round(anchor.renderStart - endTime) };
+        break;
+      }
+    }
+    const commitsInFlight = firstAtOrAfter(anchors, endTime, "commitStart") - firstAtOrAfter(anchors, startTime, "commitStart");
+    return { startedAfter, startedDuringRender, landedBefore, commitsInFlight: Math.max(0, commitsInFlight) };
+  }
+  function requestsOf(report) {
+    return Array.isArray(report.networkRequests) ? report.networkRequests : [];
+  }
+  function windowOf(windowMs) {
+    const value = Number(windowMs);
+    return Number.isFinite(value) && value >= 0 ? value : DEFAULT_NETWORK_WINDOW_MS;
+  }
+  function linkNetworkRequests(report, windowMs) {
+    const anchors = commitAnchors(report.commitTimings);
+    const window = windowOf(windowMs);
+    return requestsOf(report).map((request) => ({ ...request, ...linkRequest(request, anchors, window) }));
+  }
+  function networkView(report, options = {}) {
+    var _a2;
+    const by = String(options.by || "start");
+    if (!NETWORK_SORT_KEYS.includes(by)) {
+      return { ok: false, error: "unsupported network sort key: " + by, validBy: NETWORK_SORT_KEYS };
+    }
+    let pattern = null;
+    if (typeof options.match === "string" && options.match) {
+      try {
+        pattern = new RegExp(options.match, "i");
+      } catch (error) {
+        return { ok: false, error: "invalid match pattern: " + error.message };
+      }
+    }
+    const initiators = Array.isArray(options.initiators) ? options.initiators.map((value) => String(value).trim().toLowerCase()).filter(Boolean) : [];
+    const top = Number.isFinite(Number(options.top)) && Number(options.top) > 0 ? Math.floor(Number(options.top)) : 20;
+    const windowMs = windowOf(options.window);
+    const linked = linkNetworkRequests(report, windowMs).filter((request) => (!pattern || pattern.test(request.url)) && (initiators.length === 0 || initiators.includes(request.initiatorType.toLowerCase())));
+    const byInitiator = {};
+    let landedBeforeCommit = 0;
+    let startedAfterCommit = 0;
+    let startedDuringRender = 0;
+    let longest = null;
+    for (const request of linked) {
+      byInitiator[request.initiatorType] = (byInitiator[request.initiatorType] || 0) + 1;
+      if (request.landedBefore) landedBeforeCommit += 1;
+      if (request.startedAfter) startedAfterCommit += 1;
+      if (request.startedDuringRender !== null) startedDuringRender += 1;
+      if (!longest || request.duration > longest.duration) longest = request;
+    }
+    const sorted = linked.slice().sort((a, b) => by === "duration" ? b.duration - a.duration : by === "end" ? a.endTime - b.endTime : a.startTime - b.startTime);
+    return {
+      ok: true,
+      payload: {
+        available: Array.isArray(report.networkRequests),
+        capture: ((_a2 = report.meta) == null ? void 0 : _a2.network) ?? null,
+        windowMs,
+        by,
+        total: linked.length,
+        summary: {
+          byInitiator,
+          landedBeforeCommit,
+          startedAfterCommit,
+          startedDuringRender,
+          longest: longest ? { id: longest.id, url: longest.url, duration: longest.duration } : null
+        },
+        rows: sorted.slice(0, top)
+      }
+    };
+  }
+  function networkByCommit(report, windowMs) {
+    const out = /* @__PURE__ */ new Map();
+    const entry = (commitId) => {
+      let value = out.get(commitId);
+      if (!value) {
+        value = { landedBefore: [], startedAfter: [], startedDuringRender: [], inFlight: 0 };
+        out.set(commitId, value);
+      }
+      return value;
+    };
+    const linked = linkNetworkRequests(report, windowMs);
+    for (const request of linked) {
+      if (request.landedBefore) entry(request.landedBefore.commitId).landedBefore.push(request);
+      if (request.startedAfter) entry(request.startedAfter.commitId).startedAfter.push(request);
+      if (request.startedDuringRender !== null) entry(request.startedDuringRender).startedDuringRender.push(request);
+    }
+    const anchors = commitAnchors(report.commitTimings);
+    for (const anchor of anchors) {
+      const inFlight = linked.filter((request) => request.startTime <= anchor.commitStart && request.endTime >= anchor.commitStart).length;
+      if (inFlight > 0) entry(anchor.commitId).inFlight = inFlight;
+    }
+    return out;
+  }
   const UPSTREAM_COMMIT_STAT_KEYS = [
     "collateral",
     "sources",
@@ -5277,6 +5553,18 @@ this.__AVALANCHE__ = (function() {
       out[UPSTREAM_COMMIT_STAT_KEYS[i]] = Number(tuple[i] || 0);
     }
     return out;
+  }
+  function compactNetwork(network, maxItems) {
+    const rows = (items) => items.slice(0, maxItems);
+    return {
+      landedBefore: rows((network == null ? void 0 : network.landedBefore) ?? []),
+      landedBeforeTotal: (network == null ? void 0 : network.landedBefore.length) ?? 0,
+      startedAfter: rows((network == null ? void 0 : network.startedAfter) ?? []),
+      startedAfterTotal: (network == null ? void 0 : network.startedAfter.length) ?? 0,
+      startedDuringRender: rows((network == null ? void 0 : network.startedDuringRender) ?? []),
+      startedDuringRenderTotal: (network == null ? void 0 : network.startedDuringRender.length) ?? 0,
+      inFlight: (network == null ? void 0 : network.inFlight) ?? 0
+    };
   }
   function compactLatestAction(action) {
     if (!action || typeof action !== "object") return action ?? null;
@@ -5414,7 +5702,7 @@ this.__AVALANCHE__ = (function() {
             return { ok: false, available: true, action, error: "commit-peek requires numeric commitId" };
           }
           const include = Array.isArray(command == null ? void 0 : command.include) && command.include.length ? command.include : ["stats", "sources", "timing", "metrics"];
-          const allowedInclude = ["stats", "sources", "timing", "metrics", "atl", "unmounts", "actions", "rendered"];
+          const allowedInclude = ["stats", "sources", "timing", "metrics", "atl", "unmounts", "actions", "rendered", "network"];
           const invalidInclude = include.filter((key) => !allowedInclude.includes(key));
           if (invalidInclude.length) {
             return {
@@ -5478,6 +5766,9 @@ this.__AVALANCHE__ = (function() {
             out.rendered = rendered.slice(0, maxItems);
             out.renderedTotal = rendered.length;
           }
+          if (include.includes("network")) {
+            out.network = compactNetwork(networkByCommit(ser, command == null ? void 0 : command.window).get(commitId), maxItems);
+          }
           if (include.includes("unmounts")) {
             const raw = r.raw || {};
             const samples = ((_o = raw.unmountsByCommit) == null ? void 0 : _o[commitId]) || ((_p = raw.unmountsByCommit) == null ? void 0 : _p[String(commitId)]) || null;
@@ -5514,7 +5805,7 @@ this.__AVALANCHE__ = (function() {
         case "commit-list": {
           const top = Number.isFinite(Number(command == null ? void 0 : command.top)) ? Math.max(1, Math.floor(Number(command.top))) : 20;
           const by = String((command == null ? void 0 : command.by) || "collateral");
-          const allowedKeys = UPSTREAM_COMMIT_STAT_KEYS.concat(["sources", "ticks"]);
+          const allowedKeys = UPSTREAM_COMMIT_STAT_KEYS.concat(["sources", "ticks", "network"]);
           if (!allowedKeys.includes(by)) {
             return {
               ok: false,
@@ -5533,6 +5824,7 @@ this.__AVALANCHE__ = (function() {
           const stats = ser.commitStats || {};
           const sourcesByCommit = ser.sourcesByCommit || {};
           const ids = Object.keys(stats);
+          const network = networkByCommit(ser, command == null ? void 0 : command.window);
           const rows = ids.map((id) => {
             var _a3, _b3;
             const tuple = stats[id];
@@ -5542,16 +5834,44 @@ this.__AVALANCHE__ = (function() {
             const actions = ((_a3 = ser.interactionsByCommit) == null ? void 0 : _a3[id]) || [];
             const timing = (_b3 = ser.commitTimings) == null ? void 0 : _b3[id];
             const ticks = typeof (timing == null ? void 0 : timing.ticks) === "number" ? timing.ticks : null;
-            return { commitId: Number(id), stat, sourceCount, ticks, latestAction: actions.length ? compactLatestAction(actions[actions.length - 1]) : null };
+            const net = network.get(Number(id));
+            return {
+              commitId: Number(id),
+              stat,
+              sourceCount,
+              ticks,
+              network: {
+                landedBefore: (net == null ? void 0 : net.landedBefore.length) ?? 0,
+                startedAfter: (net == null ? void 0 : net.startedAfter.length) ?? 0,
+                startedDuringRender: (net == null ? void 0 : net.startedDuringRender.length) ?? 0
+              },
+              latestAction: actions.length ? compactLatestAction(actions[actions.length - 1]) : null
+            };
           });
           const sortValue = (row) => {
             var _a3;
             if (sortKey === "sources") return row.sourceCount || 0;
             if (sortKey === "ticks") return row.ticks ?? -1;
+            if (sortKey === "network") return row.network.landedBefore;
             return ((_a3 = row.stat) == null ? void 0 : _a3[sortKey]) || 0;
           };
           rows.sort((a, b) => sortValue(b) - sortValue(a));
           return { ok: true, available: true, action, by: sortKey, total: rows.length, rows: rows.slice(0, top) };
+        }
+        case "network": {
+          const r = getReport(api2);
+          if (!r || "error" in r) {
+            return { ok: false, available: true, action, error: r && "error" in r ? r.error : "report() unavailable" };
+          }
+          const view = networkView(r.serial, {
+            top: command == null ? void 0 : command.top,
+            by: command == null ? void 0 : command.by,
+            match: command == null ? void 0 : command.match,
+            initiators: command == null ? void 0 : command.initiators,
+            window: command == null ? void 0 : command.window
+          });
+          if ("error" in view) return { ok: false, available: true, action, error: view.error, ...view.validBy && { validBy: [...view.validBy] } };
+          return { ok: true, available: true, action, payload: view.payload };
         }
         // Removed: start, stop, metrics, help — not present on the current public surface.
         default:
@@ -5562,7 +5882,7 @@ this.__AVALANCHE__ = (function() {
     }
   }
   const AVALANCHE_NAME_BUDGET_MS = 3e3;
-  const NAME_FREE_ACTIONS = /* @__PURE__ */ new Set(["install", "uninstall", "reset", "clear", "status", "debug-hook"]);
+  const NAME_FREE_ACTIONS = /* @__PURE__ */ new Set(["install", "uninstall", "reset", "clear", "status", "debug-hook", "network"]);
   const SOURCE_ID = /^[^\s#@]+#\d+@-?\d+$/;
   const MAX_SOURCE_IDS = 2e3;
   function sourceIdsIn(value, limit = MAX_SOURCE_IDS) {
@@ -6995,6 +7315,7 @@ this.__AVALANCHE__ = (function() {
       } catch (_) {
       }
       let commitCount = 0;
+      let networkRequests = 0;
       try {
         const r = detector ? detector.report() : null;
         if (r && r.meta && typeof r.meta.commits === "number") {
@@ -7002,11 +7323,12 @@ this.__AVALANCHE__ = (function() {
         } else if (r && Array.isArray(r.commits)) {
           commitCount = r.commits.length;
         }
+        if (r && Array.isArray(r.networkRequests)) networkRequests = r.networkRequests.length;
       } catch (_) {
       }
       const integrationMode = detector ? ((_b2 = detector.getIntegrationMode) == null ? void 0 : _b2.call(detector)) ?? "none" : "none";
       const metricsAdapter = detector ? ((_c2 = detector.getMetricsAdapterId) == null ? void 0 : _c2.call(detector)) ?? null : ((_d2 = getCommitMetricsAdapter()) == null ? void 0 : _d2.id) ?? null;
-      return { installed, hasMetricsGlobal, commitCount, integrationMode, metricsAdapter };
+      return { installed, hasMetricsGlobal, commitCount, integrationMode, metricsAdapter, networkRequests };
     },
     registerCommitMetricsAdapter,
     enablePlugins,

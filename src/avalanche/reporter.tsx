@@ -8,6 +8,7 @@
 import type { ComponentType, ChangedHook, Fiber, ThrashInfo } from './internals';
 import { CS_RESTARTS } from './commit-stats-indices';
 import type { CommitTicks, RenderTickStatus } from './render-ticks';
+import type { NetworkCaptureStatus, NetworkRequest } from './network-capture';
 import { getComponentName } from './internals';
 import type { ReportDTO } from './report-serializer';
 import { serializeReport } from './report-serializer';
@@ -278,6 +279,11 @@ export interface ReportMeta {
    * every `commitTimings[N].ticks` is null.
    */
   renderTicks: RenderTickStatus;
+  /**
+   * Resource Timing capture behind `networkRequests`: whether the browser
+   * supports it, when the window opened, and what was dropped or excluded.
+   */
+  network: NetworkCaptureStatus;
   /** Amplifier summary (when detectionMode: 'amplifierMetrics') */
   amplifiersMetrics?: {
     totalHookThrashes: number;
@@ -466,6 +472,12 @@ export interface Report {
   renderedByCommit?: Record<number, RenderedComponentEvidence[]>;
 
   /**
+   * Network requests that finished during the capture, from Resource Timing,
+   * on the same clock as `commitTimings`. Commit links are computed on read.
+   */
+  networkRequests: NetworkRequest[];
+
+  /**
    * Convert this report to a serializable DTO (safe for JSON.stringify, IPC, network).
    * Strips non-serializable fields like Fiber references and ComponentType functions.
    */
@@ -514,6 +526,15 @@ export interface DetectorOptions {
 
   /** Time window for linking captured actions to a commit, in ms. Default: 1000. */
   interactionWindowMs?: number;
+
+  /**
+   * Record network requests from Resource Timing during capture. Default true.
+   * Entries carry URL, initiator type, timing, status, and cache use only.
+   */
+  networkCapture?: boolean;
+
+  /** Network requests kept per capture; the oldest are dropped first. Default: 500. */
+  maxNetworkRequests?: number;
 
   /**
    * Commit metrics adapter for host render counters. Defaults to the adapter
@@ -652,6 +673,9 @@ export interface ProfilerState {
   /** Compact user/browser actions linked to nearby commits. */
   interactionsByCommit: Record<number, CommitInteractionAction[]>;
 
+  /** Network requests that finished during the capture (Resource Timing). */
+  networkRequests: NetworkRequest[];
+
   /** Structural evidence for each component that rendered in a commit. */
   renderedByCommit: Record<number, RenderedComponentEvidence[]>;
 }
@@ -727,6 +751,8 @@ export function buildReport(
     integrationMode?: IntegrationMode;
     /** Render-tick signal status from the detector. */
     renderTicks?: RenderTickStatus;
+    /** Network capture status from the detector. */
+    network?: NetworkCaptureStatus;
   }
 ): Report {
   const { minCollateral = 1 } = options;
@@ -947,7 +973,7 @@ export function buildReport(
   const renderTicks: RenderTickStatus = detectorConfig?.renderTicks
     ?? { available: false, sources: [], reason: 'detector not installed' };
   const meta: ReportMeta = {
-    version: 7, // v7: meta.timeOrigin; absolute commitTimings[N].startTime/endTime; action timestamps
+    version: 8, // v8: networkRequests + meta.network; v7: meta.timeOrigin, absolute commit and action timestamps
     timeOrigin: performance.timeOrigin,
     commits: state.commits,
     config: {
@@ -980,6 +1006,8 @@ export function buildReport(
       ticks: renderTicks.available,
     },
     renderTicks,
+    network: detectorConfig?.network
+      ?? { supported: false, enabled: false, windowStart: 0, requests: 0, dropped: 0, ignoredOwn: 0 },
     timing: {
       totalDetectorOverhead,
       avgDetectorOverhead,
@@ -998,6 +1026,7 @@ export function buildReport(
     unmountsByCommit: state.unmountsByCommit,
     interactionsByCommit: state.interactionsByCommit,
     renderedByCommit: state.renderedByCommit,
+    networkRequests: state.networkRequests.slice(),
     ...(hasMetricsData && { metricsByCommit: state.metricsByCommit, atlByCommit: state.metricsByCommit }),
     toSerializable() {
       return serializeReport(this);

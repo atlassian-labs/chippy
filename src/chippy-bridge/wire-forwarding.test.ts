@@ -84,6 +84,18 @@ describe('buildAvalancheCommand — wire forwarding contract', () => {
     expect(buildAvalancheCommand({ window: 2 }, 'r').window).toBe(2);
   });
 
+  it('forwards match as a string', () => {
+    expect(buildAvalancheCommand({ match: 'api/' }, 'r').match).toBe('api/');
+  });
+
+  it('forwards initiators as an array of strings', () => {
+    expect(buildAvalancheCommand({ initiators: ['fetch', 'img'] }, 'r').initiators).toEqual(['fetch', 'img']);
+  });
+
+  it('does not forward non-array initiators', () => {
+    expect(buildAvalancheCommand({ initiators: 'fetch' as never }, 'r').initiators).toBeUndefined();
+  });
+
   // REGRESSION: actionId was silently dropped before. Never let it happen again.
   it('forwards actionId (regression: was silently dropped)', () => {
     expect(buildAvalancheCommand({ actionId: 5 }, 'r').actionId).toBe(5);

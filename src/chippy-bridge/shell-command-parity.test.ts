@@ -91,6 +91,18 @@ const SHELL_COMMANDS: ShellCommandCase[] = [
     requiredFields: ['type', 'requestId', 'action', 'actionId'],
   },
   {
+    name: 'avalanche-network (all positions)',
+    shellLine: 1020,
+    body: { action: 'network', top: 20, by: 'start', match: 'api/', initiators: ['fetch', 'xmlhttprequest'], window: 500 },
+    requiredFields: ['type', 'requestId', 'action', 'top', 'by', 'match', 'initiators', 'window'],
+  },
+  {
+    name: 'avalanche-network (defaults)',
+    shellLine: 1020,
+    body: { action: 'network', top: 20, by: 'start' },
+    requiredFields: ['type', 'requestId', 'action', 'top', 'by'],
+  },
+  {
     name: 'avalanche-install',
     shellLine: 655,
     body: {

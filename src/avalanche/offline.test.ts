@@ -58,6 +58,19 @@ describe('offline Avalanche analysis', () => {
     expect(analyzeSavedReport(report, 'commit-peek', { _: ['2', 'stats,rendered'] })).toEqual(livePeek);
   });
 
+  it('lists network requests from a saved export like the live page', () => {
+    const { saved } = capture(2);
+    const report = unwrapSavedReport(saved)!;
+    report.networkRequests = [
+      { id: 1, url: 'https://app.test/api/items', initiatorType: 'fetch', startTime: 1, endTime: 50, duration: 49, status: 200, cached: false, startedBeforeCapture: false },
+      { id: 2, url: 'https://cdn.test/logo.png', initiatorType: 'img', startTime: 2, endTime: 9, duration: 7, status: null, cached: null, startedBeforeCapture: false },
+    ];
+    const positional = analyzeSavedReport(report, 'network', { _: ['5', 'duration', 'api/', 'fetch', '100'] }) as any;
+    expect(positional).toMatchObject({ ok: true, payload: { by: 'duration', windowMs: 100, total: 1, rows: [{ id: 1 }] } });
+    const flags = analyzeSavedReport(report, 'network', { _: [], by: 'end', initiators: 'img,fetch' }) as any;
+    expect(flags.payload.rows.map((row: { id: number }) => row.id)).toEqual([2, 1]);
+  });
+
   it('summarizes commits and keeps the last N', () => {
     const { saved } = capture(4);
     const report = unwrapSavedReport(saved)!;

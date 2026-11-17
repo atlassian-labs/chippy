@@ -70,6 +70,7 @@ import {
 } from './commit-metrics-adapter';
 import { createCommitSurfaceOwnership } from './commit-surface-ownership';
 import { createInteractionCapture } from './interaction-capture';
+import { createNetworkCapture } from './network-capture';
 import { createRenderTickTracker } from './render-ticks';
 import {
   CS_UNMOUNTED_COMPONENTS,
@@ -208,6 +209,7 @@ export function createAvalancheDetector(options: DetectorOptions = {}) {
   const sourceIdManager = new StableSourceIdManager();
   const debugRender = createDebugRender();
   const interactionCapture = createInteractionCapture(options);
+  const networkCapture = createNetworkCapture(options);
 
   function getComponentDisplayName(type: ComponentType | null | undefined): string {
     if (!type) return 'Unknown';
@@ -411,6 +413,7 @@ export function createAvalancheDetector(options: DetectorOptions = {}) {
     unmountsByCommit: {},
     interactionActions: interactionCapture.state.actions,
     interactionsByCommit: interactionCapture.state.byCommit,
+    networkRequests: networkCapture.requests,
     renderedByCommit: {},
   };
 
@@ -1328,6 +1331,7 @@ export function createAvalancheDetector(options: DetectorOptions = {}) {
       delete state.renderedByCommit[Number(key)];
     }
     interactionCapture.reset();
+    networkCapture.reset();
     // Recapture adapter snapshot as new baseline
     state.lastMetricsSnapshot = captureMetricsSnapshot();
     // Reset timing baseline
@@ -1574,6 +1578,7 @@ export function createAvalancheDetector(options: DetectorOptions = {}) {
      */
     install(): void {
       interactionCapture.install();
+      networkCapture.install();
       const devtoolsGlobal = globalThis as GlobalWithDevtools;
       metricsAdapter = resolveMetricsAdapter();
       // Capture an initial adapter snapshot regardless. If the host surface is
@@ -1777,6 +1782,7 @@ export function createAvalancheDetector(options: DetectorOptions = {}) {
       devtoolsInjectWrapper = undefined;
       debugRender.uninstall();
       interactionCapture.uninstall();
+      networkCapture.uninstall();
       commitSurface.reset();
       pendingDevtoolsUnmounts = { components: 0, subtrees: 0 };
       pendingDevtoolsUnmountSamples = [];
@@ -1820,6 +1826,7 @@ export function createAvalancheDetector(options: DetectorOptions = {}) {
      * @returns Report containing sources, blast radius, and optional thrashing data
      */
     report(topN: number = 10, sortBy: SortBy = 'effect', reportOptions?: ReportOptions): Report {
+      networkCapture.flush();
       return buildReport(state, thrashMode, topN, sortBy, reportOptions, {
         effectThrashMode,
         captureFibers,
@@ -1827,6 +1834,7 @@ export function createAvalancheDetector(options: DetectorOptions = {}) {
         detectionLevel,
         integrationMode,
         renderTicks: renderTicks.status(),
+        network: networkCapture.status(),
       });
     },
 

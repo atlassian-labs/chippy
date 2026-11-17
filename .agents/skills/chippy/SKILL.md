@@ -236,11 +236,12 @@ avalanche-hot-sources <clientId> [limit]
 avalanche-commit-list <clientId> [top] [by]
 avalanche-commit-peek <clientId> <commitId> [include] [depth] [maxItems]
 avalanche-describe-action <clientId> <actionId>
+avalanche-network <clientId> [top] [by] [match] [initiators] [windowMs]
 avalanche-install <clientId> [detectionMode]
 avalanche-recapture <clientId> [detectionMode]
 avalanche-debug-hook <clientId> <sourceId> <hookIndex> [window]
 avalanche-save <clientId> <file> [count]
-avalanche-offline <file> <summary|commit-list|commit-peek|hot-sources|describe-action|source-search> [args...]
+avalanche-offline <file> <summary|commit-list|commit-peek|hot-sources|describe-action|network|source-search> [args...]
 avalanche-arm <clientId> <origin> [maxCommits] [captureFibers=true|false] [detectionMode=sources|full|stats|amplifiers]
 avalanche-disarm <clientId> <origin>
 reload-with-avalanche <clientId> <origin> [maxCommits] [timeoutMs] [settleMs] [captureFibers=true|false] [detectionMode=sources|full|stats|amplifiers]
@@ -293,12 +294,15 @@ Choose capture mode from the symptom:
 | Slow click, typing, scroll, route interaction, or live re-render | `avalanche-arm`, then reproduce, then read | Do not reload; capture the real interaction. |
 | First paint, cold start, or initial-load settling | `reload-with-avalanche` | It reloads and may lose early commits; tune the settle window before blaming injection timing. |
 | Layout shift, long frame, slow interaction (INP), or late LCP | Either capture above, then `eval-page <clientId> perf-entries` | Entries are matched to commits by time: proximity, not cause. Only interactions of 104 ms or more are buffered. |
+| Slow data load, request waterfall, or a commit that waits on a response | Either capture above, then `avalanche-network` | A request is listed once it finishes. Its commit links are proximity within a window (250 ms by default), not cause. No headers or bodies. |
 
-Read broad to narrow: `avalanche-status` → `avalanche-hot-sources` → `avalanche-commit-list` → one `avalanche-commit-peek`. Do not open the full export first. Expand a `latestAction` id with `avalanche-describe-action`. When a capture is large or will be read more than once, run `avalanche-save <clientId> <file>` once, then read it with `avalanche-offline <file> <summary|commit-list|commit-peek|hot-sources|describe-action|source-search>`.
+Read broad to narrow: `avalanche-status` → `avalanche-hot-sources` → `avalanche-commit-list` → one `avalanche-commit-peek`. Do not open the full export first. Expand a `latestAction` id with `avalanche-describe-action`. When a capture is large or will be read more than once, run `avalanche-save <clientId> <file>` once, then read it with `avalanche-offline <file> <summary|commit-list|commit-peek|hot-sources|describe-action|network|source-search>`.
 
 Arm before the user or harness performs the slow interaction. Probes drill into the captured wave afterward; do not make probe placement a prerequisite for starting the recorder.
 
 Each commit records `ticks`, the render slices React ran for it: `1` is a render finished in one task, more means a time-sliced or repeated render, and `null` means the page exposes no signal (see `meta.renderTicks.reason`). Rank them with `avalanche-commit-list <clientId> 20 ticks`. Commit timings (`commit-peek ... timing`) are absolute `performance.now()` values on the page clock, shared with `PerformanceObserver` entries and DevTools traces. The `perf-entries` snippet reads the browser's buffered layout shifts, long animation frames, slow interactions, LCP, FCP, and TTFB, names the component behind each shift source, interaction target, and LCP element, and lists the commits near each entry. Use it when the symptom is a browser metric, then read the listed commits with `commit-peek`.
+
+Avalanche also records the page's network requests from Resource Timing while it captures: URL, initiator type, start, end, duration, status, and cache use. Requests Chippy makes itself are excluded. `avalanche-network <clientId> [top] [by] [match] [initiators] [windowMs]` lists them (sort `start`, `end`, or `duration`; `match` is a URL regex; `initiators` is a CSV such as `fetch,xmlhttprequest`). Each row names `startedAfter` (the commit that ended just before the request started), `startedDuringRender`, `landedBefore` (the first commit whose render started after the response finished), and `commitsInFlight`. From the commit side, `avalanche-commit-list` rows carry network counts, `by network` ranks commits by responses that landed before them, and `commit-peek ... network` lists those requests.
 
 `latestAction` is a clue, not causality. A confirmed root cause needs a source-to-collateral chain or source code that proves the update origin. Unmount and Suspense fields are branch signals; report DOM regions before wrapper names when the question is about DOM teardown.
 

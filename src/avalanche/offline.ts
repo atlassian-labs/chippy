@@ -138,6 +138,18 @@ export function analyzeSavedReport(report: SavedReport, command: string, args: {
       return dispatch(report, { action: 'hot-sources', limit: number('limit', 0) });
     case 'describe-action':
       return dispatch(report, { action: 'describe-action', actionId: number('actionId', 0) });
+    case 'network': {
+      const initiators = String(args.initiators ?? positional[3] ?? '');
+      const match = args.match ?? positional[2];
+      return dispatch(report, {
+        action: 'network',
+        top: number('top', 0),
+        by: String(args.by ?? positional[1] ?? 'start'),
+        ...(typeof match === 'string' && match && { match }),
+        ...(initiators && { initiators: initiators.split(',').map((item) => item.trim()).filter(Boolean) }),
+        window: number('window', 4),
+      });
+    }
     case 'source-search': {
       const name = args.name ?? positional[0];
       if (typeof name !== 'string' || !name) return { ok: false, action: 'source-search', error: 'source-search requires --name <regex>' };

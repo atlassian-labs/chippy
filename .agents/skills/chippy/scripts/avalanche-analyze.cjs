@@ -25,6 +25,142 @@ var AUTHORED_BINDING = new RegExp(
 );
 var LEADING_IDENTIFIER = new RegExp(`^${IDENTIFIER}`);
 
+// src/avalanche/network-signals.ts
+var DEFAULT_NETWORK_WINDOW_MS = 250;
+var NETWORK_SORT_KEYS = ["start", "end", "duration"];
+var round = (value) => Math.round(value * 10) / 10;
+function commitAnchors(commitTimings) {
+  const anchors = [];
+  for (const [id, timing] of Object.entries(commitTimings ?? {})) {
+    const commitStart = Number(timing?.startTime);
+    const commitEnd = Number(timing?.endTime);
+    if (!Number.isFinite(commitStart) || !Number.isFinite(commitEnd)) continue;
+    const renderStart = Number(timing?.render?.renderStart);
+    const renderStartKnown = Number.isFinite(renderStart) && renderStart <= commitStart;
+    anchors.push({
+      commitId: Number(id),
+      renderStart: renderStartKnown ? renderStart : commitStart,
+      renderStartKnown,
+      commitStart,
+      commitEnd
+    });
+  }
+  return anchors.sort((a, b) => a.commitStart - b.commitStart);
+}
+function firstAtOrAfter(anchors, value, key) {
+  let lo = 0;
+  let hi = anchors.length;
+  while (lo < hi) {
+    const mid = lo + hi >> 1;
+    if (anchors[mid][key] < value) lo = mid + 1;
+    else hi = mid;
+  }
+  return lo;
+}
+function linkRequest(request, anchors, windowMs) {
+  const { startTime, endTime } = request;
+  const afterIndex = firstAtOrAfter(anchors, startTime, "commitEnd") - 1;
+  const after = afterIndex >= 0 ? anchors[afterIndex] : null;
+  const startedAfter = after && startTime - after.commitEnd <= windowMs ? { commitId: after.commitId, gapMs: round(startTime - after.commitEnd) } : null;
+  const rendering = anchors[firstAtOrAfter(anchors, startTime, "commitStart")];
+  const startedDuringRender = rendering && rendering.renderStartKnown && rendering.renderStart <= startTime ? rendering.commitId : null;
+  let landedBefore = null;
+  for (let i = firstAtOrAfter(anchors, endTime, "commitStart"); i < anchors.length; i++) {
+    const anchor = anchors[i];
+    if (anchor.renderStart - endTime > windowMs) break;
+    if (anchor.renderStart >= endTime) {
+      landedBefore = { commitId: anchor.commitId, gapMs: round(anchor.renderStart - endTime) };
+      break;
+    }
+  }
+  const commitsInFlight = firstAtOrAfter(anchors, endTime, "commitStart") - firstAtOrAfter(anchors, startTime, "commitStart");
+  return { startedAfter, startedDuringRender, landedBefore, commitsInFlight: Math.max(0, commitsInFlight) };
+}
+function requestsOf(report) {
+  return Array.isArray(report.networkRequests) ? report.networkRequests : [];
+}
+function windowOf(windowMs) {
+  const value = Number(windowMs);
+  return Number.isFinite(value) && value >= 0 ? value : DEFAULT_NETWORK_WINDOW_MS;
+}
+function linkNetworkRequests(report, windowMs) {
+  const anchors = commitAnchors(report.commitTimings);
+  const window = windowOf(windowMs);
+  return requestsOf(report).map((request) => ({ ...request, ...linkRequest(request, anchors, window) }));
+}
+function networkView(report, options = {}) {
+  const by = String(options.by || "start");
+  if (!NETWORK_SORT_KEYS.includes(by)) {
+    return { ok: false, error: "unsupported network sort key: " + by, validBy: NETWORK_SORT_KEYS };
+  }
+  let pattern = null;
+  if (typeof options.match === "string" && options.match) {
+    try {
+      pattern = new RegExp(options.match, "i");
+    } catch (error) {
+      return { ok: false, error: "invalid match pattern: " + error.message };
+    }
+  }
+  const initiators = Array.isArray(options.initiators) ? options.initiators.map((value) => String(value).trim().toLowerCase()).filter(Boolean) : [];
+  const top = Number.isFinite(Number(options.top)) && Number(options.top) > 0 ? Math.floor(Number(options.top)) : 20;
+  const windowMs = windowOf(options.window);
+  const linked = linkNetworkRequests(report, windowMs).filter((request) => (!pattern || pattern.test(request.url)) && (initiators.length === 0 || initiators.includes(request.initiatorType.toLowerCase())));
+  const byInitiator = {};
+  let landedBeforeCommit = 0;
+  let startedAfterCommit = 0;
+  let startedDuringRender = 0;
+  let longest = null;
+  for (const request of linked) {
+    byInitiator[request.initiatorType] = (byInitiator[request.initiatorType] || 0) + 1;
+    if (request.landedBefore) landedBeforeCommit += 1;
+    if (request.startedAfter) startedAfterCommit += 1;
+    if (request.startedDuringRender !== null) startedDuringRender += 1;
+    if (!longest || request.duration > longest.duration) longest = request;
+  }
+  const sorted = linked.slice().sort((a, b) => by === "duration" ? b.duration - a.duration : by === "end" ? a.endTime - b.endTime : a.startTime - b.startTime);
+  return {
+    ok: true,
+    payload: {
+      available: Array.isArray(report.networkRequests),
+      capture: report.meta?.network ?? null,
+      windowMs,
+      by,
+      total: linked.length,
+      summary: {
+        byInitiator,
+        landedBeforeCommit,
+        startedAfterCommit,
+        startedDuringRender,
+        longest: longest ? { id: longest.id, url: longest.url, duration: longest.duration } : null
+      },
+      rows: sorted.slice(0, top)
+    }
+  };
+}
+function networkByCommit(report, windowMs) {
+  const out = /* @__PURE__ */ new Map();
+  const entry = (commitId) => {
+    let value = out.get(commitId);
+    if (!value) {
+      value = { landedBefore: [], startedAfter: [], startedDuringRender: [], inFlight: 0 };
+      out.set(commitId, value);
+    }
+    return value;
+  };
+  const linked = linkNetworkRequests(report, windowMs);
+  for (const request of linked) {
+    if (request.landedBefore) entry(request.landedBefore.commitId).landedBefore.push(request);
+    if (request.startedAfter) entry(request.startedAfter.commitId).startedAfter.push(request);
+    if (request.startedDuringRender !== null) entry(request.startedDuringRender).startedDuringRender.push(request);
+  }
+  const anchors = commitAnchors(report.commitTimings);
+  for (const anchor of anchors) {
+    const inFlight = linked.filter((request) => request.startTime <= anchor.commitStart && request.endTime >= anchor.commitStart).length;
+    if (inFlight > 0) entry(anchor.commitId).inFlight = inFlight;
+  }
+  return out;
+}
+
 // src/chippy-bridge/avalanche-commands.ts
 var UPSTREAM_COMMIT_STAT_KEYS = [
   "collateral",
@@ -45,6 +181,18 @@ function tupleToStats(tuple) {
     out[UPSTREAM_COMMIT_STAT_KEYS[i]] = Number(tuple[i] || 0);
   }
   return out;
+}
+function compactNetwork(network, maxItems) {
+  const rows = (items) => items.slice(0, maxItems);
+  return {
+    landedBefore: rows(network?.landedBefore ?? []),
+    landedBeforeTotal: network?.landedBefore.length ?? 0,
+    startedAfter: rows(network?.startedAfter ?? []),
+    startedAfterTotal: network?.startedAfter.length ?? 0,
+    startedDuringRender: rows(network?.startedDuringRender ?? []),
+    startedDuringRenderTotal: network?.startedDuringRender.length ?? 0,
+    inFlight: network?.inFlight ?? 0
+  };
 }
 function compactLatestAction(action) {
   if (!action || typeof action !== "object") return action ?? null;
@@ -181,7 +329,7 @@ function evalAvalanche(command, api, mod) {
           return { ok: false, available: true, action, error: "commit-peek requires numeric commitId" };
         }
         const include = Array.isArray(command?.include) && command.include.length ? command.include : ["stats", "sources", "timing", "metrics"];
-        const allowedInclude = ["stats", "sources", "timing", "metrics", "atl", "unmounts", "actions", "rendered"];
+        const allowedInclude = ["stats", "sources", "timing", "metrics", "atl", "unmounts", "actions", "rendered", "network"];
         const invalidInclude = include.filter((key) => !allowedInclude.includes(key));
         if (invalidInclude.length) {
           return {
@@ -245,6 +393,9 @@ function evalAvalanche(command, api, mod) {
           out.rendered = rendered.slice(0, maxItems);
           out.renderedTotal = rendered.length;
         }
+        if (include.includes("network")) {
+          out.network = compactNetwork(networkByCommit(ser, command?.window).get(commitId), maxItems);
+        }
         if (include.includes("unmounts")) {
           const raw = r.raw || {};
           const samples = raw.unmountsByCommit?.[commitId] || raw.unmountsByCommit?.[String(commitId)] || null;
@@ -281,7 +432,7 @@ function evalAvalanche(command, api, mod) {
       case "commit-list": {
         const top = Number.isFinite(Number(command?.top)) ? Math.max(1, Math.floor(Number(command.top))) : 20;
         const by = String(command?.by || "collateral");
-        const allowedKeys = UPSTREAM_COMMIT_STAT_KEYS.concat(["sources", "ticks"]);
+        const allowedKeys = UPSTREAM_COMMIT_STAT_KEYS.concat(["sources", "ticks", "network"]);
         if (!allowedKeys.includes(by)) {
           return {
             ok: false,
@@ -300,6 +451,7 @@ function evalAvalanche(command, api, mod) {
         const stats = ser.commitStats || {};
         const sourcesByCommit = ser.sourcesByCommit || {};
         const ids = Object.keys(stats);
+        const network = networkByCommit(ser, command?.window);
         const rows = ids.map((id) => {
           const tuple = stats[id];
           const stat = tupleToStats(tuple);
@@ -308,15 +460,43 @@ function evalAvalanche(command, api, mod) {
           const actions = ser.interactionsByCommit?.[id] || [];
           const timing = ser.commitTimings?.[id];
           const ticks = typeof timing?.ticks === "number" ? timing.ticks : null;
-          return { commitId: Number(id), stat, sourceCount, ticks, latestAction: actions.length ? compactLatestAction(actions[actions.length - 1]) : null };
+          const net = network.get(Number(id));
+          return {
+            commitId: Number(id),
+            stat,
+            sourceCount,
+            ticks,
+            network: {
+              landedBefore: net?.landedBefore.length ?? 0,
+              startedAfter: net?.startedAfter.length ?? 0,
+              startedDuringRender: net?.startedDuringRender.length ?? 0
+            },
+            latestAction: actions.length ? compactLatestAction(actions[actions.length - 1]) : null
+          };
         });
         const sortValue = (row) => {
           if (sortKey === "sources") return row.sourceCount || 0;
           if (sortKey === "ticks") return row.ticks ?? -1;
+          if (sortKey === "network") return row.network.landedBefore;
           return row.stat?.[sortKey] || 0;
         };
         rows.sort((a, b) => sortValue(b) - sortValue(a));
         return { ok: true, available: true, action, by: sortKey, total: rows.length, rows: rows.slice(0, top) };
+      }
+      case "network": {
+        const r = getReport(api);
+        if (!r || "error" in r) {
+          return { ok: false, available: true, action, error: r && "error" in r ? r.error : "report() unavailable" };
+        }
+        const view = networkView(r.serial, {
+          top: command?.top,
+          by: command?.by,
+          match: command?.match,
+          initiators: command?.initiators,
+          window: command?.window
+        });
+        if ("error" in view) return { ok: false, available: true, action, error: view.error, ...view.validBy && { validBy: [...view.validBy] } };
+        return { ok: true, available: true, action, payload: view.payload };
       }
       // Removed: start, stop, metrics, help — not present on the current public surface.
       default:
@@ -443,6 +623,18 @@ function analyzeSavedReport(report, command, args) {
       return dispatch(report, { action: "hot-sources", limit: number("limit", 0) });
     case "describe-action":
       return dispatch(report, { action: "describe-action", actionId: number("actionId", 0) });
+    case "network": {
+      const initiators = String(args.initiators ?? positional[3] ?? "");
+      const match = args.match ?? positional[2];
+      return dispatch(report, {
+        action: "network",
+        top: number("top", 0),
+        by: String(args.by ?? positional[1] ?? "start"),
+        ...typeof match === "string" && match && { match },
+        ...initiators && { initiators: initiators.split(",").map((item) => item.trim()).filter(Boolean) },
+        window: number("window", 4)
+      });
+    }
     case "source-search": {
       const name = args.name ?? positional[0];
       if (typeof name !== "string" || !name) return { ok: false, action: "source-search", error: "source-search requires --name <regex>" };
@@ -462,11 +654,13 @@ Commands:
   commit-peek   <commitId> [include] [max]  (--include csv --maxItems N)
   hot-sources   [limit]
   describe-action <actionId>
+  network       [top] [by] [match] [initiators] [windowMs]
+                (--top N --by start|end|duration --match regex --initiators csv --window ms)
   source-search --name <regex> [--top N]
 
 commit-list sort keys: collateral sources restarts performedWork effects memos
-  callbacks contextUpdates unmountedComponents unmountedSubtrees ticks
-commit-peek include values: stats,sources,timing,metrics,actions,rendered (atl: deprecated alias of metrics)
+  callbacks contextUpdates unmountedComponents unmountedSubtrees ticks network
+commit-peek include values: stats,sources,timing,metrics,actions,rendered,network (atl: deprecated alias of metrics)
 `;
 function fail(message) {
   process.stderr.write(`avalanche-analyze: ${message}

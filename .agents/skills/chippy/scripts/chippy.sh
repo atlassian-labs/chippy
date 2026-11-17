@@ -89,11 +89,12 @@ Usage:
   ./scripts/chippy.sh avalanche-commit-list <clientId> [top] [by]
   ./scripts/chippy.sh avalanche-commit-peek <clientId> <commitId> [include] [depth] [maxItems]
   ./scripts/chippy.sh avalanche-describe-action <clientId> <actionId>
+  ./scripts/chippy.sh avalanche-network <clientId> [top] [by] [match] [initiators] [windowMs]
   ./scripts/chippy.sh avalanche-install <clientId> [detectionMode]
   ./scripts/chippy.sh avalanche-recapture <clientId> [detectionMode]
   ./scripts/chippy.sh avalanche-debug-hook <clientId> <sourceId> <hookIndex> [window]
   ./scripts/chippy.sh avalanche-save <clientId> <file> [count]
-  ./scripts/chippy.sh avalanche-offline <file> <summary|commit-list|commit-peek|hot-sources|describe-action|source-search> [args...]
+  ./scripts/chippy.sh avalanche-offline <file> <summary|commit-list|commit-peek|hot-sources|describe-action|network|source-search> [args...]
   ./scripts/chippy.sh eval-page <clientId> <snippet-file-or-name> [--key value ...]
   ./scripts/chippy.sh eval-snippets
   ./scripts/chippy.sh avalanche-arm <clientId> <origin> [maxCommits] [captureFibers=true|false] [detectionMode=sources|full|stats|amplifiers]
@@ -959,7 +960,7 @@ case "$cmd" in
     by="${4:-collateral}"
     if [[ -z "$client_id" ]]; then
       echo "avalanche-commit-list requires <clientId> [top] [by]" >&2
-      echo "  by ∈ collateral | sources | restarts | performedWork | effects | memos | callbacks | contextUpdates | unmountedComponents | unmountedSubtrees | ticks (live and avalanche-offline)" >&2
+      echo "  by ∈ collateral | sources | restarts | performedWork | effects | memos | callbacks | contextUpdates | unmountedComponents | unmountedSubtrees | ticks | network (live and avalanche-offline)" >&2
       exit 1
     fi
     post_avalanche "$client_id" "{\"action\":\"commit-list\",\"top\":$top,\"by\":\"$by\"}"
@@ -972,7 +973,7 @@ case "$cmd" in
     max_items="${6:-20}"
     if [[ -z "$client_id" || -z "$commit_id" ]]; then
       echo "avalanche-commit-peek requires <clientId> <commitId> [include] [depth] [maxItems]" >&2
-      echo "  include csv ⊆ stats,sources,timing,metrics,unmounts,actions,rendered (atl: alias of metrics; unmounts is live-only)" >&2
+      echo "  include csv ⊆ stats,sources,timing,metrics,unmounts,actions,rendered,network (atl: alias of metrics; unmounts is live-only)" >&2
       exit 1
     fi
     include_json="["
@@ -996,6 +997,27 @@ case "$cmd" in
       exit 1
     fi
     post_avalanche "$client_id" "{\"action\":\"describe-action\",\"actionId\":$action_id}"
+    ;;
+  avalanche-network)
+    client_id="${2:-}"
+    top="${3:-20}"
+    by="${4:-start}"
+    match="${5:-}"
+    initiators="${6:-}"
+    window_ms="${7:-}"
+    if [[ -z "$client_id" ]]; then
+      echo "avalanche-network requires <clientId> [top] [by] [match] [initiators] [windowMs]" >&2
+      echo "  by ∈ start | end | duration; match is a URL regex; initiators csv such as fetch,xmlhttprequest; pass \"\" to skip a position" >&2
+      exit 1
+    fi
+    body="{\"action\":\"network\",\"top\":$top,\"by\":$(json_escape "$by")"
+    if [[ -n "$match" ]]; then body+=",\"match\":$(json_escape "$match")"; fi
+    if [[ -n "$initiators" ]]; then
+      body+=",\"initiators\":$(node -e 'process.stdout.write(JSON.stringify(process.argv[1].split(",").map((s) => s.trim()).filter(Boolean)))' "$initiators")"
+    fi
+    if [[ -n "$window_ms" ]]; then body+=",\"window\":$window_ms"; fi
+    body+="}"
+    post_avalanche "$client_id" "$body"
     ;;
   avalanche-install)
     client_id="${2:-}"
@@ -1061,7 +1083,7 @@ case "$cmd" in
   avalanche-offline)
     shift
     if [[ $# -lt 2 ]]; then
-      echo "avalanche-offline requires <file> <summary|commit-list|commit-peek|hot-sources|describe-action|source-search> [args...]" >&2
+      echo "avalanche-offline requires <file> <summary|commit-list|commit-peek|hot-sources|describe-action|network|source-search> [args...]" >&2
       exit 1
     fi
     node "$SCRIPT_DIR/avalanche-analyze.cjs" "$@"

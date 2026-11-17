@@ -114,7 +114,7 @@ Operations:
 - `avalancheExport(session, lastN?)`
 - `reloadWithAvalanche(session, { settleMs?, hotLimit? })`
 
-Supported generic actions are `install`, `uninstall`, `reset`/`clear`, `status`, `export`, `export-last`, `debug-hook`, `hot-sources`, `commit-list`, `commit-peek`, and `describe-action`. The module still exports legacy `avalancheStart`, `avalancheStop`, and `avalancheMetrics` wrappers for compatibility; do not use them in new workflows. `avalancheStart(session, max?)` runs `install` with `detectionMode: "full"`, `captureFibers: true`, and a history size of at least 100 when `max` is given; `stop` and `metrics` are not actions on the current bridge contract.
+Supported generic actions are `install`, `uninstall`, `reset`/`clear`, `status`, `export`, `export-last`, `debug-hook`, `hot-sources`, `commit-list`, `commit-peek`, `describe-action`, and `network`. The module still exports legacy `avalancheStart`, `avalancheStop`, and `avalancheMetrics` wrappers for compatibility; do not use them in new workflows. `avalancheStart(session, max?)` runs `install` with `detectionMode: "full"`, `captureFibers: true`, and a history size of at least 100 when `max` is given; `stop` and `metrics` are not actions on the current bridge contract.
 
 Helper base URL is `http://127.0.0.1:7823/__chippy` by default and can be
 overridden with `CHIPPY_HELPER_BASE`.

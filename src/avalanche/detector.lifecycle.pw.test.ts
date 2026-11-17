@@ -19,7 +19,8 @@ import { STORYBOOK_ORIGIN, STORYBOOK_PORT, assertChippyLabIdentity } from '../te
  *   - Enter + leave are recorded in different commits
  *   - Regression: CommitStats always has exactly 10 positions
  *   - Regression: report always carries suspenseByCommit (never undefined)
- *   - Regression: report version is 6
+ *   - Regression: report version is 8
+ *   - A page fetch is recorded and linked to the commit its response scheduled; Chippy requests are excluded
  */
 
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -227,14 +228,14 @@ describe('Avalanche report shape — regression', () => {
     }
   }, 30000);
 
-  it('report version is 7', async () => {
+  it('report version is 8', async () => {
     const page = await openAvalanchePage();
     try {
       const { report } = await runScenario(
         page,
         `await new Promise(r => setTimeout(r, 100));`,
       );
-      expect(report.meta.version).toBe(7);
+      expect(report.meta.version).toBe(8);
     } finally {
       await page.close();
     }
@@ -383,4 +384,61 @@ describe('Avalanche Suspense boundary detection', () => {
   }, 30000);
 
   it.todo('enter and leave are recorded in different commits');
+});
+
+// ---------------------------------------------------------------------------
+// Network capture
+// ---------------------------------------------------------------------------
+
+describe('Avalanche network capture', () => {
+  it('records a fetch and links it to the commit its response scheduled', async () => {
+    const page = await openAvalanchePage();
+    try {
+      const result = await page.evaluate(async () => {
+        const av = (window as any).__AVALANCHE__;
+        const R = (window as any).__R;
+        const RD = (window as any).__RD;
+        const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
+        av.install({ detectionMode: 'full', captureFibers: true });
+
+        let set: (value: string) => void = () => {};
+        function NetworkLab() {
+          const [state, setState] = R.useState('idle');
+          set = setState;
+          return R.createElement('span', null, state);
+        }
+        const host = document.createElement('div');
+        document.body.appendChild(host);
+        RD.createRoot(host).render(R.createElement(NetworkLab));
+        await wait(50);
+
+        await (await fetch('/iframe.html?chippy-network=1')).text();
+        set('loaded');
+        await fetch('http://127.0.0.1:7823/__chippy/health', { mode: 'no-cors' }).catch(() => undefined);
+        await wait(150);
+
+        const run = (command: Record<string, unknown>) => av.bridge.evalAvalanche(command, av, null);
+        const view = run({ action: 'network', match: 'chippy-network' });
+        const all = run({ action: 'network', top: 100 });
+        const row = view.payload?.rows?.[0];
+        const peek = row?.landedBefore
+          ? run({ action: 'commit-peek', commitId: row.landedBefore.commitId, include: ['network'] })
+          : null;
+        return { view, all, row, peek, status: run({ action: 'status' }) };
+      });
+
+      expect(result.view.ok).toBe(true);
+      expect(result.view.payload.capture).toMatchObject({ supported: true, enabled: true });
+      expect(result.view.payload.total).toBe(1);
+      expect(result.row).toMatchObject({ initiatorType: 'fetch', status: 200, startedBeforeCapture: false });
+      expect(result.row.duration).toBeGreaterThanOrEqual(0);
+      expect(result.row.landedBefore).not.toBeNull();
+      expect(result.peek.payload.network.landedBefore.map((r: { id: number }) => r.id)).toContain(result.row.id);
+      // Chippy's own assets never appear in the page's request list.
+      expect(result.all.payload.rows.some((r: { url: string }) => r.url.includes('/__chippy/'))).toBe(false);
+      expect(result.status.status.networkRequests).toBeGreaterThanOrEqual(1);
+    } finally {
+      await page.close();
+    }
+  }, 30000);
 });

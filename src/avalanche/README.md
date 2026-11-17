@@ -22,6 +22,9 @@ surrounding modules unless measurement proves it belongs in that path.
 | `report-serializer.tsx` | Produces DTOs that survive JSON/helper/offline transport without retaining live fibers or functions. |
 | `render-ticks.ts` | Counts render slices (ticks) per commit from React 19's async dispatcher slot or React 18's profiling hooks, composing with React DevTools and giving every slot back on uninstall. |
 | `interaction-capture.ts` | Records recent DOM interaction anchors and links them to later commits by time window. Proximity is a clue, not causality. |
+| `network-capture.ts` | Records finished network requests from a live Resource Timing observer during the capture window, bounded and without headers or bodies. |
+| `network-signals.ts` | Links captured requests to commits on the `performance.now()` clock at read time (live or offline) and builds the `network` view. Proximity, not causality. |
+| `own-requests.ts` | Remembers the URLs Chippy fetches from the page realm so network capture can exclude them. |
 
 ## Boundaries and modes
 

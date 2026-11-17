@@ -10,6 +10,7 @@
  */
 
 import { warmComponentTypes, type NameRecoveryStats } from './component-origin';
+import { networkByCommit, networkView, type CommitNetwork } from '../avalanche/network-signals';
 
 // ─── Type definitions ────────────────────────────────────────────────────
 
@@ -21,6 +22,8 @@ export type AvalancheApiStatus = {
   integrationMode: `adapter:${string}` | 'atl' | 'devtools' | 'none';
   /** Active commit metrics adapter id. Absent on bundles before the adapter seam. */
   metricsAdapter?: string | null;
+  /** Network requests captured so far. Absent on bundles before network capture. */
+  networkRequests?: number;
 };
 
 export type ReadStatusResult =
@@ -40,6 +43,10 @@ export type AvalancheCommand = {
   maxItems?: number;
   top?: number;
   by?: string;
+  /** `network`: case-insensitive regex over request URLs. */
+  match?: string;
+  /** `network`: initiator types to keep, such as fetch or xmlhttprequest. */
+  initiators?: string[];
   [key: string]: unknown;
 };
 
@@ -105,6 +112,19 @@ export function tupleToStats(tuple: unknown): Record<string, number> | null {
     out[UPSTREAM_COMMIT_STAT_KEYS[i]] = Number(tuple[i] || 0);
   }
   return out;
+}
+
+function compactNetwork(network: CommitNetwork | undefined, maxItems: number) {
+  const rows = (items: CommitNetwork['landedBefore']) => items.slice(0, maxItems);
+  return {
+    landedBefore: rows(network?.landedBefore ?? []),
+    landedBeforeTotal: network?.landedBefore.length ?? 0,
+    startedAfter: rows(network?.startedAfter ?? []),
+    startedAfterTotal: network?.startedAfter.length ?? 0,
+    startedDuringRender: rows(network?.startedDuringRender ?? []),
+    startedDuringRenderTotal: network?.startedDuringRender.length ?? 0,
+    inFlight: network?.inFlight ?? 0,
+  };
 }
 
 function compactLatestAction(action: any): unknown {
@@ -270,7 +290,7 @@ export function evalAvalanche(
           ? command!.include!
           : ['stats', 'sources', 'timing', 'metrics'];
         // `atl` is the deprecated alias of `metrics`, kept for one release.
-        const allowedInclude = ['stats', 'sources', 'timing', 'metrics', 'atl', 'unmounts', 'actions', 'rendered'];
+        const allowedInclude = ['stats', 'sources', 'timing', 'metrics', 'atl', 'unmounts', 'actions', 'rendered', 'network'];
         const invalidInclude = include.filter((key) => !allowedInclude.includes(key));
         if (invalidInclude.length) {
           return {
@@ -341,6 +361,9 @@ export function evalAvalanche(
           out.rendered = rendered.slice(0, maxItems);
           out.renderedTotal = rendered.length;
         }
+        if (include.includes('network')) {
+          out.network = compactNetwork(networkByCommit(ser, command?.window).get(commitId), maxItems);
+        }
         if (include.includes('unmounts')) {
           // Live identity samples live on the raw report (not in DTO/export).
           const raw = (r.raw || {}) as { unmountsByCommit?: Record<number | string, unknown> };
@@ -380,7 +403,7 @@ export function evalAvalanche(
       case 'commit-list': {
         const top = Number.isFinite(Number(command?.top)) ? Math.max(1, Math.floor(Number(command!.top))) : 20;
         const by = String(command?.by || 'collateral');
-        const allowedKeys: string[] = (UPSTREAM_COMMIT_STAT_KEYS as readonly string[]).concat(['sources', 'ticks']);
+        const allowedKeys: string[] = (UPSTREAM_COMMIT_STAT_KEYS as readonly string[]).concat(['sources', 'ticks', 'network']);
         if (!allowedKeys.includes(by)) {
           return {
             ok: false,
@@ -399,6 +422,7 @@ export function evalAvalanche(
         const stats = ser.commitStats || {};
         const sourcesByCommit = ser.sourcesByCommit || {};
         const ids = Object.keys(stats);
+        const network = networkByCommit(ser, command?.window);
         const rows = ids.map((id) => {
           const tuple = stats[id];
           const stat = tupleToStats(tuple);
@@ -412,15 +436,43 @@ export function evalAvalanche(
           const timing = ser.commitTimings?.[id] as { ticks?: unknown } | undefined;
           // null when the build exposes no render-slice signal (meta.renderTicks).
           const ticks = typeof timing?.ticks === 'number' ? timing.ticks : null;
-          return { commitId: Number(id), stat, sourceCount, ticks, latestAction: actions.length ? compactLatestAction(actions[actions.length - 1]) : null };
+          const net = network.get(Number(id));
+          return {
+            commitId: Number(id),
+            stat,
+            sourceCount,
+            ticks,
+            network: {
+              landedBefore: net?.landedBefore.length ?? 0,
+              startedAfter: net?.startedAfter.length ?? 0,
+              startedDuringRender: net?.startedDuringRender.length ?? 0,
+            },
+            latestAction: actions.length ? compactLatestAction(actions[actions.length - 1]) : null,
+          };
         });
         const sortValue = (row: typeof rows[number]): number => {
           if (sortKey === 'sources') return row.sourceCount || 0;
           if (sortKey === 'ticks') return row.ticks ?? -1;
+          if (sortKey === 'network') return row.network.landedBefore;
           return row.stat?.[sortKey] || 0;
         };
         rows.sort((a, b) => sortValue(b) - sortValue(a));
         return { ok: true, available: true, action, by: sortKey, total: rows.length, rows: rows.slice(0, top) };
+      }
+      case 'network': {
+        const r = getReport(api);
+        if (!r || 'error' in r) {
+          return { ok: false, available: true, action, error: (r && 'error' in r ? r.error : 'report() unavailable') };
+        }
+        const view = networkView(r.serial, {
+          top: command?.top,
+          by: command?.by,
+          match: command?.match,
+          initiators: command?.initiators,
+          window: command?.window,
+        });
+        if ('error' in view) return { ok: false, available: true, action, error: view.error, ...(view.validBy && { validBy: [...view.validBy] }) };
+        return { ok: true, available: true, action, payload: view.payload };
       }
       // Removed: start, stop, metrics, help — not present on the current public surface.
       default:
@@ -437,7 +489,7 @@ export function evalAvalanche(
 export const AVALANCHE_NAME_BUDGET_MS = 3000;
 
 /** Actions whose results carry no component source ids, or that change state. */
-const NAME_FREE_ACTIONS = new Set(['install', 'uninstall', 'reset', 'clear', 'status', 'debug-hook']);
+const NAME_FREE_ACTIONS = new Set(['install', 'uninstall', 'reset', 'clear', 'status', 'debug-hook', 'network']);
 const SOURCE_ID = /^[^\s#@]+#\d+@-?\d+$/;
 const MAX_SOURCE_IDS = 2000;
 
