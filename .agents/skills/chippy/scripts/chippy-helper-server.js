@@ -10,6 +10,7 @@ const {
   launchSession,
 } = require('../browser-scripts/playwright-session');
 const { createWsFrameReader } = require('./ws-frames');
+const { readRawResultMessage, serializeWithRawResult } = require('./raw-result');
 const { createProbeAnnotationChannel } = require('./probe-annotation-channel');
 const helperAccess = require('./helper-access');
 const pageSocketTrust = require('./page-socket-trust');
@@ -437,6 +438,8 @@ const PRETTY_JSON_MAX_BYTES = 256 * 1024;
 
 function json(res, code, payload) {
   res.writeHead(code, { 'Content-Type': 'application/json; charset=utf-8', ...CORS_HEADERS });
+  const raw = serializeWithRawResult(payload);
+  if (raw) { res.end(raw); return; }
   const compact = JSON.stringify(payload);
   res.end(compact !== undefined && compact.length <= PRETTY_JSON_MAX_BYTES ? JSON.stringify(payload, null, 2) : compact);
 }
@@ -858,7 +861,8 @@ function attachSocket(socket, socketOrigin) {
 
   const readFrames = createWsFrameReader();
 
-  wsSend(socket, JSON.stringify({ type: 'connected', clientId: id, connectedAt: client.connectedAt }));
+  // rawResults: large Avalanche results may arrive as raw bytes (raw-result.js).
+  wsSend(socket, JSON.stringify({ type: 'connected', clientId: id, connectedAt: client.connectedAt, rawResults: true }));
 
   socket.on('data', (chunk) => {
     for (const frame of readFrames(chunk)) {
@@ -866,7 +870,7 @@ function attachSocket(socket, socketOrigin) {
       if (frame.opcode === 0x9) { wsSend(socket, frame.payload, 0xA); continue; }
       if (frame.opcode !== 0x1) continue;
       try {
-        const msg = JSON.parse(frame.payload.toString('utf8'));
+        const msg = readRawResultMessage(frame.payload) || JSON.parse(frame.payload.toString('utf8'));
         const rejected = pageSocketTrust.checkPageMessage({
           bindings: clientIdBindings, socketOrigin, currentClientId: client.clientId, msg,
         });

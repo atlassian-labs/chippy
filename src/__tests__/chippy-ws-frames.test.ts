@@ -29,6 +29,14 @@ describe('helper WebSocket frame reader', () => {
     expect(out).toEqual([text]);
   });
 
+  it('unmasks payloads of every length and alignment', () => {
+    const read = createWsFrameReader();
+    for (const length of [1, 3, 15, 16, 17, 18, 19, 1001, 4099, 70_003]) {
+      const text = Array.from({ length }, (_, i) => String.fromCharCode(33 + ((i * 7) % 90))).join('');
+      expect(texts(read(frame(text)))).toEqual([text]);
+    }
+  });
+
   it('reads several frames from one chunk and a header split across chunks', () => {
     const read = createWsFrameReader();
     const bytes = Buffer.concat([frame('one'), frame('two'), frame('y'.repeat(300))]);

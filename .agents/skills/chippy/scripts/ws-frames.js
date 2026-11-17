@@ -37,6 +37,20 @@ function createWsFrameReader(frag = {}) {
   };
 }
 
+// XORs four bytes at a time where the payload is word-aligned; byte by byte,
+// unmasking a large export took longer than parsing its frames.
+function unmask(payload, mask) {
+  let i = 0;
+  if (payload.length >= 16 && payload.byteOffset % 4 === 0) {
+    const words = new Uint32Array(payload.buffer, payload.byteOffset, payload.length >>> 2);
+    // Read in the platform's byte order, as the Uint32Array view is.
+    const key = new Uint32Array(Uint8Array.from(mask).buffer)[0];
+    for (let w = 0; w < words.length; w++) words[w] ^= key;
+    i = words.length * 4;
+  }
+  for (; i < payload.length; i++) payload[i] ^= mask[i % 4];
+}
+
 function wsParseFrames(buffer, frag = {}) {
   const messages = [];
   let off = 0;
@@ -57,10 +71,7 @@ function wsParseFrames(buffer, frag = {}) {
     const total = hLen + mLen + pLen;
     if (off + total > buffer.length) break;
     const payload = Buffer.from(buffer.subarray(off + hLen + mLen, off + hLen + mLen + pLen));
-    if (masked) {
-      const mask = buffer.subarray(off + hLen, off + hLen + 4);
-      for (let i = 0; i < payload.length; i++) payload[i] ^= mask[i % 4];
-    }
+    if (masked) unmask(payload, buffer.subarray(off + hLen, off + hLen + 4));
     off += total;
 
     // Control frames (close/ping/pong) pass through directly

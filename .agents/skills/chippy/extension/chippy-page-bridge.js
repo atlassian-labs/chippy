@@ -447,8 +447,33 @@
 
   // ─── Messaging ──────────────────────────────────────────────────────────
 
+  // A helper that announces `rawResults` takes a large Avalanche result as a
+  // header line and the result JSON, without parsing and re-serializing it
+  // (scripts/raw-result.js). Smaller results stay ordinary messages.
+  const RAW_RESULT_MIN_CHARS = 256 * 1024;
+  let helperAcceptsRawResults = false;
+
+  function sendRawResult(message) {
+    if (!helperAcceptsRawResults || !message || message.type !== 'eval-avalanche-result' || !message.requestId) return false;
+    let resultText;
+    try {
+      resultText = JSON.stringify(message.result);
+    } catch (error) {
+      return false;
+    }
+    if (typeof resultText !== 'string' || resultText.length < RAW_RESULT_MIN_CHARS) return false;
+    socket.send(JSON.stringify({
+      type: message.type,
+      clientId: message.clientId,
+      requestId: message.requestId,
+      rawResult: true,
+    }) + '\n' + resultText);
+    return true;
+  }
+
   function send(message) {
     if (!socket || socket.readyState !== WebSocket.OPEN) return false;
+    if (sendRawResult(message)) return true;
     let text;
     try {
       text = JSON.stringify(message);
@@ -1823,6 +1848,7 @@
         const payload = JSON.parse(event.data);
         if (payload.type === 'connected') {
           // server echoes back our real clientId if it assigned one
+          helperAcceptsRawResults = payload.rawResults === true;
         }
         if (payload.type === 'command') {
           handleCommand(payload.command);
@@ -1833,6 +1859,8 @@
     });
 
     socket.addEventListener('close', () => {
+      // The next helper says again whether it takes raw results.
+      helperAcceptsRawResults = false;
       if (destroyed) return;
       setConnState('reconnecting');
       reconnectTimer = global.setTimeout(connect, config.reconnectDelayMs);

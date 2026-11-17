@@ -74,6 +74,12 @@ Known limits:
   and results. It gains nothing it does not already have, because a script on
   that origin can rewrite the DOM and React state that the real page reports.
   Chippy does not authenticate pages within an origin.
+- The helper does not parse large Avalanche results. A page bridge may send
+  one as a header line and raw result bytes, which the helper copies into the
+  `result` of its HTTP reply before its own fields (`scripts/raw-result.js`).
+  A page cannot overwrite those fields this way: in valid JSON the helper's
+  later keys win, and bytes that try to absorb them make the reply invalid JSON,
+  which the agent's client rejects.
 - An enabled extension origin is a page-injection setting, not authentication
   for the helper API.
 
