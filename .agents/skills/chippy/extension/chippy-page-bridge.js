@@ -704,9 +704,6 @@
         });
         break;
       }
-      case 'avalanche-recording-saved':
-        onRecordingSaved(command);
-        break;
       case 'show-status':
         showStatus(command.text || 'Chippy is connected.');
         break;
@@ -1995,14 +1992,12 @@
 
   // ─── Panel recording ─────────────────────────────────────────────────────
   //
-  // The panel's Record button clears Avalanche's capture, and Stop sends the
-  // export to the helper, which saves it as a file that avalanche-offline
-  // reads. Avalanche stays installed and keeps capturing after Stop; only the
-  // saved file is fixed. The Avalanche pill reloads the page with Avalanche
-  // installed before React's first commit, as reload-with-avalanche does.
-  const RECORDING_SAVE_TIMEOUT_MS = 60000;
-  let recording = { state: 'idle', startedAt: null, stoppedAt: null, file: null, commits: null, error: null };
-  let recordingTimer = null;
+  // The panel's Record button clears Avalanche's capture, as avalanche-clear
+  // does, and Stop marks the end. There is one capture: Avalanche's own. The
+  // agent reads or saves it with the usual avalanche-* commands. The Avalanche
+  // pill reloads the page with Avalanche installed before React's first
+  // commit, as reload-with-avalanche does.
+  let recording = { state: 'idle', startedAt: null, stoppedAt: null, error: null };
 
   function notifyRecording() {
     try { global.dispatchEvent(new CustomEvent('chippy-recording-state', { detail: getRecordingState() })); } catch (e) {}
@@ -2030,7 +2025,7 @@
   }
 
   function getRecordingState() {
-    return { ...recording, avalanche: readAvalancheCapture(), helperConnected: chippy.connState === 'connected' };
+    return { ...recording, avalanche: readAvalancheCapture() };
   }
 
   function startRecording() {
@@ -2040,55 +2035,16 @@
       return getRecordingState();
     }
     api.reset?.();
-    setRecording({ state: 'recording', startedAt: Date.now(), stoppedAt: null, file: null, commits: null, error: null });
+    setRecording({ state: 'recording', startedAt: Date.now(), stoppedAt: null, error: null });
     sendActivity('avalanche-recording-started', null);
     return getRecordingState();
   }
 
   function stopRecording() {
-    if (recording.state !== 'recording') return Promise.resolve(getRecordingState());
-    const stoppedAt = Date.now();
-    setRecording({ state: 'saving', stoppedAt });
-    const command = { action: 'export' };
-    const b = getBridge();
-    const named = resolveBuildMode() !== 'dev' && b?.evalAvalancheWithNames
-      ? b.evalAvalancheWithNames(command, getAvalancheApi(), getAvalancheModule())
-      : null;
-    return Promise.resolve(named).catch(() => null).then((result) => {
-      const exported = result || evalAvalanche(command);
-      if (!exported?.ok || !exported.payload) {
-        setRecording({ state: 'idle', error: exported?.error || 'The Avalanche export failed.' });
-        return getRecordingState();
-      }
-      const requestId = 'recording-' + stoppedAt;
-      const sent = send({
-        type: 'avalanche-recording',
-        clientId,
-        requestId,
-        page: getPageState(),
-        startedAt: recording.startedAt,
-        stoppedAt,
-        payload: exported.payload,
-      });
-      if (!sent) {
-        setRecording({ state: 'idle', error: 'The helper is not connected, so the recording was not saved.' });
-        return getRecordingState();
-      }
-      clearTimeout(recordingTimer);
-      recordingTimer = setTimeout(() => {
-        if (recording.state === 'saving') setRecording({ state: 'idle', error: 'The helper did not confirm the save.' });
-      }, RECORDING_SAVE_TIMEOUT_MS);
-      return getRecordingState();
-    });
-  }
-
-  function onRecordingSaved(command) {
-    clearTimeout(recordingTimer);
-    if (command.ok === false) {
-      setRecording({ state: 'idle', error: command.error || 'The helper could not save the recording.' });
-      return;
-    }
-    setRecording({ state: 'idle', file: command.file || null, commits: command.commits ?? null, error: null });
+    if (recording.state !== 'recording') return getRecordingState();
+    setRecording({ state: 'stopped', stoppedAt: Date.now() });
+    sendActivity('avalanche-recording-stopped', { startedAt: recording.startedAt, stoppedAt: recording.stoppedAt });
+    return getRecordingState();
   }
 
   function reloadWithAvalanche() {

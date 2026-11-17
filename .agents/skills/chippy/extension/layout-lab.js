@@ -1214,10 +1214,7 @@
   function renderRecordingStatus(rec) {
     if (rec.error) return `<span data-chippy-recording-status style="color:#F87168;">${escapeAttr(rec.error)}</span>`;
     if (rec.state === 'recording') return `<span data-chippy-recording-status>${rec.avalanche.commits} commits</span>`;
-    if (rec.file) {
-      const name = String(rec.file).split(/[\\/]/).pop();
-      return `<span data-chippy-recording-status title="${escapeAttr(rec.file)}" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">Saved ${rec.commits ?? '?'} commits · ${escapeAttr(name)}</span>`;
-    }
+    if (rec.state === 'stopped') return `<span data-chippy-recording-status>Recorded ${formatElapsed(rec.stoppedAt - rec.startedAt)}</span>`;
     return '';
   }
 
@@ -1227,7 +1224,7 @@
     if (!rec) return '';
     const mode = avalancheMode(rec);
     const pill = AVALANCHE_PILL_STYLES[mode];
-    const busy = rec.state !== 'idle';
+    const busy = rec.state === 'recording';
     const pillButton = mode === 'ready'
       ? `<span data-chippy-avalanche-pill="ready" title="${escapeAttr(pill.title)}" style="font-size:11px;color:${pill.color};">● Avalanche</span>`
       : `<button type="button" data-chippy-avalanche-reload data-chippy-avalanche-pill="${mode}" title="${escapeAttr(pill.title)}"${busy ? ' disabled' : ''} style="
@@ -1236,11 +1233,11 @@
         ">${mode === 'off' ? '○ Avalanche off · reload' : '● Avalanche late · reload'}</button>`;
     const recordLabel = rec.state === 'recording'
       ? `■ Stop ${formatElapsed(Date.now() - rec.startedAt)}`
-      : rec.state === 'saving' ? 'Saving…' : '● Record';
+      : '● Record';
     const recordTitle = rec.state === 'recording'
-      ? 'Stop and save the recording through the helper'
+      ? 'Mark the end of the recording'
       : 'Clear the capture and start recording commits';
-    const recordButton = rec.avalanche.installed ? `<button type="button" data-chippy-record="${rec.state}" title="${recordTitle}"${rec.state === 'saving' ? ' disabled' : ''} style="
+    const recordButton = rec.avalanche.installed ? `<button type="button" data-chippy-record="${rec.state}" title="${recordTitle}" style="
           border:0;background:${rec.state === 'recording' ? 'rgba(248,113,104,.22)' : 'rgba(255,255,255,.08)'};
           color:${rec.state === 'recording' ? '#FFB3AD' : '#CECFD2'};border-radius:7px;padding:3px 8px;
           cursor:pointer;font-size:11px;line-height:1.2;pointer-events:auto;font-variant-numeric:tabular-nums;
