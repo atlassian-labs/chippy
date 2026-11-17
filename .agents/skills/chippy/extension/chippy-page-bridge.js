@@ -940,6 +940,8 @@
           : null;
         Promise.resolve(named).catch(() => null).then((result) => {
           send({ type: 'eval-avalanche-result', clientId, requestId, result: result || evalAvalanche(command) });
+          // The panel shows whether Avalanche is installed.
+          if (['install', 'uninstall', 'reset', 'clear'].includes(String(command.action))) notifyRecording();
         });
         break;
       }

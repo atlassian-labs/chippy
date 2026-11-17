@@ -96,6 +96,7 @@ Usage:
   ./scripts/chippy.sh avalanche-recapture <clientId> [detectionMode]
   ./scripts/chippy.sh avalanche-debug-hook <clientId> <sourceId> <hookIndex> [window]
   ./scripts/chippy.sh avalanche-save <clientId> <file> [count]
+  ./scripts/chippy.sh avalanche-recordings
   ./scripts/chippy.sh avalanche-offline <file> <summary|commit-list|commit-peek|hot-sources|describe-action|network|timeline|source-search> [args...]
   ./scripts/chippy.sh eval-page <clientId> <snippet-file-or-name> [--key value ...]
   ./scripts/chippy.sh eval-snippets
@@ -1085,6 +1086,9 @@ case "$cmd" in
     fi
     source_json=$(json_escape "$source_id")
     post_avalanche "$client_id" "{\"action\":\"debug-hook\",\"sourceId\":$source_json,\"hookIndex\":$hook_index,\"window\":$window_size}"
+    ;;
+  avalanche-recordings)
+    curl "${CURL_OPTS[@]}" "$BASE_URL/api/avalanche-recordings"
     ;;
   avalanche-save)
     client_id="${2:-}"

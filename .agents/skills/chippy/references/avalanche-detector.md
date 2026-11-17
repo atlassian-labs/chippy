@@ -248,6 +248,17 @@ avalanche-analyze: response has no Avalanche export (expected meta and commitSta
 
 No file is written. Re-check `avalanche-status` first: `installed`, `hasMetricsGlobal`, and `commitCount` should show a real capture. If status is empty, arm/reload correctly and capture again before saving. With `count=N`, per-commit data keeps the last N commits; aggregate `sources` totals still cover the whole capture.
 
+### `avalanche-recordings`
+```bash
+chippy.sh avalanche-recordings
+chippy.sh avalanche-offline /tmp/chippy-recordings/2026-11-17T10-00-00-000Z-<clientId>.json timeline
+```
+Lists recordings the user made with the Chippy panel, newest first: `{ok, dir, recordings: [{file, clientId, url, title, startedAt, stoppedAt, savedAt, commits}]}`. Read a recording with `avalanche-offline <file>`.
+
+In the panel, **● Record** clears the capture, as `avalanche-clear` does, and **■ Stop** sends the export to the helper. The helper saves it in its recordings directory: `CHIPPY_RECORDINGS_DIR`, or `chippy-recordings` in the helper's temporary directory. Avalanche stays installed after Stop and keeps capturing; only the saved file is fixed. Input on the panel itself is not captured, so Record and Stop do not appear in `interactionsByCommit`. The panel saves only while the helper is connected.
+
+The Avalanche pill beside Record shows whether the capture includes the page's first render. Green: Avalanche was installed before React's first commit by an armed reload. Amber (`late`): it was installed on the live page. Grey (`off`): not installed. Clicking amber or grey reloads the page with Avalanche installed from page start, with the defaults of `reload-with-avalanche`.
+
 ### `avalanche-offline <path> <summary|commit-list|commit-peek|hot-sources|describe-action|network|timeline|source-search> ...`
 ```bash
 chippy.sh avalanche-offline .chippy-captures/raf-1846.json summary

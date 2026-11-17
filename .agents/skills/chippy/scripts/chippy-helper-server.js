@@ -14,6 +14,7 @@ const helperAccess = require('./helper-access');
 const pageSocketTrust = require('./page-socket-trust');
 const helperProxy = require('./helper-proxy');
 const { describeClientFrame } = require('./frame-tree');
+const { createRecordingStore } = require('./avalanche-recordings');
  
 // ─── Config ───────────────────────────────────────────────────────────────────
 
@@ -50,6 +51,7 @@ const pendingReloadAck = new Map(); // requestId → { resolve, timer }
 const pendingEvalScript = new Map(); // requestId → { resolve, timer }
 const pendingProbeCommand = new Map(); // requestId → { resolve, timer }
 const armedAvalanche = new Map(); // origin → { autoStart, max }
+const recordings = createRecordingStore(); // recordings from the panel's Record/Stop
 const armedAvalancheByClient = new Map(); // clientId → { autoStart, max }
 const playwrightSessions = new Map(); // clientId → { browser, context, page, createdAt, sourceClientId }
 const recentPageActivity = []; // newest first, bounded in memory
@@ -875,6 +877,26 @@ function updateClientFromMessage(client, msg) {
   }
 }
 
+// The panel's Stop sends the recording; the helper saves it and tells the page
+// where, so the panel can show it and an agent can read it with
+// avalanche-recordings and avalanche-offline.
+function saveRecording(client, msg) {
+  const saved = recordings.save({
+    clientId: client.clientId,
+    page: msg.page || client.page,
+    startedAt: msg.startedAt,
+    stoppedAt: msg.stoppedAt,
+    payload: msg.payload,
+  });
+  recordClientActivity(client, 'avalanche-recording-saved', saved.ok
+    ? { file: saved.file, commits: saved.commits, bytes: saved.bytes }
+    : { error: saved.error });
+  wsSend(client.socket, JSON.stringify({
+    type: 'command',
+    command: { type: 'avalanche-recording-saved', requestId: msg.requestId || null, ...saved },
+  }));
+}
+
 // ─── WebSocket attachment ─────────────────────────────────────────────────────
 
 const clientIdBindings = pageSocketTrust.createClientIdBindings();
@@ -928,6 +950,7 @@ function attachSocket(socket, socketOrigin) {
           resolvePendingResult(pendingEvalProbe, msg.requestId, msg.result);
           resolvePendingResult(pendingProbeCommand, msg.requestId, msg.result);
         }
+        if (msg.type === 'avalanche-recording') saveRecording(client, msg);
         if (msg.type === 'eval-avalanche-result' && msg.requestId) {
           resolvePendingResult(pendingAvalanche, msg.requestId, msg.result);
         }
@@ -1180,6 +1203,12 @@ async function handleChippyHttp(req, res, url) {
   }
 
   // Pages list
+  // avalanche-recordings: GET /api/avalanche-recordings → files saved by the panel's Stop, newest first
+  if (method === 'GET' && p === `${CHIPPY_PREFIX}/api/avalanche-recordings`) {
+    json(res, 200, { ok: true, dir: recordings.dir, recordings: recordings.list() });
+    return true;
+  }
+
   if (method === 'GET' && p === `${CHIPPY_PREFIX}/api/pages`) {
     const { slice, boundaries } = sliceParams(url);
     const pages = Array.from(clients.values()).map((c) => summarizeClient(c, slice || 'minimal', boundaries));

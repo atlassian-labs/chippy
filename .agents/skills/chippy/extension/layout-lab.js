@@ -1181,6 +1181,101 @@
     return integration?.kind === 'extension';
   }
 
+  // ─── Avalanche recording controls ────────────────────────────────────────
+  // The page bridge owns recording (chippy.pageBridge.recording); the panel
+  // only renders its state and forwards clicks.
+  const AVALANCHE_PILL_STYLES = {
+    ready: { color: '#4BCE97', title: 'Avalanche is capturing commits from page start.' },
+    late: { color: '#F5CD47', title: 'Avalanche was installed after the page loaded, so it missed the first render. Click to reload with Avalanche on from page start.' },
+    off: { color: '#A9ABAF', title: 'Avalanche is off. Click to reload with Avalanche on from page start.' },
+  };
+  let recordingTicker = null;
+
+  function getRecording() {
+    try { return chippy.pageBridge?.recording?.state?.() || null; } catch { return null; }
+  }
+
+  function avalancheMode(rec) {
+    if (!rec.avalanche.installed) return 'off';
+    return rec.avalanche.fromPageStart ? 'ready' : 'late';
+  }
+
+  function formatElapsed(ms) {
+    const total = Math.max(0, Math.floor(ms / 1000));
+    return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, '0')}`;
+  }
+
+  function syncRecordingTicker(rec) {
+    const active = rec?.state === 'recording' && panelState.expanded;
+    if (active && !recordingTicker) recordingTicker = setInterval(() => updatePanel(), 1000);
+    if (!active && recordingTicker) { clearInterval(recordingTicker); recordingTicker = null; }
+  }
+
+  function renderRecordingStatus(rec) {
+    if (rec.error) return `<span data-chippy-recording-status style="color:#F87168;">${escapeAttr(rec.error)}</span>`;
+    if (rec.state === 'recording') return `<span data-chippy-recording-status>${rec.avalanche.commits} commits</span>`;
+    if (rec.file) {
+      const name = String(rec.file).split(/[\\/]/).pop();
+      return `<span data-chippy-recording-status title="${escapeAttr(rec.file)}" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">Saved ${rec.commits ?? '?'} commits · ${escapeAttr(name)}</span>`;
+    }
+    return '';
+  }
+
+  function renderAvalancheControls() {
+    const rec = getRecording();
+    syncRecordingTicker(rec);
+    if (!rec) return '';
+    const mode = avalancheMode(rec);
+    const pill = AVALANCHE_PILL_STYLES[mode];
+    const busy = rec.state !== 'idle';
+    const pillButton = mode === 'ready'
+      ? `<span data-chippy-avalanche-pill="ready" title="${escapeAttr(pill.title)}" style="font-size:11px;color:${pill.color};">● Avalanche</span>`
+      : `<button type="button" data-chippy-avalanche-reload data-chippy-avalanche-pill="${mode}" title="${escapeAttr(pill.title)}"${busy ? ' disabled' : ''} style="
+          border:0;background:rgba(255,255,255,.08);color:${pill.color};border-radius:7px;padding:3px 7px;
+          cursor:pointer;font-size:11px;line-height:1.2;pointer-events:auto;
+        ">${mode === 'off' ? '○ Avalanche off · reload' : '● Avalanche late · reload'}</button>`;
+    const recordLabel = rec.state === 'recording'
+      ? `■ Stop ${formatElapsed(Date.now() - rec.startedAt)}`
+      : rec.state === 'saving' ? 'Saving…' : '● Record';
+    const recordTitle = rec.state === 'recording'
+      ? 'Stop and save the recording through the helper'
+      : 'Clear the capture and start recording commits';
+    const recordButton = rec.avalanche.installed ? `<button type="button" data-chippy-record="${rec.state}" title="${recordTitle}"${rec.state === 'saving' ? ' disabled' : ''} style="
+          border:0;background:${rec.state === 'recording' ? 'rgba(248,113,104,.22)' : 'rgba(255,255,255,.08)'};
+          color:${rec.state === 'recording' ? '#FFB3AD' : '#CECFD2'};border-radius:7px;padding:3px 8px;
+          cursor:pointer;font-size:11px;line-height:1.2;pointer-events:auto;font-variant-numeric:tabular-nums;
+        ">${recordLabel}</button>` : '';
+    return `
+      <div data-chippy-key="avalanche-controls" data-chippy-avalanche-controls style="display:flex;align-items:center;gap:6px;min-width:0;font-size:11px;color:#A9ABAF;">
+        ${pillButton}
+        ${recordButton}
+        ${renderRecordingStatus(rec)}
+      </div>
+    `;
+  }
+
+  function bindAvalancheControls(panel) {
+    bindPanelEvent(panel.querySelector('[data-chippy-avalanche-reload]'), 'click', () => {
+      chippy.pageBridge?.recording?.reloadWithAvalanche?.();
+    });
+    bindPanelEvent(panel.querySelector('[data-chippy-record]'), 'click', () => {
+      const recordingApi = chippy.pageBridge?.recording;
+      if (!recordingApi) return;
+      if (recordingApi.state().state === 'recording') recordingApi.stop();
+      else recordingApi.start();
+      updatePanel();
+    });
+  }
+
+  if (!chippy.__recordingListenerInstalled) {
+    chippy.__recordingListenerInstalled = true;
+    global.addEventListener('chippy-recording-state', () => {
+      try {
+        if (document.querySelector('[data-layout-lab-panel]')) updatePanel();
+      } catch {}
+    });
+  }
+
   function renderSettingsSection() {
     if (!isExtensionIntegration() || !panelState.settingsExpanded) return '';
     return `
@@ -1225,6 +1320,7 @@
             ">−</button>
           </div>
         </div>
+        ${renderAvalancheControls()}
         <div data-chippy-key="probe-dock" data-layout-lab-dock="true" data-chippy-ui="true" style="
           position:relative;display:grid;gap:6px;pointer-events:auto;
         ">${MARKER_IDS.map(renderProbeRow).join('')}</div>
@@ -1273,7 +1369,10 @@
     applyPanelStyle(panel);
 
     if (!panelState.expanded) {
-      const style = CONN_STYLES[getConnState()] || CONN_STYLES.unknown;
+      const rec = getRecording();
+      syncRecordingTicker(rec);
+      // A recording shows as a red dot on the launcher.
+      const style = rec?.state === 'recording' ? { color: '#F87168' } : CONN_STYLES[getConnState()] || CONN_STYLES.unknown;
       const collapsedHtml = `
         <button type="button" data-chippy-panel-launcher aria-label="Open Chippy" title="Open Chippy" style="
           position:relative;width:${PANEL_LAUNCHER_SIZE}px;height:${PANEL_LAUNCHER_SIZE}px;
@@ -1299,6 +1398,7 @@
     const html = renderExpandedPanel(sideLabel);
     patchPanelContent(panel, html);
     bindPanelEvent(panel.querySelector('[data-chippy-panel-collapse]'), 'click', () => setPanelExpanded(false));
+    bindAvalancheControls(panel);
     bindPanelEvent(panel.querySelector('[data-chippy-settings-toggle]'), 'click', () => {
       panelState.settingsExpanded = !panelState.settingsExpanded;
       updatePanel();

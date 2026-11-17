@@ -2258,6 +2258,10 @@ function describeInputEvent(event) {
   }
   return details;
 }
+const CHIPPY_UI_SELECTOR = "[data-chippy-ui], [data-layout-lab-panel]";
+function isChippyUi(node) {
+  return typeof Element !== "undefined" && node instanceof Element && node.matches(CHIPPY_UI_SELECTOR);
+}
 const EXPLICIT_INTERACTION_EVENTS = ["click", "keydown", "keyup", "input", "change", "submit"];
 const NOISY_INTERACTION_EVENTS = ["wheel", "scroll", "pointermove", "mousemove", "touchmove"];
 const ALL_INTERACTION_EVENTS = [
@@ -2337,7 +2341,9 @@ function createInteractionCapture(options = {}) {
     };
   }
   function capture(event) {
-    const pathTarget = typeof event.composedPath === "function" ? event.composedPath()[0] : null;
+    const path = typeof event.composedPath === "function" ? event.composedPath() : [];
+    if (path.some(isChippyUi)) return;
+    const pathTarget = path[0] ?? null;
     const target = pathTarget instanceof Element ? pathTarget : event.target;
     state2.actions.push({
       id: nextActionId++,

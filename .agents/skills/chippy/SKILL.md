@@ -244,6 +244,7 @@ avalanche-uninstall <clientId>
 avalanche-recapture <clientId> [detectionMode]
 avalanche-debug-hook <clientId> <sourceId> <hookIndex> [window]
 avalanche-save <clientId> <file> [count]
+avalanche-recordings
 avalanche-offline <file> <summary|commit-list|commit-peek|hot-sources|describe-action|network|timeline|source-search> [args...]
 avalanche-arm <clientId> <origin> [maxCommits] [captureFibers=true|false] [detectionMode=sources|full|stats|amplifiers]
 avalanche-disarm <clientId> <origin>
@@ -303,7 +304,7 @@ Choose capture mode from the symptom:
 
 Read broad to narrow: `avalanche-status` → `avalanche-hot-sources` → `avalanche-commit-list` → one `avalanche-commit-peek`. Do not open the full export first. Expand a `latestAction` id with `avalanche-describe-action`. When a capture is large or will be read more than once, run `avalanche-save <clientId> <file>` once, then read it with `avalanche-offline <file> <summary|commit-list|commit-peek|hot-sources|describe-action|network|timeline|source-search>`.
 
-Arm before the user or harness performs the slow interaction. Probes drill into the captured wave afterward; do not make probe placement a prerequisite for starting the recorder.
+Arm before the user or harness performs the slow interaction. Probes drill into the captured wave afterward; do not make probe placement a prerequisite for starting the recorder. The user can also record from the Chippy panel (**● Record**, then **■ Stop**); the helper saves each recording as a file. When the user says they recorded, run `avalanche-recordings` and read the newest file with `avalanche-offline`.
 
 Each commit records `ticks`, the render slices React ran for it: `1` is a render finished in one task, more means a time-sliced or repeated render, and `null` means the page exposes no signal (see `meta.renderTicks.reason`). Rank them with `avalanche-commit-list <clientId> 20 ticks`. Commit timings (`commit-peek ... timing`) are absolute `performance.now()` values on the page clock, shared with `PerformanceObserver` entries and DevTools traces. The `perf-entries` snippet reads the browser's buffered layout shifts, long animation frames, slow interactions, LCP, FCP, and TTFB, names the component behind each shift source, interaction target, and LCP element, and lists the commits near each entry. Use it when the symptom is a browser metric, then read the listed commits with `commit-peek`.
 
