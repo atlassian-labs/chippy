@@ -227,7 +227,7 @@ Limits:
 ```bash
 chippy.sh avalanche-export my-client
 ```
-Full JSON export from live page. `lastN` does not trim the payload; to keep the last N commits, use `avalanche-save <clientId> <path> N`. With `outFile`, the raw helper envelope is written to that file instead of stdout; unlike `avalanche-save`, it is not normalized for `avalanche-offline`. Large output is easy to truncate in the shell; prefer `avalanche-save` when the export will be inspected more than once.
+Full JSON export from live page. `lastN` does not trim the payload; to keep the last N commits, use `avalanche-save <clientId> <path> N`. With `outFile`, the raw helper envelope is written to that file instead of stdout, gzip-compressed when the path ends in `.gz`; unlike `avalanche-save`, it is not normalized for `avalanche-offline`. Like `avalanche-save`, it waits up to 60 seconds for the page. The JSON is about 700 bytes per rendered component per commit, several MB for a full re-render of a large tree. Large output is easy to truncate in the shell; prefer `avalanche-save` when the export will be inspected more than once.
 
 ### `avalanche-save <clientId> <path> [count]`
 ```bash

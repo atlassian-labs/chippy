@@ -138,6 +138,8 @@ const capture = await page.evaluate(async () => {
 
 const dir = mkdtempSync(join(tmpdir(), 'chippy-bench-'));
 const exportCall = await cli('avalanche-export', clientId);
+const exportGzFile = join(dir, 'export.json.gz');
+const exportGzCall = await cli('avalanche-export', clientId, '', exportGzFile);
 const saveFile = join(dir, 'save.json');
 const saveCall = await cli('avalanche-save', clientId, saveFile);
 const gzFile = join(dir, 'save.json.gz');
@@ -158,6 +160,7 @@ console.log(JSON.stringify({
   page: { commits: capture.commits, exportMs: capture.exportMs, stringifyMs: capture.stringifyMs, exportMb: capture.mb, renderedByCommitMb: capture.renderedMb, heapMb: capture.heapMb },
   helperToAgent: {
     exportMs: exportCall.ms, exportBytesMb: +(exportCall.stdout.length / 1e6).toFixed(1),
+    gzipExportMs: exportGzCall.ms, gzipExportMb: +(statSync(exportGzFile).size / 1e6).toFixed(1),
     saveMs: saveCall.ms, savedMb: +(statSync(saveFile).size / 1e6).toFixed(1),
     gzipSaveMs: gzCall.ms, gzipSavedMb: +(statSync(gzFile).size / 1e6).toFixed(1), offlineGzipCommitListMs: offlineGzCall.ms,
     commitListMs: listCall.ms, timelineMs: timelineCall.ms,

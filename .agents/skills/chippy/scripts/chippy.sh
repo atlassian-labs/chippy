@@ -930,15 +930,21 @@ case "$cmd" in
       exit 1
     fi
     if [[ -n "$last_n" ]]; then
-      payload=$(post_avalanche "$client_id" "{\"action\":\"export-last\",\"count\":$last_n}")
+      body="{\"action\":\"export-last\",\"count\":$last_n,\"timeoutMs\":60000}"
     else
-      payload=$(post_avalanche "$client_id" '{"action":"export"}')
+      body='{"action":"export","timeoutMs":60000}'
     fi
+    # As avalanche-save: a large export takes longer than the 5 s default.
+    # Streamed, not held in a shell variable: a full export can be tens of MB.
     if [[ -n "$out_file" ]]; then
-      printf '%s' "$payload" > "$out_file"
+      if [[ "$out_file" == *.gz ]]; then
+        post_avalanche "$client_id" "$body" | gzip -1 > "$out_file"
+      else
+        post_avalanche "$client_id" "$body" > "$out_file"
+      fi
       echo "avalanche export written to $out_file" >&2
     else
-      printf '%s' "$payload"
+      post_avalanche "$client_id" "$body"
     fi
     ;;
   # NOTE: avalanche-metrics / avalanche-help are removed. Upstream surface does
