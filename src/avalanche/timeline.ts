@@ -21,6 +21,13 @@
  * that remounts reads as a new boundary. Commit `endTime - startTime` is the detector's
  * own overhead, so render time is reported only when the report records a
  * render start.
+ *
+ * Commits run inside tasks, and the browser paints only after the task ends.
+ * When the report records `paintAt` (when the commit reached the screen),
+ * what the user sees is placed at that time: Suspense waits, screen changes,
+ * and VC50/VC90/VC100. Commit rows keep the commit time and note the paint
+ * when it came at least `PAINT_NOTE_MS` later. Reports without `paintAt` use
+ * commit times throughout.
  */
 
 import type { NetworkRequest } from './network-capture';
@@ -32,7 +39,7 @@ type Tuple = unknown[];
 type ReportLike = {
   commitStats?: Record<string, Tuple>;
   renderedByCommit?: Record<string, unknown[]>;
-  commitTimings?: Record<string, { startTime?: unknown; endTime?: unknown; render?: { renderStart?: unknown } | null }>;
+  commitTimings?: Record<string, { startTime?: unknown; endTime?: unknown; paintAt?: unknown; render?: { renderStart?: unknown } | null }>;
   suspenseByCommit?: Record<string, Array<{ depth?: unknown; boundary?: unknown; entered?: unknown; left?: unknown; location?: SuspenseLocation }>>;
   screenByCommit?: Record<string, ScreenChange>;
   sourcesByCommit?: Record<string, Array<{ sourceId?: unknown; collateral?: unknown }>>;
@@ -78,6 +85,8 @@ export interface TimelineCommit {
   t: number;
   /** Render start relative to the origin, when the report records it. */
   renderStart: number | null;
+  /** When the commit reached the screen, relative to the origin, when the report records it. */
+  paintAt: number | null;
   rendered: number;
   kind: CommitKind;
   suspense: string[];
@@ -156,6 +165,14 @@ function commitStart(report: ReportLike, id: number): number | null {
   return Number.isFinite(start) ? start : null;
 }
 
+/** Paint at least this long after its commit is called out in the text listing. */
+export const PAINT_NOTE_MS = 50;
+
+function commitPaint(report: ReportLike, id: number, start: number): number | null {
+  const paint = Number(report.commitTimings?.[String(id)]?.paintAt);
+  return Number.isFinite(paint) && paint >= start ? paint : null;
+}
+
 function renderedCount(report: ReportLike, id: number): number {
   const fromStats = Number(report.commitStats?.[String(id)]?.[3] || 0); // performedWork
   if (fromStats > 0) return fromStats;
@@ -182,6 +199,8 @@ export function buildTimeline(report: ReportLike, options: TimelineOptions = {})
     .filter((id) => Number.isFinite(id) && commitStart(report, id) !== null).sort((a, b) => a - b);
   if (ids.length === 0) return { ok: false, error: 'report has no commit timings (report version 6 or later is required)' };
   const startOf = (id: number) => commitStart(report, id)!;
+  // When the user could see the commit: its paint, else its commit time.
+  const shownOf = (id: number) => commitPaint(report, id, startOf(id)) ?? startOf(id);
 
   // Interactions repeat under every commit that followed them; keep each once.
   const interactions = new Map<string, TimelineInput>();
@@ -249,7 +268,7 @@ export function buildTimeline(report: ReportLike, options: TimelineOptions = {})
         if (startOf(id) >= windowStart && startOf(entered) <= windowEnd) {
           suspense.push({
             boundary, depth, label: null,
-            start: rel(startOf(entered)), end: rel(startOf(id)), enteredAt: entered, leftAt: id,
+            start: rel(shownOf(entered)), end: rel(shownOf(id)), enteredAt: entered, leftAt: id,
           });
         }
       }
@@ -259,7 +278,7 @@ export function buildTimeline(report: ReportLike, options: TimelineOptions = {})
     for (const entered of stack) {
       if (startOf(entered) <= windowEnd) {
         const { depth } = boundaryInfo.get(boundary)!;
-        suspense.push({ boundary, depth, label: null, start: rel(startOf(entered)), end: null, enteredAt: entered, leftAt: null });
+        suspense.push({ boundary, depth, label: null, start: rel(shownOf(entered)), end: null, enteredAt: entered, leftAt: null });
       }
     }
   }
@@ -276,12 +295,13 @@ export function buildTimeline(report: ReportLike, options: TimelineOptions = {})
 
   // Screen changes inside the window, on the origin clock.
   const frames: ScreenFrame[] = windowIds
-    .map((id) => ({ commitId: id, t: rel(startOf(id)), change: report.screenByCommit?.[String(id)] }))
+    .map((id) => ({ commitId: id, t: rel(shownOf(id)), change: report.screenByCommit?.[String(id)] }))
     .filter((f): f is ScreenFrame => !!f.change && Array.isArray(f.change.rects));
 
   const allCommits: TimelineCommit[] = windowIds.map((id) => {
     const events = report.suspenseByCommit?.[String(id)] ?? [];
     const renderStart = Number(report.commitTimings?.[String(id)]?.render?.renderStart);
+    const paint = commitPaint(report, id, startOf(id));
     const sources = (report.sourcesByCommit?.[String(id)] ?? [])
       .slice().sort((a, b) => Number(b.collateral || 0) - Number(a.collateral || 0))
       .map((s) => String(s.sourceId || '').split('#')[0]).filter(Boolean);
@@ -289,6 +309,7 @@ export function buildTimeline(report: ReportLike, options: TimelineOptions = {})
       commitId: id,
       t: rel(startOf(id)),
       renderStart: Number.isFinite(renderStart) && renderStart <= startOf(id) ? rel(renderStart) : null,
+      paintAt: paint === null ? null : rel(paint),
       rendered: renderedCount(report, id),
       kind: kindOf(events),
       suspense: events.map((e) => (e.entered ? 'enter ' : 'leave ') + boundaryName(e)),
@@ -312,7 +333,7 @@ export function buildTimeline(report: ReportLike, options: TimelineOptions = {})
     return {
       boundary: s.boundary, depth: s.depth, label: s.label, from: s.start, until: s.end, waitedMs: until - s.start, lockedBy: s.enteredAt, unlockedBy: s.leftAt,
       lastRequests: s.end === null ? [] : lastRequests,
-      updatesDuring: sumUpdates(updates.filter((c) => c.t > s.start && c.t < until)),
+      updatesDuring: sumUpdates(updates.filter((c) => c.commitId > s.enteredAt && (s.leftAt === null || c.commitId < s.leftAt))),
     };
   }).sort((a, b) => b.waitedMs - a.waitedMs);
   // Settling belongs to the interaction that opened the window: waits started
@@ -396,7 +417,8 @@ function renderMermaid(result: TimelineResult): string {
   if (result.screen) {
     lines.push('  section Screen changed (share of viewport)');
     for (const c of visible) {
-      lines.push(`  c${c.commitId} ${percent(c.screen!.share)}${c.screen!.region ? ' ' + safe(c.screen!.region) : ''} :milestone, sc${c.commitId}, ${c.t}, ${c.t}`);
+      const at = c.paintAt ?? c.t;
+      lines.push(`  c${c.commitId} ${percent(c.screen!.share)}${c.screen!.region ? ' ' + safe(c.screen!.region) : ''} :milestone, sc${c.commitId}, ${at}, ${at}`);
     }
     lines.push(`  VC90 +${result.screen.vc90} :crit, milestone, vc90, ${result.screen.vc90}, ${result.screen.vc90}`);
   }
@@ -429,10 +451,17 @@ function renderText(result: TimelineResult): string {
   }
 
   const sc = result.screen;
+  const painted = result.lanes.commits.some((c) => c.paintAt !== null);
   if (sc) {
-    header.push(`Visually complete: VC50 +${sc.vc50}, VC90 +${sc.vc90}, VC100 +${sc.vc100}; ${percent(sc.changedShare)} of the viewport changed` +
+    header.push(`Visually complete${painted ? ' (at paint)' : ''}: VC50 +${sc.vc50}, VC90 +${sc.vc90}, VC100 +${sc.vc100}; ${percent(sc.changedShare)} of the viewport changed` +
       (sc.changedVc90 !== null ? `, 90% of that by +${sc.changedVc90}` : '') + '.');
     if (sc.late.length) header.push(`  changing after that: ${sc.late.map((l) => `${l.label} +${l.at} (c${l.commitId}, ${percent(l.share)})`).join(', ')}`);
+  }
+
+  const delayed = result.lanes.commits.filter((c) => c.paintAt !== null && c.paintAt - c.t >= PAINT_NOTE_MS);
+  if (delayed.length) {
+    const worst = [...delayed].sort((a, b) => (b.paintAt! - b.t) - (a.paintAt! - a.t)).slice(0, 5);
+    header.push(`Painted late (the commit's task kept running): ${worst.map((c) => `c${c.commitId} +${c.t} → painted +${c.paintAt} (${c.paintAt! - c.t}ms)`).join(', ')}.`);
   }
 
   type Row = { t: number; lane: string; text: string };
@@ -445,7 +474,8 @@ function renderText(result: TimelineResult): string {
   for (const c of result.lanes.commits) {
     const lane = c.kind === 'update' ? 'react' : 'SCRN';
     const seen = c.screen ? ` · ${percent(c.screen.share)} screen${c.screen.region ? ' ' + c.screen.region : ''}` : sc ? ' · 0% screen' : '';
-    rows.push({ t: c.t, lane, text: `c${c.commitId} ${c.kind === 'update' ? '' : c.kind + ' '}${c.rendered} rendered${seen}${c.sources.length ? ' · ' + c.sources.join(', ') : ''}${c.suspense.length ? ' · ' + c.suspense.join(', ') : ''}` });
+    const paint = c.paintAt !== null && c.paintAt - c.t >= PAINT_NOTE_MS ? ` · painted +${c.paintAt}` : '';
+    rows.push({ t: c.t, lane, text: `c${c.commitId} ${c.kind === 'update' ? '' : c.kind + ' '}${c.rendered} rendered${seen}${c.sources.length ? ' · ' + c.sources.join(', ') : ''}${c.suspense.length ? ' · ' + c.suspense.join(', ') : ''}${paint}` });
   }
   const order: Record<string, number> = { input: 0, net: 1, wait: 2, SCRN: 3, react: 4 };
   rows.sort((a, b) => a.t - b.t || order[a.lane] - order[b.lane]);

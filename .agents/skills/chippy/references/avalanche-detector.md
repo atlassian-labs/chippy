@@ -194,6 +194,8 @@ Commits are classified by what the user can see:
 - `swap`: both happened in one commit.
 - `update`: no Suspense change. This is CPU work that may or may not change the screen.
 
+When the capture records `paintAt`, everything the user sees is placed at paint time: fallback and content times in `boundaries`, screen changes, and VC. Commit rows stay at commit time. A commit whose paint was at least 50 ms after it gets `· painted +X` on its row, and the text header lists the longest of these under `Painted late`. A late paint means the task that ran the commit kept the main thread busy. Captures without `paintAt` use commit times.
+
 Lock, unlock, and swap commits are always kept. Updates are ranked by rendered components (`maxCommits` 25), and the rest are counted in `omitted`.
 
 Output: `payload: {origin, window, perceived, screen, boundaries, omitted, mermaid, text}`. `format map` adds `settleMapSvg`; `format full` adds `settleMapSvg` and `lanes`.
@@ -304,6 +306,7 @@ Start with these fields:
 - `metricsByCommit[N]` — low-level adapter metrics for commit `N` (deprecated alias `atlByCommit`)
 - `sources[].restartWaste` / `maxRestartWaste` — restart attribution per source across the capture (adapter modes only)
 - `commitTimings[N]` — `startTime`, `endTime`, `timeSinceLastCommit`, `detectorOverhead`, `ticks`, and `render` for commit `N` (`commit-peek ... timing`)
+- `commitTimings[N].paintAt` — when commit `N` reached the screen: the end of the rendering update in the first animation frame after the commit, on the same clock as `startTime`. Commits before one frame share a value. It is absent while that frame is pending and for commits made while the page was hidden. `paintAt - startTime` is how long the change waited for the main thread.
 - `meta.renderTicks` — whether ticks are counted, from which signal, and why not when they are unavailable
 - `meta.timeOrigin` — the page's `performance.timeOrigin` (Unix epoch ms)
 - `networkRequests[]` — requests that finished during the capture, oldest first (`avalanche-network` row fields without the links)

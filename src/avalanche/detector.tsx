@@ -71,6 +71,8 @@ import {
 import { createCommitSurfaceOwnership } from './commit-surface-ownership';
 import { createInteractionCapture } from './interaction-capture';
 import { createNetworkCapture } from './network-capture';
+import { createPaintTracker } from './paint-timing';
+import { createAvalancheHookRunner } from './avalanche-hooks';
 import { createScreenCapture } from './screen-changes';
 import { describeSuspenseLocation } from './suspense-location';
 import { createRenderTickTracker } from './render-ticks';
@@ -213,6 +215,14 @@ export function createAvalancheDetector(options: DetectorOptions = {}) {
   const interactionCapture = createInteractionCapture(options);
   const networkCapture = createNetworkCapture(options);
   const screenCapture = createScreenCapture(options);
+  // Plugin hooks (packs' onStart/onStep/onEnd); results land in report.hooks.
+  const hookRunner = createAvalancheHookRunner();
+  const paintTracker = createPaintTracker((ids, paintAt) => {
+    for (const id of ids) {
+      const timing = state.commitTimings[id];
+      if (timing) timing.paintAt = paintAt;
+    }
+  });
   // Stable id per Suspense boundary (both fiber copies), so sibling boundaries
   // at the same depth stay apart in the timeline.
   let boundaryIds = new WeakMap<Fiber, number>();
@@ -1350,6 +1360,8 @@ export function createAvalancheDetector(options: DetectorOptions = {}) {
     interactionCapture.reset();
     networkCapture.reset();
     screenCapture.reset();
+    paintTracker.reset();
+    hookRunner.start();
     boundaryIds = new WeakMap();
     nextBoundaryId = 1;
     // Recapture adapter snapshot as new baseline
@@ -1553,6 +1565,14 @@ export function createAvalancheDetector(options: DetectorOptions = {}) {
       ticks: ticks ? ticks.ticks : null,
       render: ticks,
     };
+    paintTracker.afterCommit(state.commits);
+    hookRunner.step({
+      id: state.commits,
+      components: committedComponents,
+      startTime: commitHookStartTime,
+      endTime: commitHookEndTime,
+      root: root.current,
+    });
     state.lastCommitEndTime = commitHookEndTime;
     return committedComponents;
   }
@@ -1600,6 +1620,7 @@ export function createAvalancheDetector(options: DetectorOptions = {}) {
     install(): void {
       interactionCapture.install();
       networkCapture.install();
+      hookRunner.ensureStarted();
       const devtoolsGlobal = globalThis as GlobalWithDevtools;
       metricsAdapter = resolveMetricsAdapter();
       // Capture an initial adapter snapshot regardless. If the host surface is
@@ -1848,7 +1869,7 @@ export function createAvalancheDetector(options: DetectorOptions = {}) {
      */
     report(topN: number = 10, sortBy: SortBy = 'effect', reportOptions?: ReportOptions): Report {
       networkCapture.flush();
-      return buildReport(state, thrashMode, topN, sortBy, reportOptions, {
+      const report = buildReport(state, thrashMode, topN, sortBy, reportOptions, {
         effectThrashMode,
         captureFibers,
         historySize,
@@ -1857,6 +1878,9 @@ export function createAvalancheDetector(options: DetectorOptions = {}) {
         renderTicks: renderTicks.status(),
         network: networkCapture.status(),
       });
+      const hooks = hookRunner.collect();
+      if (hooks) report.hooks = hooks;
+      return report;
     },
 
     /**

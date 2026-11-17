@@ -310,6 +310,11 @@ function commitStart(report, id) {
   const start = Number(report.commitTimings?.[String(id)]?.startTime);
   return Number.isFinite(start) ? start : null;
 }
+var PAINT_NOTE_MS = 50;
+function commitPaint(report, id, start) {
+  const paint = Number(report.commitTimings?.[String(id)]?.paintAt);
+  return Number.isFinite(paint) && paint >= start ? paint : null;
+}
 function renderedCount(report, id) {
   const fromStats = Number(report.commitStats?.[String(id)]?.[3] || 0);
   if (fromStats > 0) return fromStats;
@@ -331,6 +336,7 @@ function buildTimeline(report, options = {}) {
   const ids = Object.keys(report.commitTimings ?? {}).map(Number).filter((id) => Number.isFinite(id) && commitStart(report, id) !== null).sort((a, b) => a - b);
   if (ids.length === 0) return { ok: false, error: "report has no commit timings (report version 6 or later is required)" };
   const startOf = (id) => commitStart(report, id);
+  const shownOf = (id) => commitPaint(report, id, startOf(id)) ?? startOf(id);
   const interactions = /* @__PURE__ */ new Map();
   for (const list of Object.values(report.interactionsByCommit ?? {})) {
     for (const item of list || []) {
@@ -395,8 +401,8 @@ function buildTimeline(report, options = {}) {
             boundary,
             depth,
             label: null,
-            start: rel(startOf(entered)),
-            end: rel(startOf(id)),
+            start: rel(shownOf(entered)),
+            end: rel(shownOf(id)),
             enteredAt: entered,
             leftAt: id
           });
@@ -408,7 +414,7 @@ function buildTimeline(report, options = {}) {
     for (const entered of stack) {
       if (startOf(entered) <= windowEnd) {
         const { depth } = boundaryInfo.get(boundary);
-        suspense.push({ boundary, depth, label: null, start: rel(startOf(entered)), end: null, enteredAt: entered, leftAt: null });
+        suspense.push({ boundary, depth, label: null, start: rel(shownOf(entered)), end: null, enteredAt: entered, leftAt: null });
       }
     }
   }
@@ -421,15 +427,17 @@ function buildTimeline(report, options = {}) {
     const key = boundaryKey(event);
     return labelByKey.get(key) || "@" + Number(event.depth);
   };
-  const frames = windowIds.map((id) => ({ commitId: id, t: rel(startOf(id)), change: report.screenByCommit?.[String(id)] })).filter((f) => !!f.change && Array.isArray(f.change.rects));
+  const frames = windowIds.map((id) => ({ commitId: id, t: rel(shownOf(id)), change: report.screenByCommit?.[String(id)] })).filter((f) => !!f.change && Array.isArray(f.change.rects));
   const allCommits = windowIds.map((id) => {
     const events = report.suspenseByCommit?.[String(id)] ?? [];
     const renderStart = Number(report.commitTimings?.[String(id)]?.render?.renderStart);
+    const paint = commitPaint(report, id, startOf(id));
     const sources = (report.sourcesByCommit?.[String(id)] ?? []).slice().sort((a, b) => Number(b.collateral || 0) - Number(a.collateral || 0)).map((s) => String(s.sourceId || "").split("#")[0]).filter(Boolean);
     return {
       commitId: id,
       t: rel(startOf(id)),
       renderStart: Number.isFinite(renderStart) && renderStart <= startOf(id) ? rel(renderStart) : null,
+      paintAt: paint === null ? null : rel(paint),
       rendered: renderedCount(report, id),
       kind: kindOf(events),
       suspense: events.map((e) => (e.entered ? "enter " : "leave ") + boundaryName(e)),
@@ -455,7 +463,7 @@ function buildTimeline(report, options = {}) {
       lockedBy: s.enteredAt,
       unlockedBy: s.leftAt,
       lastRequests: s.end === null ? [] : lastRequests,
-      updatesDuring: sumUpdates(updates.filter((c) => c.t > s.start && c.t < until))
+      updatesDuring: sumUpdates(updates.filter((c) => c.commitId > s.enteredAt && (s.leftAt === null || c.commitId < s.leftAt)))
     };
   }).sort((a, b) => b.waitedMs - a.waitedMs);
   const nextInput = input.find((i) => i.t > 0);
@@ -530,7 +538,8 @@ function renderMermaid(result) {
   if (result.screen) {
     lines.push("  section Screen changed (share of viewport)");
     for (const c of visible) {
-      lines.push(`  c${c.commitId} ${percent(c.screen.share)}${c.screen.region ? " " + safe(c.screen.region) : ""} :milestone, sc${c.commitId}, ${c.t}, ${c.t}`);
+      const at = c.paintAt ?? c.t;
+      lines.push(`  c${c.commitId} ${percent(c.screen.share)}${c.screen.region ? " " + safe(c.screen.region) : ""} :milestone, sc${c.commitId}, ${at}, ${at}`);
     }
     lines.push(`  VC90 +${result.screen.vc90} :crit, milestone, vc90, ${result.screen.vc90}, ${result.screen.vc90}`);
   }
@@ -557,9 +566,15 @@ function renderText(result) {
     }
   }
   const sc = result.screen;
+  const painted = result.lanes.commits.some((c) => c.paintAt !== null);
   if (sc) {
-    header.push(`Visually complete: VC50 +${sc.vc50}, VC90 +${sc.vc90}, VC100 +${sc.vc100}; ${percent(sc.changedShare)} of the viewport changed` + (sc.changedVc90 !== null ? `, 90% of that by +${sc.changedVc90}` : "") + ".");
+    header.push(`Visually complete${painted ? " (at paint)" : ""}: VC50 +${sc.vc50}, VC90 +${sc.vc90}, VC100 +${sc.vc100}; ${percent(sc.changedShare)} of the viewport changed` + (sc.changedVc90 !== null ? `, 90% of that by +${sc.changedVc90}` : "") + ".");
     if (sc.late.length) header.push(`  changing after that: ${sc.late.map((l) => `${l.label} +${l.at} (c${l.commitId}, ${percent(l.share)})`).join(", ")}`);
+  }
+  const delayed = result.lanes.commits.filter((c) => c.paintAt !== null && c.paintAt - c.t >= PAINT_NOTE_MS);
+  if (delayed.length) {
+    const worst = [...delayed].sort((a, b) => b.paintAt - b.t - (a.paintAt - a.t)).slice(0, 5);
+    header.push(`Painted late (the commit's task kept running): ${worst.map((c) => `c${c.commitId} +${c.t} \u2192 painted +${c.paintAt} (${c.paintAt - c.t}ms)`).join(", ")}.`);
   }
   const rows = [];
   for (const i of result.lanes.input) rows.push({ t: i.t, lane: "input", text: i.action + (i.target ? " " + i.target : "") });
@@ -570,7 +585,8 @@ function renderText(result) {
   for (const c of result.lanes.commits) {
     const lane = c.kind === "update" ? "react" : "SCRN";
     const seen = c.screen ? ` \xB7 ${percent(c.screen.share)} screen${c.screen.region ? " " + c.screen.region : ""}` : sc ? " \xB7 0% screen" : "";
-    rows.push({ t: c.t, lane, text: `c${c.commitId} ${c.kind === "update" ? "" : c.kind + " "}${c.rendered} rendered${seen}${c.sources.length ? " \xB7 " + c.sources.join(", ") : ""}${c.suspense.length ? " \xB7 " + c.suspense.join(", ") : ""}` });
+    const paint = c.paintAt !== null && c.paintAt - c.t >= PAINT_NOTE_MS ? ` \xB7 painted +${c.paintAt}` : "";
+    rows.push({ t: c.t, lane, text: `c${c.commitId} ${c.kind === "update" ? "" : c.kind + " "}${c.rendered} rendered${seen}${c.sources.length ? " \xB7 " + c.sources.join(", ") : ""}${c.suspense.length ? " \xB7 " + c.suspense.join(", ") : ""}${paint}` });
   }
   const order = { input: 0, net: 1, wait: 2, SCRN: 3, react: 4 };
   rows.sort((a, b) => a.t - b.t || order[a.lane] - order[b.lane]);

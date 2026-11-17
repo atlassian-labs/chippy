@@ -65,6 +65,25 @@ describe('Chippy React compatibility', () => {
     } finally { await page.close(); }
   }, 30000);
 
+  it.each(['stock', 'react-19'])('records when a %s React commit reached the screen', async (kind) => {
+    const page = await openPage(kind);
+    try {
+      const timing = await page.evaluate(async () => {
+        // React commits the click in a microtask; the task then keeps the thread busy, so the paint waits.
+        (document.querySelector('#counter') as HTMLElement).click();
+        await Promise.resolve();
+        const busyUntil = performance.now() + 300;
+        while (performance.now() < busyUntil) { /* block */ }
+        await new Promise((resolve) => requestAnimationFrame(() => setTimeout(resolve, 50)));
+        const timings = (window as any).__AVALANCHE__.report(100, 'effect').toSerializable().commitTimings;
+        const last = timings[Math.max(...Object.keys(timings).map(Number))];
+        return { startTime: last.startTime, paintAt: last.paintAt, busyUntil };
+      });
+      expect(timing.paintAt).toBeGreaterThanOrEqual(timing.busyUntil);
+      expect(timing.paintAt - timing.startTime).toBeGreaterThanOrEqual(290);
+    } finally { await page.close(); }
+  }, 30000);
+
   it.each(['stock', 'react-19'])('resolves source, owners, hooks, and scheduling on %s React', async (kind) => {
     const page = await openPage(kind);
     try {

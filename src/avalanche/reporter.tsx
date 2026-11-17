@@ -14,6 +14,7 @@ import type { SuspenseLocation } from './suspense-location';
 import { getComponentName } from './internals';
 import type { ReportDTO } from './report-serializer';
 import { serializeReport } from './report-serializer';
+import type { AvalancheHookResult } from './avalanche-hooks';
 import {
   type CommitMetricsAdapter,
   type CommitMetricsDelta,
@@ -480,6 +481,13 @@ export interface Report {
   networkRequests: NetworkRequest[];
 
   /**
+   * Results of plugin Avalanche hooks (packs' onStart/onStep/onEnd), keyed by
+   * hook id. Each entry carries the pack's `instructions` for reading it.
+   * Absent when no hooks are registered.
+   */
+  hooks?: Record<string, AvalancheHookResult>;
+
+  /**
    * Screen area each commit changed: inserted, updated, shown, and removed DOM
    * boxes in viewport coordinates. Only commits that changed visible boxes
    * have an entry. Absent when screen capture is off or outside a browser.
@@ -614,6 +622,13 @@ export interface CommitTiming {
   ticks: number | null;
   /** Slice timing behind `ticks`, or null when ticks are unavailable. */
   render: CommitTicks | null;
+  /**
+   * performance.now() when the first frame after this commit finished its
+   * rendering update: when the change reached the screen. Later than
+   * `startTime` when the commit ran inside a long task. Absent while the
+   * frame is pending, when the page was hidden, or outside a browser.
+   */
+  paintAt?: number;
 }
 
 /**

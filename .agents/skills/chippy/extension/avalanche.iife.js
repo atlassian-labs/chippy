@@ -1,6 +1,6 @@
 this.__AVALANCHE__ = (function() {
   "use strict";
-  var _a, _b, _c, _d;
+  var _a, _b, _c, _d, _e;
   const DIGITS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
   const VALUE_OF = new Int8Array(128).fill(-1);
   for (let index = 0; index < DIGITS.length; index += 1) {
@@ -1445,7 +1445,8 @@ this.__AVALANCHE__ = (function() {
       },
       ...report.commitTimings && { commitTimings: report.commitTimings },
       ...report.networkRequests && { networkRequests: report.networkRequests.map((request) => ({ ...request })) },
-      ...report.screenByCommit && { screenByCommit: report.screenByCommit }
+      ...report.screenByCommit && { screenByCommit: report.screenByCommit },
+      ...report.hooks && { hooks: report.hooks }
     };
   }
   let active$1 = null;
@@ -2469,6 +2470,177 @@ this.__AVALANCHE__ = (function() {
       }
     };
   }
+  function browserEnvironment() {
+    if (typeof requestAnimationFrame !== "function" || typeof MessageChannel !== "function") return null;
+    const channel = new MessageChannel();
+    const queue = [];
+    channel.port1.onmessage = () => {
+      var _a2;
+      return (_a2 = queue.shift()) == null ? void 0 : _a2();
+    };
+    return {
+      requestFrame: (callback) => {
+        requestAnimationFrame(() => callback());
+      },
+      postTask: (callback) => {
+        queue.push(callback);
+        channel.port2.postMessage(null);
+      },
+      now: () => performance.now(),
+      hidden: () => typeof document !== "undefined" && document.visibilityState === "hidden"
+    };
+  }
+  function createPaintTracker(onPaint, environment = browserEnvironment()) {
+    let pending = [];
+    let scheduled = false;
+    let generation = 0;
+    return {
+      afterCommit(commitId) {
+        if (!environment || environment.hidden()) return;
+        pending.push(commitId);
+        if (scheduled) return;
+        scheduled = true;
+        const mine = generation;
+        environment.requestFrame(() => {
+          environment.postTask(() => {
+            if (mine !== generation) return;
+            const ids = pending;
+            pending = [];
+            scheduled = false;
+            if (ids.length) onPaint(ids, environment.now());
+          });
+        });
+      },
+      reset() {
+        generation++;
+        pending = [];
+        scheduled = false;
+      }
+    };
+  }
+  const MAX_RECORDED_ERRORS = 5;
+  const MAX_STEP_FAILURES = 20;
+  const registered$1 = /* @__PURE__ */ new Map();
+  function registerAvalancheHooks(hooks) {
+    if (!hooks || typeof hooks.id !== "string" || !hooks.id) {
+      throw new TypeError("registerAvalancheHooks expects hooks with a non-empty id");
+    }
+    for (const phase of ["onStart", "onStep", "onEnd"]) {
+      if (hooks[phase] !== void 0 && typeof hooks[phase] !== "function") {
+        throw new TypeError(`avalanche hooks ${hooks.id}: ${phase} must be a function`);
+      }
+    }
+    registered$1.set(hooks.id, hooks);
+    return () => {
+      if (registered$1.get(hooks.id) === hooks) registered$1.delete(hooks.id);
+    };
+  }
+  function getAvalancheHooks() {
+    return [...registered$1.values()];
+  }
+  function toEvidence(value) {
+    if (value === void 0 || typeof value === "function") return void 0;
+    try {
+      return JSON.parse(JSON.stringify(value));
+    } catch {
+      return String(value);
+    }
+  }
+  function messageOf(error) {
+    if (error instanceof Error) return `${error.name}: ${error.message}`;
+    return String(error);
+  }
+  function createAvalancheHookRunner(source = getAvalancheHooks) {
+    let sessions = /* @__PURE__ */ new Map();
+    let commits = 0;
+    let started = false;
+    function fail2(session, error) {
+      session.result.errorCount += 1;
+      if (session.result.errors.length < MAX_RECORDED_ERRORS) session.result.errors.push(error);
+    }
+    function open(hooks, runStart) {
+      const session = {
+        hooks,
+        context: { id: hooks.id, state: {}, commits },
+        result: {
+          ...hooks.instructions && { instructions: hooks.instructions },
+          steps: {},
+          errors: [],
+          errorCount: 0,
+          stepDisabled: false
+        },
+        stepFailures: 0
+      };
+      sessions.set(hooks, session);
+      if (runStart && hooks.onStart) {
+        try {
+          session.result.start = toEvidence(hooks.onStart(session.context));
+        } catch (error) {
+          fail2(session, { phase: "start", message: messageOf(error) });
+        }
+      }
+      return session;
+    }
+    function current() {
+      const live = source();
+      for (const hooks of sessions.keys()) if (!live.includes(hooks)) sessions.delete(hooks);
+      return live.map((hooks) => sessions.get(hooks) ?? open(hooks, false));
+    }
+    return {
+      /** Begin a recording: fresh state for every set, then onStart. */
+      start() {
+        started = true;
+        sessions = /* @__PURE__ */ new Map();
+        commits = 0;
+        for (const hooks of source()) open(hooks, true);
+      },
+      /** Start once; later calls keep the running recording (install() is idempotent). */
+      ensureStarted() {
+        if (!started) this.start();
+      },
+      /** Run onStep for one captured commit. */
+      step(commit) {
+        commits += 1;
+        for (const session of current()) {
+          const { hooks, context, result } = session;
+          context.commits = commits;
+          if (!hooks.onStep || result.stepDisabled) continue;
+          context.commit = commit;
+          try {
+            const value = toEvidence(hooks.onStep(context));
+            if (value !== void 0) result.steps[commit.id] = value;
+          } catch (error) {
+            fail2(session, { phase: "step", commitId: commit.id, message: messageOf(error) });
+            session.stepFailures += 1;
+            if (session.stepFailures >= MAX_STEP_FAILURES) result.stepDisabled = true;
+          } finally {
+            context.commit = void 0;
+          }
+        }
+      },
+      /** Run onEnd and return every set's results, or null when none is registered. */
+      collect() {
+        const live = current();
+        if (live.length === 0) return null;
+        const out = {};
+        for (const session of live) {
+          const { hooks, context, result } = session;
+          context.commits = commits;
+          const snapshot = { ...result, steps: { ...result.steps }, errors: [...result.errors] };
+          if (hooks.onEnd) {
+            try {
+              snapshot.end = toEvidence(hooks.onEnd(context));
+            } catch (error) {
+              snapshot.errorCount += 1;
+              if (snapshot.errors.length < MAX_RECORDED_ERRORS) snapshot.errors.push({ phase: "end", message: messageOf(error) });
+            }
+          }
+          out[hooks.id] = snapshot;
+        }
+        return out;
+      }
+    };
+  }
   const MAX_CELLS = 25e4;
   function rectArea(rect) {
     return Math.max(0, rect.right - rect.left) * Math.max(0, rect.bottom - rect.top);
@@ -3203,6 +3375,13 @@ this.__AVALANCHE__ = (function() {
     const interactionCapture = createInteractionCapture(options);
     const networkCapture = createNetworkCapture(options);
     const screenCapture = createScreenCapture(options);
+    const hookRunner = createAvalancheHookRunner();
+    const paintTracker = createPaintTracker((ids, paintAt) => {
+      for (const id of ids) {
+        const timing = state2.commitTimings[id];
+        if (timing) timing.paintAt = paintAt;
+      }
+    });
     let boundaryIds = /* @__PURE__ */ new WeakMap();
     let nextBoundaryId = 1;
     const boundaryId = (fiber) => {
@@ -3896,6 +4075,8 @@ this.__AVALANCHE__ = (function() {
       interactionCapture.reset();
       networkCapture.reset();
       screenCapture.reset();
+      paintTracker.reset();
+      hookRunner.start();
       boundaryIds = /* @__PURE__ */ new WeakMap();
       nextBoundaryId = 1;
       state2.lastMetricsSnapshot = captureMetricsSnapshot();
@@ -4020,6 +4201,14 @@ this.__AVALANCHE__ = (function() {
         ticks: ticks ? ticks.ticks : null,
         render: ticks
       };
+      paintTracker.afterCommit(state2.commits);
+      hookRunner.step({
+        id: state2.commits,
+        components: committedComponents,
+        startTime: commitHookStartTime,
+        endTime: commitHookEndTime,
+        root: root.current
+      });
       state2.lastCommitEndTime = commitHookEndTime;
       return committedComponents;
     }
@@ -4066,6 +4255,7 @@ this.__AVALANCHE__ = (function() {
       install() {
         interactionCapture.install();
         networkCapture.install();
+        hookRunner.ensureStarted();
         const devtoolsGlobal = globalThis;
         metricsAdapter = resolveMetricsAdapter();
         state2.lastMetricsSnapshot = captureMetricsSnapshot();
@@ -4282,7 +4472,7 @@ this.__AVALANCHE__ = (function() {
        */
       report(topN = 10, sortBy = "effect", reportOptions) {
         networkCapture.flush();
-        return buildReport(state2, thrashMode, topN, sortBy, reportOptions, {
+        const report = buildReport(state2, thrashMode, topN, sortBy, reportOptions, {
           effectThrashMode,
           captureFibers,
           historySize,
@@ -4291,6 +4481,9 @@ this.__AVALANCHE__ = (function() {
           renderTicks: renderTicks.status(),
           network: networkCapture.status()
         });
+        const hooks = hookRunner.collect();
+        if (hooks) report.hooks = hooks;
+        return report;
       },
       /**
        * Raw passive hook events captured for a component (debug surface).
@@ -5264,7 +5457,7 @@ this.__AVALANCHE__ = (function() {
     }
     return null;
   }
-  function displayNameOf(fiber) {
+  function displayNameOf$1(fiber) {
     return getDisplayName(fiber.type) || getDisplayName(fiber.elementType) || null;
   }
   function parseOwnerMarkDisplayName(displayName) {
@@ -5283,7 +5476,7 @@ this.__AVALANCHE__ = (function() {
     };
   }
   function describeOwnership(fiber) {
-    const displayName = displayNameOf(fiber);
+    const displayName = displayNameOf$1(fiber);
     const encoded = parseOwnerMarkDisplayName(displayName);
     if (encoded) {
       return {
@@ -5304,7 +5497,7 @@ this.__AVALANCHE__ = (function() {
     };
   }
   function jiraErrorBoundary(fiber) {
-    const componentName = displayNameOf(fiber);
+    const componentName = displayNameOf$1(fiber);
     if (componentName !== "JSErrorBoundary") return null;
     return {
       componentName,
@@ -5332,7 +5525,7 @@ this.__AVALANCHE__ = (function() {
         }
       }
       if (!errorBoundary) errorBoundary = jiraErrorBoundary(entry);
-      const displayName = displayNameOf(entry);
+      const displayName = displayNameOf$1(entry);
       if (displayName === "ErrorComponent" || (displayName == null ? void 0 : displayName.endsWith("ErrorComponent"))) errorComponent = true;
       if (ownership && errorBoundary && errorComponent) break;
     }
@@ -5369,7 +5562,8 @@ this.__AVALANCHE__ = (function() {
   function activate(plugin) {
     const unregister = [
       plugin.contextProvider && registerContextProvider(plugin.contextProvider),
-      plugin.commitMetricsAdapter && registerCommitMetricsAdapter(plugin.commitMetricsAdapter)
+      plugin.commitMetricsAdapter && registerCommitMetricsAdapter(plugin.commitMetricsAdapter),
+      plugin.avalancheHooks && registerAvalancheHooks(plugin.avalancheHooks)
     ].filter((fn) => typeof fn === "function");
     active.set(plugin.id, () => {
       for (const fn of unregister.reverse()) fn();
@@ -5422,6 +5616,277 @@ this.__AVALANCHE__ = (function() {
     return () => {
       for (const fn of unregister.reverse()) fn();
     };
+  }
+  function displayNameOf(fiber) {
+    return getDisplayName(fiber.type) || getDisplayName(fiber.elementType) || null;
+  }
+  function compileRule(rule) {
+    const names = new Set(rule.match.names ?? []);
+    const pattern = rule.match.pattern ? new RegExp(rule.match.pattern) : null;
+    return { rule, matches: (name) => names.has(name) || !!(pattern == null ? void 0 : pattern.test(name)) };
+  }
+  function scalar(value) {
+    if (typeof value === "string") return value.trim() ? value : null;
+    if (typeof value === "number" || typeof value === "boolean") return String(value);
+    return null;
+  }
+  function readRef(ref, hit) {
+    var _a2;
+    for (const one of Array.isArray(ref) ? ref : [ref]) {
+      let value = null;
+      if (one === "name") value = hit.name;
+      else if (one.startsWith("props.")) value = scalar((_a2 = hit.fiber.memoizedProps) == null ? void 0 : _a2[one.slice(6)]);
+      else if (one.startsWith("parts.") && hit.rule.nameParts) {
+        const { separator, keys } = hit.rule.nameParts;
+        const index = keys.indexOf(one.slice(6));
+        value = index >= 0 ? scalar(hit.name.split(separator)[index]) : null;
+      }
+      if (value) return value;
+    }
+    return null;
+  }
+  function readData(hit) {
+    const out = { componentName: hit.name };
+    for (const [key, ref] of Object.entries(hit.rule.data ?? {})) out[key] = readRef(ref, hit);
+    return out;
+  }
+  function readFields(hit) {
+    const out = [];
+    for (const field2 of hit.rule.fields ?? []) {
+      const value = readRef(field2.value, hit);
+      if (value) out.push({ label: field2.label, value });
+    }
+    return out;
+  }
+  function compileComponents(pack) {
+    const rules = (pack.components ?? []).map(compileRule);
+    if (rules.length === 0) return null;
+    const kinds = /* @__PURE__ */ new Map();
+    for (const { rule } of rules) {
+      if (rule.kind === "error" || kinds.has(rule.kind)) continue;
+      kinds.set(rule.kind, { kind: rule.kind, label: rule.label ?? rule.kind, ...rule.accent && { accent: rule.accent } });
+    }
+    function nearest(fibers) {
+      const hits = rules.map(() => null);
+      let open = rules.length;
+      for (let distance = 0; distance < fibers.length && open > 0; distance += 1) {
+        const name = displayNameOf(fibers[distance]);
+        if (!name) continue;
+        rules.forEach((compiled, index) => {
+          if (hits[index] || !compiled.matches(name)) return;
+          hits[index] = { rule: compiled.rule, fiber: fibers[distance], name, distance };
+          open -= 1;
+        });
+      }
+      return hits.filter((hit) => !!hit);
+    }
+    return {
+      id: pack.id,
+      kinds: [...kinds.values()],
+      describe(fibers) {
+        const hits = nearest(fibers);
+        const contribution = { boundaries: {}, titles: {}, fields: {} };
+        for (const kind of kinds.keys()) contribution.boundaries[kind] = null;
+        let showError = false;
+        for (const hit of hits) {
+          const { kind } = hit.rule;
+          showError || (showError = !!hit.rule.showError);
+          const claimed = kind === "error" ? contribution.errorEnrichment !== void 0 : !!contribution.boundaries[kind];
+          if (claimed) continue;
+          if (kind === "error") {
+            if (hit.rule.data) contribution.errorEnrichment = readData(hit);
+          } else {
+            contribution.boundaries[kind] = { distance: hit.distance, ...readData(hit) };
+          }
+          const title = hit.rule.title ? readRef(hit.rule.title, hit) : null;
+          if (title && !contribution.titles[kind]) contribution.titles[kind] = title;
+          const fields = readFields(hit);
+          if (fields.length && !contribution.fields[kind]) contribution.fields[kind] = fields;
+        }
+        if (hits.length === 0) return { boundaries: contribution.boundaries };
+        return { ...contribution, ...showError && { showError } };
+      },
+      matchBoundary(fiber) {
+        const name = displayNameOf(fiber);
+        if (!name) return null;
+        const hit = rules.find(({ rule, matches }) => rule.kind !== "error" && matches(name));
+        return hit ? hit.rule.kind : null;
+      }
+    };
+  }
+  function compile(body, name, errors) {
+    try {
+      return new Function("ctx", body);
+    } catch (error) {
+      const message = `${name} did not compile: ${error instanceof Error ? `${error.name}: ${error.message}` : String(error)}`;
+      errors.push(message);
+      return () => {
+        throw new Error(message);
+      };
+    }
+  }
+  function compileScripts(pack) {
+    const scripts = pack.avalanche;
+    const compileErrors = [];
+    if (!scripts || !scripts.onStart && !scripts.onStep && !scripts.onEnd) {
+      return { hooks: pack.instructions ? { id: pack.id, instructions: pack.instructions } : null, compileErrors };
+    }
+    const hooks = {
+      id: pack.id,
+      ...pack.instructions && { instructions: pack.instructions },
+      ...scripts.onStart && { onStart: compile(scripts.onStart, "onStart", compileErrors) },
+      ...scripts.onStep && { onStep: compile(scripts.onStep, "onStep", compileErrors) },
+      ...scripts.onEnd && { onEnd: compile(scripts.onEnd, "onEnd", compileErrors) }
+    };
+    return { hooks, compileErrors };
+  }
+  const ID = /^[a-z][a-z0-9-]*$/;
+  const TOP_KEYS = /* @__PURE__ */ new Set(["id", "label", "instructions", "components", "avalanche"]);
+  const RULE_KEYS = /* @__PURE__ */ new Set(["kind", "label", "accent", "match", "nameParts", "title", "fields", "data", "showError"]);
+  const SCRIPT_KEYS = /* @__PURE__ */ new Set(["onStart", "onStep", "onEnd"]);
+  const REF = /^(name|props\.[^.\s]+|parts\.[^.\s]+)$/;
+  function fail(path, message) {
+    throw new TypeError(`chippy pack ${path}: ${message}`);
+  }
+  function isObject(value) {
+    return !!value && typeof value === "object" && !Array.isArray(value);
+  }
+  function checkKeys(value, allowed, path) {
+    for (const key of Object.keys(value)) if (!allowed.has(key)) fail(path, `unknown key "${key}"`);
+  }
+  function checkString(value, path, optional = false) {
+    if (value === void 0 && optional) return;
+    if (typeof value !== "string" || !value) fail(path, "must be a non-empty string");
+  }
+  function checkRef(value, path) {
+    const refs = Array.isArray(value) ? value : [value];
+    if (refs.length === 0) fail(path, "must name at least one reference");
+    for (const ref of refs) {
+      if (typeof ref !== "string" || !REF.test(ref)) fail(path, `"${String(ref)}" is not name, props.<key>, or parts.<key>`);
+    }
+  }
+  function checkRule(rule, path) {
+    if (!isObject(rule)) fail(path, "must be an object");
+    checkKeys(rule, RULE_KEYS, path);
+    checkString(rule.kind, `${path}.kind`);
+    if (rule.kind === "suspense") fail(`${path}.kind`, "suspense is a core kind");
+    checkString(rule.label, `${path}.label`, true);
+    checkString(rule.accent, `${path}.accent`, true);
+    if (!isObject(rule.match)) fail(`${path}.match`, "must be an object");
+    checkKeys(rule.match, /* @__PURE__ */ new Set(["names", "pattern"]), `${path}.match`);
+    const { names, pattern } = rule.match;
+    if (names === void 0 && pattern === void 0) fail(`${path}.match`, "needs names or pattern");
+    if (names !== void 0 && (!Array.isArray(names) || names.some((name) => typeof name !== "string" || !name))) {
+      fail(`${path}.match.names`, "must be a list of names");
+    }
+    if (pattern !== void 0) {
+      checkString(pattern, `${path}.match.pattern`);
+      try {
+        new RegExp(pattern);
+      } catch (error) {
+        fail(`${path}.match.pattern`, error.message);
+      }
+    }
+    if (rule.nameParts !== void 0) {
+      const parts = rule.nameParts;
+      if (!isObject(parts)) fail(`${path}.nameParts`, "must be an object");
+      checkString(parts.separator, `${path}.nameParts.separator`);
+      if (!Array.isArray(parts.keys) || parts.keys.some((key) => typeof key !== "string")) {
+        fail(`${path}.nameParts.keys`, "must be a list of keys");
+      }
+    }
+    if (rule.title !== void 0) checkRef(rule.title, `${path}.title`);
+    if (rule.fields !== void 0) {
+      if (!Array.isArray(rule.fields)) fail(`${path}.fields`, "must be a list");
+      rule.fields.forEach((field2, index) => {
+        if (!isObject(field2)) fail(`${path}.fields[${index}]`, "must be an object");
+        checkString(field2.label, `${path}.fields[${index}].label`);
+        checkRef(field2.value, `${path}.fields[${index}].value`);
+      });
+    }
+    if (rule.data !== void 0) {
+      if (!isObject(rule.data)) fail(`${path}.data`, "must be an object");
+      for (const [key, ref] of Object.entries(rule.data)) checkRef(ref, `${path}.data.${key}`);
+    }
+    if (rule.showError !== void 0 && typeof rule.showError !== "boolean") fail(`${path}.showError`, "must be a boolean");
+  }
+  function parsePack(input) {
+    let value = input;
+    if (typeof value === "string") {
+      try {
+        value = JSON.parse(value);
+      } catch (error) {
+        fail("", `is not valid JSON (${error.message})`);
+      }
+    }
+    if (!isObject(value)) fail("", "must be an object");
+    checkKeys(value, TOP_KEYS, "");
+    if (typeof value.id !== "string" || !ID.test(value.id)) fail("id", "must match /^[a-z][a-z0-9-]*$/");
+    checkString(value.label, "label", true);
+    checkString(value.instructions, "instructions", true);
+    if (value.components !== void 0) {
+      if (!Array.isArray(value.components)) fail("components", "must be a list");
+      value.components.forEach((rule, index) => checkRule(rule, `components[${index}]`));
+    }
+    if (value.avalanche !== void 0) {
+      if (!isObject(value.avalanche)) fail("avalanche", "must be an object");
+      checkKeys(value.avalanche, SCRIPT_KEYS, "avalanche");
+      for (const key of SCRIPT_KEYS) checkString(value.avalanche[key], `avalanche.${key}`, true);
+    }
+    return value;
+  }
+  const packs = /* @__PURE__ */ new Map();
+  function registerPack(input) {
+    var _a2;
+    const pack = parsePack(input);
+    const contextProvider = compileComponents(pack) ?? void 0;
+    const { hooks, compileErrors } = compileScripts(pack);
+    (_a2 = packs.get(pack.id)) == null ? void 0 : _a2.unregister();
+    const unregister = registerPlugin({
+      id: pack.id,
+      label: pack.label ?? pack.id,
+      ...contextProvider && { contextProvider },
+      ...hooks && { avalancheHooks: hooks }
+    });
+    enablePlugins([pack.id]);
+    const status = {
+      id: pack.id,
+      label: pack.label ?? pack.id,
+      instructions: pack.instructions ?? null,
+      kinds: ((contextProvider == null ? void 0 : contextProvider.kinds) ?? []).map((kind) => kind.kind),
+      scripts: ["onStart", "onStep", "onEnd"].filter((phase) => {
+        var _a3;
+        return !!((_a3 = pack.avalanche) == null ? void 0 : _a3[phase]);
+      }),
+      compileErrors
+    };
+    packs.set(pack.id, {
+      status,
+      unregister: () => {
+        unregister();
+        packs.delete(pack.id);
+      }
+    });
+    return status;
+  }
+  function registerPacks(inputs) {
+    const list = Array.isArray(inputs) ? inputs : inputs == null ? [] : [inputs];
+    return list.map((input) => {
+      try {
+        return { ok: true, pack: registerPack(input) };
+      } catch (error) {
+        return { ok: false, error: error instanceof Error ? error.message : String(error) };
+      }
+    });
+  }
+  function unregisterPack(id) {
+    const entry = packs.get(id);
+    if (!entry) return false;
+    entry.unregister();
+    return true;
+  }
+  function listPacks() {
+    return [...packs.values()].map((entry) => ({ ...entry.status }));
   }
   const PROBE_INTENTS = ["explain", "investigate", "change"];
   const MAX_COMMENT_LENGTH = 2e3;
@@ -6221,6 +6686,12 @@ this.__AVALANCHE__ = (function() {
     const start = Number((_b2 = (_a2 = report.commitTimings) == null ? void 0 : _a2[String(id)]) == null ? void 0 : _b2.startTime);
     return Number.isFinite(start) ? start : null;
   }
+  const PAINT_NOTE_MS = 50;
+  function commitPaint(report, id, start) {
+    var _a2, _b2;
+    const paint = Number((_b2 = (_a2 = report.commitTimings) == null ? void 0 : _a2[String(id)]) == null ? void 0 : _b2.paintAt);
+    return Number.isFinite(paint) && paint >= start ? paint : null;
+  }
   function renderedCount(report, id) {
     var _a2, _b2, _c2;
     const fromStats = Number(((_b2 = (_a2 = report.commitStats) == null ? void 0 : _a2[String(id)]) == null ? void 0 : _b2[3]) || 0);
@@ -6245,6 +6716,7 @@ this.__AVALANCHE__ = (function() {
     const ids = Object.keys(report.commitTimings ?? {}).map(Number).filter((id) => Number.isFinite(id) && commitStart(report, id) !== null).sort((a, b) => a - b);
     if (ids.length === 0) return { ok: false, error: "report has no commit timings (report version 6 or later is required)" };
     const startOf = (id) => commitStart(report, id);
+    const shownOf = (id) => commitPaint(report, id, startOf(id)) ?? startOf(id);
     const interactions = /* @__PURE__ */ new Map();
     for (const list of Object.values(report.interactionsByCommit ?? {})) {
       for (const item of list || []) {
@@ -6309,8 +6781,8 @@ this.__AVALANCHE__ = (function() {
               boundary,
               depth,
               label: null,
-              start: rel(startOf(entered)),
-              end: rel(startOf(id)),
+              start: rel(shownOf(entered)),
+              end: rel(shownOf(id)),
               enteredAt: entered,
               leftAt: id
             });
@@ -6322,7 +6794,7 @@ this.__AVALANCHE__ = (function() {
       for (const entered of stack) {
         if (startOf(entered) <= windowEnd) {
           const { depth } = boundaryInfo.get(boundary);
-          suspense.push({ boundary, depth, label: null, start: rel(startOf(entered)), end: null, enteredAt: entered, leftAt: null });
+          suspense.push({ boundary, depth, label: null, start: rel(shownOf(entered)), end: null, enteredAt: entered, leftAt: null });
         }
       }
     }
@@ -6340,17 +6812,19 @@ this.__AVALANCHE__ = (function() {
     };
     const frames = windowIds.map((id) => {
       var _a3;
-      return { commitId: id, t: rel(startOf(id)), change: (_a3 = report.screenByCommit) == null ? void 0 : _a3[String(id)] };
+      return { commitId: id, t: rel(shownOf(id)), change: (_a3 = report.screenByCommit) == null ? void 0 : _a3[String(id)] };
     }).filter((f) => !!f.change && Array.isArray(f.change.rects));
     const allCommits = windowIds.map((id) => {
-      var _a3, _b3, _c3, _d2, _e;
+      var _a3, _b3, _c3, _d2, _e2;
       const events = ((_a3 = report.suspenseByCommit) == null ? void 0 : _a3[String(id)]) ?? [];
       const renderStart = Number((_d2 = (_c3 = (_b3 = report.commitTimings) == null ? void 0 : _b3[String(id)]) == null ? void 0 : _c3.render) == null ? void 0 : _d2.renderStart);
-      const sources = (((_e = report.sourcesByCommit) == null ? void 0 : _e[String(id)]) ?? []).slice().sort((a, b) => Number(b.collateral || 0) - Number(a.collateral || 0)).map((s) => String(s.sourceId || "").split("#")[0]).filter(Boolean);
+      const paint = commitPaint(report, id, startOf(id));
+      const sources = (((_e2 = report.sourcesByCommit) == null ? void 0 : _e2[String(id)]) ?? []).slice().sort((a, b) => Number(b.collateral || 0) - Number(a.collateral || 0)).map((s) => String(s.sourceId || "").split("#")[0]).filter(Boolean);
       return {
         commitId: id,
         t: rel(startOf(id)),
         renderStart: Number.isFinite(renderStart) && renderStart <= startOf(id) ? rel(renderStart) : null,
+        paintAt: paint === null ? null : rel(paint),
         rendered: renderedCount(report, id),
         kind: kindOf(events),
         suspense: events.map((e) => (e.entered ? "enter " : "leave ") + boundaryName(e)),
@@ -6376,7 +6850,7 @@ this.__AVALANCHE__ = (function() {
         lockedBy: s.enteredAt,
         unlockedBy: s.leftAt,
         lastRequests: s.end === null ? [] : lastRequests,
-        updatesDuring: sumUpdates(updates.filter((c) => c.t > s.start && c.t < until))
+        updatesDuring: sumUpdates(updates.filter((c) => c.commitId > s.enteredAt && (s.leftAt === null || c.commitId < s.leftAt)))
       };
     }).sort((a, b) => b.waitedMs - a.waitedMs);
     const nextInput = input.find((i) => i.t > 0);
@@ -6451,7 +6925,8 @@ this.__AVALANCHE__ = (function() {
     if (result.screen) {
       lines.push("  section Screen changed (share of viewport)");
       for (const c of visible) {
-        lines.push(`  c${c.commitId} ${percent(c.screen.share)}${c.screen.region ? " " + safe(c.screen.region) : ""} :milestone, sc${c.commitId}, ${c.t}, ${c.t}`);
+        const at = c.paintAt ?? c.t;
+        lines.push(`  c${c.commitId} ${percent(c.screen.share)}${c.screen.region ? " " + safe(c.screen.region) : ""} :milestone, sc${c.commitId}, ${at}, ${at}`);
       }
       lines.push(`  VC90 +${result.screen.vc90} :crit, milestone, vc90, ${result.screen.vc90}, ${result.screen.vc90}`);
     }
@@ -6481,9 +6956,15 @@ this.__AVALANCHE__ = (function() {
       }
     }
     const sc = result.screen;
+    const painted = result.lanes.commits.some((c) => c.paintAt !== null);
     if (sc) {
-      header.push(`Visually complete: VC50 +${sc.vc50}, VC90 +${sc.vc90}, VC100 +${sc.vc100}; ${percent(sc.changedShare)} of the viewport changed` + (sc.changedVc90 !== null ? `, 90% of that by +${sc.changedVc90}` : "") + ".");
+      header.push(`Visually complete${painted ? " (at paint)" : ""}: VC50 +${sc.vc50}, VC90 +${sc.vc90}, VC100 +${sc.vc100}; ${percent(sc.changedShare)} of the viewport changed` + (sc.changedVc90 !== null ? `, 90% of that by +${sc.changedVc90}` : "") + ".");
       if (sc.late.length) header.push(`  changing after that: ${sc.late.map((l) => `${l.label} +${l.at} (c${l.commitId}, ${percent(l.share)})`).join(", ")}`);
+    }
+    const delayed = result.lanes.commits.filter((c) => c.paintAt !== null && c.paintAt - c.t >= PAINT_NOTE_MS);
+    if (delayed.length) {
+      const worst = [...delayed].sort((a, b) => b.paintAt - b.t - (a.paintAt - a.t)).slice(0, 5);
+      header.push(`Painted late (the commit's task kept running): ${worst.map((c) => `c${c.commitId} +${c.t} → painted +${c.paintAt} (${c.paintAt - c.t}ms)`).join(", ")}.`);
     }
     const rows = [];
     for (const i of result.lanes.input) rows.push({ t: i.t, lane: "input", text: i.action + (i.target ? " " + i.target : "") });
@@ -6494,7 +6975,8 @@ this.__AVALANCHE__ = (function() {
     for (const c of result.lanes.commits) {
       const lane = c.kind === "update" ? "react" : "SCRN";
       const seen = c.screen ? ` · ${percent(c.screen.share)} screen${c.screen.region ? " " + c.screen.region : ""}` : sc ? " · 0% screen" : "";
-      rows.push({ t: c.t, lane, text: `c${c.commitId} ${c.kind === "update" ? "" : c.kind + " "}${c.rendered} rendered${seen}${c.sources.length ? " · " + c.sources.join(", ") : ""}${c.suspense.length ? " · " + c.suspense.join(", ") : ""}` });
+      const paint = c.paintAt !== null && c.paintAt - c.t >= PAINT_NOTE_MS ? ` · painted +${c.paintAt}` : "";
+      rows.push({ t: c.t, lane, text: `c${c.commitId} ${c.kind === "update" ? "" : c.kind + " "}${c.rendered} rendered${seen}${c.sources.length ? " · " + c.sources.join(", ") : ""}${c.suspense.length ? " · " + c.suspense.join(", ") : ""}${paint}` });
     }
     const order = { input: 0, net: 1, wait: 2, SCRN: 3, react: 4 };
     rows.sort((a, b) => a.t - b.t || order[a.lane] - order[b.lane]);
@@ -6587,7 +7069,7 @@ this.__AVALANCHE__ = (function() {
     }
   }
   function evalAvalanche(command, api2, mod) {
-    var _a2, _b2, _c2, _d2, _e, _f, _g, _h, _i, _j, _k, _l, _m, _n, _o, _p;
+    var _a2, _b2, _c2, _d2, _e2, _f, _g, _h, _i, _j, _k, _l, _m, _n, _o, _p;
     const action = String((command == null ? void 0 : command.action) || "status");
     if (!api2) {
       return { ok: false, available: false, action, error: "__AVALANCHE__ not available" };
@@ -6687,7 +7169,7 @@ this.__AVALANCHE__ = (function() {
             return { ok: false, available: true, action, error: r && "error" in r ? r.error : "report() unavailable" };
           }
           const ser = r.serial || {};
-          const tuple = ((_e = ser.commitStats) == null ? void 0 : _e[commitId]) || ((_f = ser.commitStats) == null ? void 0 : _f[String(commitId)]) || null;
+          const tuple = ((_e2 = ser.commitStats) == null ? void 0 : _e2[commitId]) || ((_f = ser.commitStats) == null ? void 0 : _f[String(commitId)]) || null;
           const sourceIds = ((_g = ser.sourcesByCommit) == null ? void 0 : _g[commitId]) || ((_h = ser.sourcesByCommit) == null ? void 0 : _h[String(commitId)]) || [];
           const timing = ((_i = ser.commitTimings) == null ? void 0 : _i[commitId]) || ((_j = ser.commitTimings) == null ? void 0 : _j[String(commitId)]) || null;
           const metricsMap = ser.metricsByCommit || ser.atlByCommit;
@@ -7969,7 +8451,7 @@ this.__AVALANCHE__ = (function() {
     try {
       const source = Function.prototype.toString.call(fn);
       return source.length > max ? source.slice(0, max) + "…" : source;
-    } catch (_e) {
+    } catch (_e2) {
       return null;
     }
   }
@@ -8474,7 +8956,7 @@ this.__AVALANCHE__ = (function() {
       allChanges.push({ kind: "fiber-removed", fiber: publicFiber(entry), propNames: Object.keys(entry.props) });
     }
     const rankChange = (change) => {
-      var _a2, _b2, _c2, _d2, _e, _f, _g;
+      var _a2, _b2, _c2, _d2, _e2, _f, _g;
       if (change.kind !== "props-changed") return change.kind === "fiber-added" ? 5 : 4;
       const propRows = [
         ...(((_a2 = change.props) == null ? void 0 : _a2.added) || []).map((row) => row.after),
@@ -8483,7 +8965,7 @@ this.__AVALANCHE__ = (function() {
       ].filter(Boolean);
       const complete = propRows.some((row) => !row.truncated) ? 100 : 0;
       const primitive = propRows.some((row) => ["string", "number", "boolean", "null", "undefined"].includes(row.kind)) ? 40 : 0;
-      const sourced = ((_e = (_d2 = change.fiber) == null ? void 0 : _d2.after) == null ? void 0 : _e.source) || ((_g = (_f = change.fiber) == null ? void 0 : _f.before) == null ? void 0 : _g.source) ? 20 : 0;
+      const sourced = ((_e2 = (_d2 = change.fiber) == null ? void 0 : _d2.after) == null ? void 0 : _e2.source) || ((_g = (_f = change.fiber) == null ? void 0 : _f.before) == null ? void 0 : _g.source) ? 20 : 0;
       return 10 + complete + primitive + sourced;
     };
     allChanges.sort((left, right) => rankChange(right) - rankChange(left));
@@ -8670,6 +9152,11 @@ this.__AVALANCHE__ = (function() {
     if (Array.isArray(fromConfig) || Array.isArray(fromGlobal)) {
       selectPlugins([...fromConfig ?? [], ...fromGlobal ?? []]);
     }
+    const packsFromConfig = (_b = runtime.__CHIPPY_STARTUP_CONFIG) == null ? void 0 : _b.packs;
+    const packsFromGlobal = runtime.__CHIPPY_PACKS;
+    if (Array.isArray(packsFromConfig) || Array.isArray(packsFromGlobal)) {
+      runtime.__CHIPPY_PACK_RESULTS__ = registerPacks([...packsFromConfig ?? [], ...packsFromGlobal ?? []]);
+    }
   }
   (function installDevtoolsShim() {
     var _a2;
@@ -8700,7 +9187,7 @@ this.__AVALANCHE__ = (function() {
     runtime.__REACT_DEVTOOLS_GLOBAL_HOOK__ = shared || hook;
   })();
   const startupConfig = runtime.__CHIPPY_STARTUP_CONFIG;
-  const __auto = !!((_b = startupConfig == null ? void 0 : startupConfig.avalanche) == null ? void 0 : _b.autoStart);
+  const __auto = !!((_c = startupConfig == null ? void 0 : startupConfig.avalanche) == null ? void 0 : _c.autoStart);
   let detector = null;
   let installed = false;
   const api = {
@@ -8776,13 +9263,17 @@ this.__AVALANCHE__ = (function() {
       }
       const integrationMode = detector ? ((_b2 = detector.getIntegrationMode) == null ? void 0 : _b2.call(detector)) ?? "none" : "none";
       const metricsAdapter = detector ? ((_c2 = detector.getMetricsAdapterId) == null ? void 0 : _c2.call(detector)) ?? null : ((_d2 = getCommitMetricsAdapter()) == null ? void 0 : _d2.id) ?? null;
-      return { installed, hasMetricsGlobal, commitCount, integrationMode, metricsAdapter, networkRequests };
+      const packs2 = listPacks().map(({ id, label, instructions, compileErrors }) => ({ id, label, instructions, compileErrors }));
+      return { installed, hasMetricsGlobal, commitCount, integrationMode, metricsAdapter, networkRequests, packs: packs2 };
     },
     registerCommitMetricsAdapter,
     enablePlugins,
     registerPlugin,
     enableDefaultPlugins,
     listPlugins,
+    registerPack,
+    unregisterPack,
+    listPacks,
     runPrePageHooks,
     DETECTION_LEVEL,
     replay: {
@@ -8868,13 +9359,13 @@ this.__AVALANCHE__ = (function() {
   };
   if (__auto) {
     try {
-      const requested2 = ((_c = startupConfig == null ? void 0 : startupConfig.avalanche) == null ? void 0 : _c.options) || {};
+      const requested2 = ((_d = startupConfig == null ? void 0 : startupConfig.avalanche) == null ? void 0 : _d.options) || {};
       const targetApi = publishedApi && typeof publishedApi.install === "function" ? publishedApi : api;
       const alreadyInstalled = !!(targetApi.status && targetApi.status().installed);
       if (!alreadyInstalled) {
         targetApi.install({
           detectionMode: requested2.detectionMode || "sources",
-          historySize: ((_d = startupConfig == null ? void 0 : startupConfig.avalanche) == null ? void 0 : _d.max) || 1e3,
+          historySize: ((_e = startupConfig == null ? void 0 : startupConfig.avalanche) == null ? void 0 : _e.max) || 1e3,
           captureFibers: requested2.captureFibers !== false
         });
       }

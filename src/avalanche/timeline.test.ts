@@ -137,6 +137,29 @@ describe('buildTimeline', () => {
     expect(built({ settleMap: true }).settleMapSvg).toContain('<svg');
   });
 
+  it('places what the user sees at paint time when the report records it', () => {
+    // Commits 3 and 4 ran in one long task that ended at 2300.
+    const painted = {
+      ...report,
+      commitTimings: {
+        ...report.commitTimings,
+        1: { ...report.commitTimings[1], paintAt: 1110 },
+        3: { ...report.commitTimings[3], paintAt: 2300 },
+        4: { ...report.commitTimings[4], paintAt: 2300 },
+      },
+    };
+    const t = buildTimeline(painted as never) as TimelineResult;
+    expect(t.screen).toMatchObject({ vc50: 1300, vc90: 1300, vc100: 1300 });
+    const wait = t.perceived.waits.find((w) => w.depth === 10)!;
+    expect([wait.from, wait.until, wait.updatesDuring.commits]).toEqual([110, 1300, 1]);
+    const byId = Object.fromEntries(t.lanes.commits.map((c) => [c.commitId, c]));
+    expect([byId[3].t, byId[3].paintAt, byId[2].paintAt]).toEqual([500, 1300, null]);
+    expect(t.text).toContain('Visually complete (at paint): VC50 +1300');
+    expect(t.text).toContain('Painted late (the commit\'s task kept running): c3 +500 → painted +1300 (800ms), c4 +600 → painted +1300 (700ms)');
+    expect(t.text).toMatch(/c3 unlock .* · painted \+1300/);
+    expect(t.text).not.toContain('c1 lock 40 rendered · 80% screen skeleton · enter ItemBody name=item-body · painted');
+  });
+
   it('labels requests by GraphQL operation, else by path', () => {
     expect(requestLabel('https://x.test/gql?operationName=Foo')).toBe('Foo');
     expect(requestLabel('https://x.test/api/v2/items/123')).toBe('x.test …/v2/items');
