@@ -572,33 +572,38 @@ export function createAvalancheDetector(options: DetectorOptions = {}) {
     return summary;
   }
 
+  // Runs for every rendered component; most props are unchanged, so the common
+  // path allocates nothing beyond the result array.
   function diffProps(prevProps: unknown, currentProps: unknown): PropChangeEvidence[] {
     const changes: PropChangeEvidence[] = [];
+    if (prevProps === currentProps) return changes;
     const prev = prevProps && typeof prevProps === 'object' ? prevProps as Record<string, unknown> : {};
     const current = currentProps && typeof currentProps === 'object' ? currentProps as Record<string, unknown> : {};
-    const keys = new Set([...Object.keys(prev), ...Object.keys(current)]);
+    const hasOwn = Object.prototype.hasOwnProperty;
 
-    keys.forEach((name) => {
-      const prevHas = Object.prototype.hasOwnProperty.call(prev, name);
-      const currentHas = Object.prototype.hasOwnProperty.call(current, name);
+    // Previous keys first, then keys only in the current props: the same
+    // order a union of both key lists gives.
+    for (const name in prev) {
+      if (!hasOwn.call(prev, name)) continue;
       const prevValue = prev[name];
-      const currentValue = current[name];
-      if (!prevHas && currentHas) {
-        changes.push({ name, kind: 'added', prev: summarizePropValue(undefined), current: summarizePropValue(currentValue) });
-      } else if (prevHas && !currentHas) {
+      if (!hasOwn.call(current, name)) {
         changes.push({ name, kind: 'removed', prev: summarizePropValue(prevValue), current: summarizePropValue(undefined) });
-      } else if (Object.is(prevValue, currentValue)) {
-        // Evidence surface records changes only; unchanged props stay implicit.
-      } else if (
-        prevValue !== null && currentValue !== null &&
+        continue;
+      }
+      const currentValue = current[name];
+      // Evidence surface records changes only; unchanged props stay implicit.
+      if (Object.is(prevValue, currentValue)) continue;
+      const kind = prevValue !== null && currentValue !== null &&
         (typeof prevValue === 'object' || typeof prevValue === 'function' ||
          typeof currentValue === 'object' || typeof currentValue === 'function')
-      ) {
-        changes.push({ name, kind: 'ref-changed', prev: summarizePropValue(prevValue), current: summarizePropValue(currentValue) });
-      } else {
-        changes.push({ name, kind: 'scalar-changed', prev: summarizePropValue(prevValue), current: summarizePropValue(currentValue) });
-      }
-    });
+        ? 'ref-changed'
+        : 'scalar-changed';
+      changes.push({ name, kind, prev: summarizePropValue(prevValue), current: summarizePropValue(currentValue) });
+    }
+    for (const name in current) {
+      if (!hasOwn.call(current, name) || hasOwn.call(prev, name)) continue;
+      changes.push({ name, kind: 'added', prev: summarizePropValue(undefined), current: summarizePropValue(current[name]) });
+    }
 
     return changes;
   }

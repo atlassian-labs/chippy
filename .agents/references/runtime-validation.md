@@ -28,7 +28,13 @@ re-render. `bench/avalanche-stress.mjs` drives it in headless Chromium and
 reports click time with and without Avalanche, detector overhead per commit,
 page export size, and the time of `avalanche-export`, `avalanche-save`,
 `avalanche-commit-list`, and `avalanche-timeline`. It needs Storybook on 6007
-and the helper on 7823; set `PROFILE=1` for the top self-time functions.
+and the helper on 7823; set `PROFILE=1` for the top self-time functions
+(native frames are shown with their caller).
+
+Click time is reported to the commit and to the next frame. Avalanche measures
+changed boxes inside the commit hook, which runs layout the browser would
+otherwise run before paint, so compare Avalanche with React alone on `frame`.
+`screenMeasureMs` is the part of detector overhead spent measuring boxes.
 
 ```bash
 OPENSSL_CONF=/dev/null node bench/avalanche-stress.mjs 15

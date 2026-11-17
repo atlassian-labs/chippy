@@ -1888,6 +1888,10 @@ function deriveComponentNameFromStack(stack) {
   }
   return afterWrapper ? "Unknown" : deriveComponentName(seen);
 }
+function currentFiberReader() {
+  const readers = getReactRenderers().map((renderer) => renderer.getCurrentFiber).filter((read) => typeof read === "function");
+  return readers.length === 1 ? readers[0] : null;
+}
 function createDebugRender(options = {}) {
   const maxEventsPerComponent = options.maxEventsPerComponent ?? 600;
   const eventsByComponent = /* @__PURE__ */ new Map();
@@ -1897,27 +1901,46 @@ function createDebugRender(options = {}) {
   let dispatcherSlot = null;
   let lastSeenDispatcher = null;
   let renderSerial = 0;
+  let currentFiber = null;
+  const namesByType = /* @__PURE__ */ new WeakMap();
   let sequence = null;
+  function renderingType() {
+    var _a2;
+    if (!currentFiber) return null;
+    try {
+      const type = (_a2 = currentFiber()) == null ? void 0 : _a2.type;
+      return type && (typeof type === "function" || typeof type === "object") ? type : null;
+    } catch (_) {
+      return null;
+    }
+  }
   function record(primitive, args) {
     if ((sequence == null ? void 0 : sequence.serial) !== renderSerial) {
-      const previousLimit = Error.stackTraceLimit;
-      let stack2;
-      try {
-        Error.stackTraceLimit = NAME_STACK_FRAMES;
-        stack2 = new Error().stack || "";
-      } finally {
-        Error.stackTraceLimit = previousLimit;
-      }
-      let complete = stackFrameCount(stack2) < NAME_STACK_FRAMES;
-      let componentName2 = deriveComponentNameFromStack(stack2);
-      if (componentName2 === "Unknown" && !complete) {
-        stack2 = new Error().stack || "";
-        complete = true;
+      const type = renderingType();
+      let componentName2 = type ? namesByType.get(type) : void 0;
+      let firstStack = null;
+      if (componentName2 === void 0) {
+        const previousLimit = Error.stackTraceLimit;
+        let stack2;
+        try {
+          Error.stackTraceLimit = NAME_STACK_FRAMES;
+          stack2 = new Error().stack || "";
+        } finally {
+          Error.stackTraceLimit = previousLimit;
+        }
+        let complete = stackFrameCount(stack2) < NAME_STACK_FRAMES;
         componentName2 = deriveComponentNameFromStack(stack2);
+        if (componentName2 === "Unknown" && !complete) {
+          stack2 = new Error().stack || "";
+          complete = true;
+          componentName2 = deriveComponentNameFromStack(stack2);
+        }
+        if (complete) firstStack = stack2;
+        if (type && componentName2 !== "Unknown") namesByType.set(type, componentName2);
       }
       let list2 = eventsByComponent.get(componentName2);
       if (!list2) eventsByComponent.set(componentName2, list2 = []);
-      sequence = { serial: renderSerial, componentName: componentName2, list: list2, position: 0, firstStack: complete ? stack2 : null };
+      sequence = { serial: renderSerial, componentName: componentName2, list: list2, position: 0, firstStack };
     }
     const position = sequence.position++;
     const { list, componentName } = sequence;
@@ -1974,6 +1997,7 @@ function createDebugRender(options = {}) {
     if (!slot) return { ok: false, reason: "ReactCurrentDispatcher not found" };
     dispatcherSlot = slot;
     const { owner, key } = slot;
+    currentFiber = currentFiberReader();
     patchDispatcher(owner[key]);
     lastSeenDispatcher = owner[key];
     originalDescriptor = Object.getOwnPropertyDescriptor(owner, key) || null;
@@ -2020,6 +2044,7 @@ function createDebugRender(options = {}) {
       }
     }
     unpatchDispatcher(lastSeenDispatcher);
+    currentFiber = null;
     installed2 = false;
     dispatcherSlot = null;
     originalDescriptor = void 0;
@@ -3647,25 +3672,26 @@ function createAvalancheDetector(options = {}) {
   }
   function diffProps(prevProps, currentProps) {
     const changes = [];
+    if (prevProps === currentProps) return changes;
     const prev = prevProps && typeof prevProps === "object" ? prevProps : {};
     const current = currentProps && typeof currentProps === "object" ? currentProps : {};
-    const keys = /* @__PURE__ */ new Set([...Object.keys(prev), ...Object.keys(current)]);
-    keys.forEach((name) => {
-      const prevHas = Object.prototype.hasOwnProperty.call(prev, name);
-      const currentHas = Object.prototype.hasOwnProperty.call(current, name);
+    const hasOwn = Object.prototype.hasOwnProperty;
+    for (const name in prev) {
+      if (!hasOwn.call(prev, name)) continue;
       const prevValue = prev[name];
-      const currentValue = current[name];
-      if (!prevHas && currentHas) {
-        changes.push({ name, kind: "added", prev: summarizePropValue(void 0), current: summarizePropValue(currentValue) });
-      } else if (prevHas && !currentHas) {
+      if (!hasOwn.call(current, name)) {
         changes.push({ name, kind: "removed", prev: summarizePropValue(prevValue), current: summarizePropValue(void 0) });
-      } else if (Object.is(prevValue, currentValue)) ;
-      else if (prevValue !== null && currentValue !== null && (typeof prevValue === "object" || typeof prevValue === "function" || typeof currentValue === "object" || typeof currentValue === "function")) {
-        changes.push({ name, kind: "ref-changed", prev: summarizePropValue(prevValue), current: summarizePropValue(currentValue) });
-      } else {
-        changes.push({ name, kind: "scalar-changed", prev: summarizePropValue(prevValue), current: summarizePropValue(currentValue) });
+        continue;
       }
-    });
+      const currentValue = current[name];
+      if (Object.is(prevValue, currentValue)) continue;
+      const kind = prevValue !== null && currentValue !== null && (typeof prevValue === "object" || typeof prevValue === "function" || typeof currentValue === "object" || typeof currentValue === "function") ? "ref-changed" : "scalar-changed";
+      changes.push({ name, kind, prev: summarizePropValue(prevValue), current: summarizePropValue(currentValue) });
+    }
+    for (const name in current) {
+      if (!hasOwn.call(current, name) || hasOwn.call(prev, name)) continue;
+      changes.push({ name, kind: "added", prev: summarizePropValue(void 0), current: summarizePropValue(current[name]) });
+    }
     return changes;
   }
   function pushUpdateHistory(updHistory, commitId, changedHookIndices, changedHooks) {

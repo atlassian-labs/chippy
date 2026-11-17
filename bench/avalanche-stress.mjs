@@ -30,20 +30,29 @@ async function cli(...args) {
   return { ms: Math.round(performance.now() - t), stdout };
 }
 
-// Time one click → synchronous render + commit (+ Avalanche's hook when installed).
+// Time one click two ways. `commit`: to a macrotask after the click, which
+// runs after React's synchronous render and commit (and Avalanche's hook when
+// installed). `frame`: to a macrotask after the next frame, which includes
+// style and layout. Avalanche reads layout inside the commit hook, moving
+// work the browser would do before paint anyway; only `frame` compares that
+// fairly with React alone.
 async function clickTimes(page, selector, count) {
   return page.evaluate(async ({ selector, count }) => {
-    const out = [];
+    const macrotask = () => new Promise((r) => { const ch = new MessageChannel(); ch.port1.onmessage = r; ch.port2.postMessage(0); });
+    const commit = [];
+    const frame = [];
     for (let i = 0; i < count; i++) {
       const button = document.querySelector(selector);
       const t = performance.now();
       button.click();
-      // React may commit after the event; a macrotask runs after that commit.
-      await new Promise((r) => { const ch = new MessageChannel(); ch.port1.onmessage = r; ch.port2.postMessage(0); });
-      out.push(performance.now() - t);
+      const framed = new Promise((r) => requestAnimationFrame(() => macrotask().then(r)));
+      await macrotask();
+      commit.push(performance.now() - t);
+      await framed;
+      frame.push(performance.now() - t);
       await new Promise((r) => setTimeout(r, 30));
     }
-    return out;
+    return { commit, frame };
   }, { selector, count });
 }
 
@@ -72,7 +81,8 @@ const installedAtStart = await page.evaluate(() => {
   return installed;
 });
 await clickTimes(page, '[data-stress-rerender]', 3);
-const baseline = stats(await clickTimes(page, '[data-stress-rerender]', RENDERS));
+const baselineRaw = await clickTimes(page, '[data-stress-rerender]', RENDERS);
+const baseline = { commit: stats(baselineRaw.commit), frame: stats(baselineRaw.frame) };
 await cli('avalanche-install', clientId, 'sources');
 
 await clickTimes(page, '[data-stress-rerender]', 2);
@@ -86,16 +96,22 @@ if (process.env.PROFILE) {
   const { profile } = await cdp.send('Profiler.stop');
   const self = new Map();
   const byId = new Map(profile.nodes.map((n) => [n.id, n]));
+  const parentOf = new Map();
+  for (const n of profile.nodes) for (const c of n.children || []) parentOf.set(c, n);
   const dt = profile.timeDeltas; const counts = new Map();
   profile.samples.forEach((id, i) => counts.set(id, (counts.get(id) || 0) + (dt[i] || 0)));
   for (const [id, us] of counts) {
-    const f = byId.get(id).callFrame;
-    const key = `${f.functionName || '(anon)'} ${f.url.split('/').pop().split('?')[0]}:${f.lineNumber + 1}`;
+    const frame = (node) => `${node.callFrame.functionName || '(anon)'} ${node.callFrame.url.split('/').pop().split('?')[0]}:${node.callFrame.lineNumber + 1}`;
+    const node = byId.get(id);
+    // Native frames (no url) are named with their caller, so the cost has an owner.
+    const parent = !node.callFrame.url && parentOf.get(id);
+    const key = parent ? `${frame(node)} <- ${frame(parent)}` : frame(node);
     self.set(key, (self.get(key) || 0) + us / 1000);
   }
   profileTop = [...self].sort((a, b) => b[1] - a[1]).slice(0, 25).map(([k, ms]) => `${ms.toFixed(1).padStart(7)} ms  ${k}`);
 }
-const withAvalanche = stats(await clickTimes(page, '[data-stress-rerender]', RENDERS));
+const withRaw = await clickTimes(page, '[data-stress-rerender]', RENDERS);
+const withAvalanche = { commit: stats(withRaw.commit), frame: stats(withRaw.frame) };
 await clickTimes(page, '[data-stress-toggle]', 2);
 
 const capture = await page.evaluate(async () => {
@@ -115,6 +131,7 @@ const capture = await page.evaluate(async () => {
     mb: +(text.length / 1e6).toFixed(1),
     renderedMb: +(JSON.stringify(report.renderedByCommit).length / 1e6).toFixed(1),
     overhead,
+    screenMs: Object.values(report.screenByCommit || {}).map((c) => c.ms),
     heapMb: performance.memory ? Math.round(performance.memory.usedJSHeapSize / 1e6) : null,
   };
 });
@@ -133,6 +150,8 @@ console.log(JSON.stringify({
   fibersPerCard: 'about 12', cards: fibers, renders: RENDERS,
   clickMs: { installedAtStart, reactOnly: baseline, withAvalanche },
   detectorOverheadMs: stats(capture.overhead),
+  // Part of the detector overhead: measuring changed boxes, which forces layout early.
+  screenMeasureMs: capture.screenMs.length ? stats(capture.screenMs) : null,
   page: { commits: capture.commits, exportMs: capture.exportMs, stringifyMs: capture.stringifyMs, exportMb: capture.mb, renderedByCommitMb: capture.renderedMb, heapMb: capture.heapMb },
   helperToAgent: {
     exportMs: exportCall.ms, exportBytesMb: +(exportCall.stdout.length / 1e6).toFixed(1),

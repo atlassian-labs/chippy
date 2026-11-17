@@ -69,10 +69,11 @@ describe('isHookFrameName', () => {
 });
 
 describe('debug-render hook sequences', () => {
-  function setup() {
+  function setup(extraRenderers: Array<Record<string, unknown>> = [], getCurrentFiber?: () => unknown) {
     const debugRender = createDebugRender();
     const internals: Record<string, any> = { H: null };
-    (globalThis as any).__REACT_DEVTOOLS_GLOBAL_HOOK__ = { renderers: new Map([[1, { currentDispatcherRef: internals }]]) };
+    const renderers = [{ currentDispatcherRef: internals, getCurrentFiber }, ...extraRenderers];
+    (globalThis as any).__REACT_DEVTOOLS_GLOBAL_HOOK__ = { renderers: new Map(renderers.map((r, i) => [i + 1, r])) };
     debugRender.install();
     const hooks = { useState: (v: unknown) => [v], useMemo: (f: () => unknown) => f() };
     const idle = {};
@@ -117,6 +118,40 @@ describe('debug-render hook sequences', () => {
       render(DeepHooks);
       const [event] = debugRender.rawEvents('DeepHooks');
       expect(event.frames.map((f) => f.name)).toEqual(expect.arrayContaining(['useA', 'useG', 'DeepHooks']));
+    } finally {
+      done();
+    }
+  });
+
+  it('names later renders of a component type from the fiber React is rendering', () => {
+    let fiber: { type: unknown } | null = null;
+    const { debugRender, internals, render, done } = setup([], () => fiber);
+    function Counter() { internals.H.useState(1); internals.H.useMemo(() => 2); }
+    // Calls hooks from a function with another name while React reports
+    // Counter's fiber: only a cached type name can attribute these to Counter.
+    function Impostor() { internals.H.useState(1); internals.H.useMemo(() => 2); internals.H.useState(3); }
+    try {
+      fiber = { type: Counter };
+      render(Counter);
+      render(Impostor);
+      expect(debugRender.rawEvents('Counter').map((e) => e.args[0])).toEqual([1, expect.anything(), 3]);
+      expect(debugRender.rawEvents('Impostor')).toHaveLength(0);
+    } finally {
+      done();
+    }
+  });
+
+  it('names from stacks when several renderers report a current fiber', () => {
+    let fiber: { type: unknown } | null = null;
+    const internalsOther = { H: null };
+    const { debugRender, internals, render, done } = setup([{ currentDispatcherRef: internalsOther, getCurrentFiber: () => null }], () => fiber);
+    function Counter() { internals.H.useState(1); }
+    function Impostor() { internals.H.useState(2); }
+    try {
+      fiber = { type: Counter };
+      render(Counter);
+      render(Impostor);
+      expect(debugRender.rawEvents('Impostor')).toHaveLength(1);
     } finally {
       done();
     }

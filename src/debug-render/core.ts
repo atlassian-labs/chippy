@@ -241,6 +241,19 @@ export function deriveComponentNameFromStack(stack: string): string {
   return afterWrapper ? 'Unknown' : deriveComponentName(seen);
 }
 
+/**
+ * Reads the fiber React is rendering, from the renderer's DevTools
+ * `getCurrentFiber` (development builds). With several renderers, another
+ * renderer's reader can return a stale fiber, so the reader is used only when
+ * exactly one renderer exposes it.
+ */
+function currentFiberReader(): (() => unknown) | null {
+  const readers = getReactRenderers()
+    .map((renderer) => (renderer as { getCurrentFiber?: unknown }).getCurrentFiber)
+    .filter((read): read is () => unknown => typeof read === 'function');
+  return readers.length === 1 ? readers[0] : null;
+}
+
 // ---------------------------------------------------------------------------
 // Module factory
 // ---------------------------------------------------------------------------
@@ -265,31 +278,53 @@ export function createDebugRender(options: { maxEventsPerComponent?: number } = 
   // sequence, indexed by call position: hook order is fixed per component, so
   // later renders only add positions an earlier render did not reach.
   let renderSerial = 0;
+  // Development React gives DevTools the fiber being rendered. A component
+  // type named once from a stack keeps that name, so later renders of it need
+  // no stack. Only the type's first render with hooks pays for one.
+  let currentFiber: (() => unknown) | null = null;
+  const namesByType = new WeakMap<object, string>();
   let sequence: { serial: number; componentName: string; list: HookCallEvent[]; position: number; firstStack: string | null } | null = null;
+
+  function renderingType(): object | null {
+    if (!currentFiber) return null;
+    try {
+      const type = (currentFiber() as { type?: unknown } | null)?.type;
+      return type && (typeof type === 'function' || typeof type === 'object') ? type : null;
+    } catch (_) {
+      return null;
+    }
+  }
 
   function record(primitive: string, args: unknown[]): void {
     if (sequence?.serial !== renderSerial) {
-      // First hook of a render: a short stack is enough to name the component.
-      // Captured here, not in a helper, so the frames above the wrapper stay
-      // the ones the name and parent filters expect.
-      const previousLimit = Error.stackTraceLimit;
-      let stack: string;
-      try {
-        Error.stackTraceLimit = NAME_STACK_FRAMES;
-        stack = new Error().stack || '';
-      } finally {
-        Error.stackTraceLimit = previousLimit;
-      }
-      let complete = stackFrameCount(stack) < NAME_STACK_FRAMES;
-      let componentName = deriveComponentNameFromStack(stack);
-      if (componentName === 'Unknown' && !complete) {
-        stack = new Error().stack || '';
-        complete = true;
+      const type = renderingType();
+      let componentName = type ? namesByType.get(type) : undefined;
+      let firstStack: string | null = null;
+      if (componentName === undefined) {
+        // A short stack is enough to name the component. Captured here, not
+        // in a helper, so the frames above the wrapper stay the ones the name
+        // and parent filters expect.
+        const previousLimit = Error.stackTraceLimit;
+        let stack: string;
+        try {
+          Error.stackTraceLimit = NAME_STACK_FRAMES;
+          stack = new Error().stack || '';
+        } finally {
+          Error.stackTraceLimit = previousLimit;
+        }
+        let complete = stackFrameCount(stack) < NAME_STACK_FRAMES;
         componentName = deriveComponentNameFromStack(stack);
+        if (componentName === 'Unknown' && !complete) {
+          stack = new Error().stack || '';
+          complete = true;
+          componentName = deriveComponentNameFromStack(stack);
+        }
+        if (complete) firstStack = stack;
+        if (type && componentName !== 'Unknown') namesByType.set(type, componentName);
       }
       let list = eventsByComponent.get(componentName);
       if (!list) eventsByComponent.set(componentName, list = []);
-      sequence = { serial: renderSerial, componentName, list, position: 0, firstStack: complete ? stack : null };
+      sequence = { serial: renderSerial, componentName, list, position: 0, firstStack };
     }
     const position = sequence.position++;
     const { list, componentName } = sequence;
@@ -353,6 +388,7 @@ export function createDebugRender(options: { maxEventsPerComponent?: number } = 
     if (!slot) return { ok: false, reason: 'ReactCurrentDispatcher not found' };
     dispatcherSlot = slot;
     const { owner, key } = slot;
+    currentFiber = currentFiberReader();
 
     // Patch whatever is already current (likely the no-op ContextOnlyDispatcher
     // outside render, but patching it is harmless: it will only be called when
@@ -417,6 +453,7 @@ export function createDebugRender(options: { maxEventsPerComponent?: number } = 
     // Best-effort unpatch of the last dispatcher we touched. Other dispatchers
     // patched earlier remain wrapped until GC; the wrappers are cheap.
     unpatchDispatcher(lastSeenDispatcher);
+    currentFiber = null;
     installed = false;
     dispatcherSlot = null;
     originalDescriptor = undefined;
