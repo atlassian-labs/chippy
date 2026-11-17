@@ -49,7 +49,7 @@ Always read the output in this order. Stop at the first step that gives you the 
 
 - `primitive` — primitive React hook kind derived from the dispatcher method: `SyncExternalStore`, `State`, `Reducer`, `Memo`, `Callback`, `Effect`, `LayoutEffect`, `Ref`, `Context`, `DebugValue`, `Id`, `ImperativeHandle`, `InsertionEffect`, `DeferredValue`, `Transition`, `CacheRefresh`, `MemoCache`. Any other dispatcher method is reported under its raw method name (for example `use`).
 - `parents` — the target call's stack frames with Chippy-internal and component frames removed. **Empty parents does not mean failure.**
-- `eventCount` — number of hook calls recorded for the component; `status` — state of the hook-call recorder.
+- `eventCount` — number of hook calls recorded for the component. The recorder keeps one sequence per component name, in call order: the first render records it, and later renders add only calls past its end. `status` — state of the hook-call recorder.
 - `caveat` — reminder that ancestry comes from passive stack capture and index mapping; read it before trusting `parents` in bundled code.
 
 ## Failures
@@ -60,7 +60,7 @@ Always read the output in this order. Stop at the first step that gives you the 
 | `error: 'not installed'` or `'debugHook() unavailable on __AVALANCHE__ API'` | No detector, or a runtime without debug-hook. | `avalanche-install`, reproduce, retry. |
 | `error: 'sourceId not found'` | The id is not in this capture. | Re-read `avalanche-hot-sources` or `avalanche-commit-peek <clientId> <commitId> sources` from the same capture. |
 | `error: 'hook event not found'` with `eventCount: 0` | No render of this component was recorded since install. | Reproduce the interaction once, then retry. |
-| `error: 'hook event not found'` with `eventCount > 0` | `hookIndex` maps outside the recorded hook stream. | Re-pick `hookIndex`. |
+| `error: 'hook event not found'` with `eventCount > 0` | `hookIndex` maps past the calls recorded for this component. | Re-pick `hookIndex`, or reproduce the render that reaches that hook and retry. |
 
 ## What to do next, by primitive
 

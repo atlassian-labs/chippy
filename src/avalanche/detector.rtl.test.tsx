@@ -155,6 +155,35 @@ describe('createAvalancheDetector — structural render evidence', () => {
     const hit = rendered.find((entry) => entry.name === 'Child' && entry.propChanges.some((p: any) => p.name === 'count' && p.kind === 'scalar-changed'));
     expect(hit).toBeDefined();
   });
+  it('summarizes object and function props by their current keys and name', () => {
+    function Parent() { return null; }
+    function Child() { return null; }
+    const style = { color: 'red' };
+    const fiberFor = (props: Record<string, unknown>, alternate: Fiber | null) => ({ tag: 0, type: Child, flags: alternate ? PerformedWork : 0, subtreeFlags: 0, child: null, sibling: null, return: null, memoizedState: null, memoizedProps: props, alternate }) as unknown as Fiber;
+    const prevChild = fiberFor({ style, other: { color: 'blue' }, 'a,b': { 'a,b': 1 }, onPing: function onPing() {} }, null);
+    const child = fiberFor({ style: { ...style }, other: { color: 'green', size: 1 }, 'a,b': { a: 1, b: 2 }, onPing: function onPing() {} }, prevChild);
+    const parent = { tag: 0, type: Parent, flags: PerformedWork, subtreeFlags: PerformedWork, child, sibling: null, return: null, memoizedState: null, memoizedProps: {}, alternate: null } as unknown as Fiber;
+    child.return = parent;
+    prevChild.return = parent;
+
+    const hook = installDevtoolsShim();
+    const detector = createAvalancheDetector({ historySize: 20, detectionMode: 'full' });
+    detector.install();
+    try {
+      hook.onCommitFiberRoot(1, { current: parent, memoizedUpdaters: new Set([parent]) });
+      // A summary already recorded must not follow later mutation.
+      (style as Record<string, unknown>).width = 1;
+      const report = detector.report(20, 'effect') as any;
+      const entry = (Object.values(report.renderedByCommit || {}).flat() as any[]).find((e) => e.name === 'Child');
+      const change = (name: string) => entry.propChanges.find((p: any) => p.name === name);
+      expect(change('style').prev).toMatchObject({ type: 'object', preview: 'object{color}', keysTop: ['color'], length: 1 });
+      expect(change('other').current).toMatchObject({ preview: 'object{color,size}', keysTop: ['color', 'size'], length: 2 });
+      expect(change('a,b').prev.keysTop).toEqual(['a,b']);
+      expect(change('a,b').current.keysTop).toEqual(['a', 'b']);
+      expect(change('onPing').current).toMatchObject({ type: 'function', isFunction: true, preview: 'function onPing' });
+    } finally { detector.uninstall(); }
+  });
+
   // Rendered evidence comes from the commit walk in every mode; the mode only
   // decides whether amplifier (trasher) attribution is collected.
   it.each(['stats', 'sources', 'amplifiers', 'full'] as const)('records rendered components in %s mode', (detectionMode) => {

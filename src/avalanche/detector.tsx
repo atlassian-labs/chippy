@@ -488,7 +488,48 @@ export function createAvalancheDetector(options: DetectorOptions = {}) {
     return null;
   }
 
+  // Summaries are read-only once built, so identical ones are shared: a
+  // function's summary depends only on its name, and callbacks and objects
+  // recreated on every render would otherwise add two summaries per prop per
+  // commit.
+  const functionSummaryByName = new Map<string, PropValueSummary>();
+  const objectSummaryByKeys = new Map<string, PropValueSummary>();
+  const primitiveSummaryByValue = new Map<string, PropValueSummary>();
+  let undefinedSummary: PropValueSummary | null = null;
+  const MAX_SHARED_SUMMARIES = 10_000;
+  const NO_TRASHER_COUNTS = { effects: 0, callbacks: 0, memos: 0 };
+
   function summarizePropValue(value: unknown): PropValueSummary {
+    if (value === undefined) return undefinedSummary ??= buildPropValueSummary(value);
+    if (typeof value === 'function') return sharedSummary(functionSummaryByName, (value as Function).name || '', value);
+    // A non-array object's summary depends only on its keys (first five + count),
+    // read now, so sharing stays correct when the object is mutated later.
+    if (value !== null && typeof value === 'object' && !Array.isArray(value)) {
+      const keys = Object.keys(value);
+      const shape = keys.length > 5 ? `${keys.slice(0, 5).join('\u0001')}\u0000${keys.length}` : keys.join('\u0001');
+      return sharedSummary(objectSummaryByKeys, shape, value);
+    }
+    // Short primitives repeat: a scalar change's previous value is the value
+    // summarized as current in the commit before.
+    const type = typeof value;
+    if (value === null || type === 'boolean' || type === 'number' || (type === 'string' && (value as string).length <= 64)) {
+      return sharedSummary(primitiveSummaryByValue, `${type}:${String(value)}`, value);
+    }
+    return buildPropValueSummary(value);
+  }
+
+  function sharedSummary(cache: Map<string, PropValueSummary>, key: string, value: unknown): PropValueSummary {
+    let summary = cache.get(key);
+    if (!summary) {
+      summary = buildPropValueSummary(value);
+      // Start over rather than stop sharing when values keep changing.
+      if (cache.size >= MAX_SHARED_SUMMARIES) cache.clear();
+      cache.set(key, summary);
+    }
+    return summary;
+  }
+
+  function buildPropValueSummary(value: unknown): PropValueSummary {
     const isArray = Array.isArray(value);
     const type = value === null ? 'null' : isArray ? 'array' : typeof value;
     const isFunction = typeof value === 'function';
@@ -879,7 +920,8 @@ export function createAvalancheDetector(options: DetectorOptions = {}) {
             isSelfSource: false,
             propChanges: fiber.alternate ? diffProps(fiber.alternate.memoizedProps, fiber.memoizedProps) : [],
             hasPropChanges: false,
-            trasherCounts: { effects: 0, callbacks: 0, memos: 0 },
+            // Shared; an amplifier replaces it rather than mutating it.
+            trasherCounts: NO_TRASHER_COUNTS,
           };
           initialRenderEvidence.hasPropChanges = initialRenderEvidence.propChanges.length > 0;
           if (existingRenderEvidenceIndex >= 0) {

@@ -203,6 +203,16 @@ export function deriveComponentName(frames: StackFrame[]): string {
   return 'Unknown';
 }
 
+// Frames below the recorder needed to name a component in the common case:
+// record, the dispatcher wrapper, React's hook facade, a custom hook or two.
+const NAME_STACK_FRAMES = 8;
+
+function stackFrameCount(stack: string): number {
+  let count = 0;
+  for (let i = stack.indexOf('\n'); i >= 0; i = stack.indexOf('\n', i + 1)) count++;
+  return count;
+}
+
 const isWrapperFrame = (name: string) => name === 'atlDispatcherHook' || name.endsWith('.atlDispatcherHook');
 const isComponentFrame = (name: string) => !!name && !isReactInternalFrameName(name) && !isHookFrameName(name);
 
@@ -250,12 +260,44 @@ export function createDebugRender(options: { maxEventsPerComponent?: number } = 
   let dispatcherSlot: DispatcherSlot | null = null;
   let lastSeenDispatcher: unknown = null;
 
+  // React assigns its dispatcher when each component render starts and ends,
+  // so every assignment begins a new hook sequence. Each component keeps one
+  // sequence, indexed by call position: hook order is fixed per component, so
+  // later renders only add positions an earlier render did not reach.
+  let renderSerial = 0;
+  let sequence: { serial: number; componentName: string; list: HookCallEvent[]; position: number; firstStack: string | null } | null = null;
+
   function record(primitive: string, args: unknown[]): void {
+    if (sequence?.serial !== renderSerial) {
+      // First hook of a render: a short stack is enough to name the component.
+      // Captured here, not in a helper, so the frames above the wrapper stay
+      // the ones the name and parent filters expect.
+      const previousLimit = Error.stackTraceLimit;
+      let stack: string;
+      try {
+        Error.stackTraceLimit = NAME_STACK_FRAMES;
+        stack = new Error().stack || '';
+      } finally {
+        Error.stackTraceLimit = previousLimit;
+      }
+      let complete = stackFrameCount(stack) < NAME_STACK_FRAMES;
+      let componentName = deriveComponentNameFromStack(stack);
+      if (componentName === 'Unknown' && !complete) {
+        stack = new Error().stack || '';
+        complete = true;
+        componentName = deriveComponentNameFromStack(stack);
+      }
+      let list = eventsByComponent.get(componentName);
+      if (!list) eventsByComponent.set(componentName, list = []);
+      sequence = { serial: renderSerial, componentName, list, position: 0, firstStack: complete ? stack : null };
+    }
+    const position = sequence.position++;
+    const { list, componentName } = sequence;
+    if (position < list.length || position >= maxEventsPerComponent) return;
     // Capture once. No filtering. Filtering is a projection concern.
-    const stack = new Error().stack || '';
-    const componentName = deriveComponentNameFromStack(stack);
+    const stack = (position === 0 && sequence.firstStack) || new Error().stack || '';
     let frames: StackFrame[] | null = null;
-    const event: HookCallEvent = {
+    list.push({
       primitive,
       stack,
       // Parsed on first read: most events are never inspected.
@@ -263,12 +305,7 @@ export function createDebugRender(options: { maxEventsPerComponent?: number } = 
       set frames(value) { frames = value; },
       componentName,
       args,
-    };
-    let list = eventsByComponent.get(componentName);
-    if (!list) eventsByComponent.set(componentName, list = []);
-    list.push(event);
-    // Trim in batches; readers see only the newest maxEventsPerComponent.
-    if (list.length > maxEventsPerComponent * 2) list.splice(0, list.length - maxEventsPerComponent);
+    });
   }
 
   function patchDispatcher(dispatcher: unknown): void {
@@ -338,6 +375,7 @@ export function createDebugRender(options: { maxEventsPerComponent?: number } = 
         },
         set(next: unknown) {
           stored = next;
+          renderSerial++;
           if (next !== lastSeenDispatcher) {
             lastSeenDispatcher = next;
             patchDispatcher(next);
@@ -345,6 +383,8 @@ export function createDebugRender(options: { maxEventsPerComponent?: number } = 
         },
       });
     } catch (e) {
+      // Without the setter there are no render boundaries to record against.
+      unpatchDispatcher(owner[key]);
       dispatcherSlot = null;
       return { ok: false, reason: 'cannot define property on ReactCurrentDispatcher' };
     }
@@ -385,6 +425,7 @@ export function createDebugRender(options: { maxEventsPerComponent?: number } = 
 
   function reset(): void {
     eventsByComponent.clear();
+    sequence = null;
   }
 
   function rawEvents(componentName: string): HookCallEvent[] {

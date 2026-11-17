@@ -1861,6 +1861,12 @@ function deriveComponentName(frames) {
   }
   return "Unknown";
 }
+const NAME_STACK_FRAMES = 8;
+function stackFrameCount(stack) {
+  let count = 0;
+  for (let i = stack.indexOf("\n"); i >= 0; i = stack.indexOf("\n", i + 1)) count++;
+  return count;
+}
 const isWrapperFrame = (name) => name === "atlDispatcherHook" || name.endsWith(".atlDispatcherHook");
 const isComponentFrame = (name) => !!name && !isReactInternalFrameName(name) && !isHookFrameName(name);
 function deriveComponentNameFromStack(stack) {
@@ -1890,11 +1896,35 @@ function createDebugRender(options = {}) {
   let originalDescriptor = void 0;
   let dispatcherSlot = null;
   let lastSeenDispatcher = null;
+  let renderSerial = 0;
+  let sequence = null;
   function record(primitive, args) {
-    const stack = new Error().stack || "";
-    const componentName = deriveComponentNameFromStack(stack);
+    if ((sequence == null ? void 0 : sequence.serial) !== renderSerial) {
+      const previousLimit = Error.stackTraceLimit;
+      let stack2;
+      try {
+        Error.stackTraceLimit = NAME_STACK_FRAMES;
+        stack2 = new Error().stack || "";
+      } finally {
+        Error.stackTraceLimit = previousLimit;
+      }
+      let complete = stackFrameCount(stack2) < NAME_STACK_FRAMES;
+      let componentName2 = deriveComponentNameFromStack(stack2);
+      if (componentName2 === "Unknown" && !complete) {
+        stack2 = new Error().stack || "";
+        complete = true;
+        componentName2 = deriveComponentNameFromStack(stack2);
+      }
+      let list2 = eventsByComponent.get(componentName2);
+      if (!list2) eventsByComponent.set(componentName2, list2 = []);
+      sequence = { serial: renderSerial, componentName: componentName2, list: list2, position: 0, firstStack: complete ? stack2 : null };
+    }
+    const position = sequence.position++;
+    const { list, componentName } = sequence;
+    if (position < list.length || position >= maxEventsPerComponent) return;
+    const stack = position === 0 && sequence.firstStack || new Error().stack || "";
     let frames = null;
-    const event = {
+    list.push({
       primitive,
       stack,
       // Parsed on first read: most events are never inspected.
@@ -1906,11 +1936,7 @@ function createDebugRender(options = {}) {
       },
       componentName,
       args
-    };
-    let list = eventsByComponent.get(componentName);
-    if (!list) eventsByComponent.set(componentName, list = []);
-    list.push(event);
-    if (list.length > maxEventsPerComponent * 2) list.splice(0, list.length - maxEventsPerComponent);
+    });
   }
   function patchDispatcher(dispatcher) {
     if (!dispatcher || typeof dispatcher !== "object") return;
@@ -1960,6 +1986,7 @@ function createDebugRender(options = {}) {
         },
         set(next) {
           stored = next;
+          renderSerial++;
           if (next !== lastSeenDispatcher) {
             lastSeenDispatcher = next;
             patchDispatcher(next);
@@ -1967,6 +1994,7 @@ function createDebugRender(options = {}) {
         }
       });
     } catch (e) {
+      unpatchDispatcher(owner[key]);
       dispatcherSlot = null;
       return { ok: false, reason: "cannot define property on ReactCurrentDispatcher" };
     }
@@ -1999,6 +2027,7 @@ function createDebugRender(options = {}) {
   }
   function reset() {
     eventsByComponent.clear();
+    sequence = null;
   }
   function rawEvents(componentName) {
     return (eventsByComponent.get(componentName) || []).slice(-maxEventsPerComponent);
@@ -3552,7 +3581,36 @@ function createAvalancheDetector(options = {}) {
     }
     return null;
   }
+  const functionSummaryByName = /* @__PURE__ */ new Map();
+  const objectSummaryByKeys = /* @__PURE__ */ new Map();
+  const primitiveSummaryByValue = /* @__PURE__ */ new Map();
+  let undefinedSummary = null;
+  const MAX_SHARED_SUMMARIES = 1e4;
+  const NO_TRASHER_COUNTS = { effects: 0, callbacks: 0, memos: 0 };
   function summarizePropValue(value) {
+    if (value === void 0) return undefinedSummary ?? (undefinedSummary = buildPropValueSummary(value));
+    if (typeof value === "function") return sharedSummary(functionSummaryByName, value.name || "", value);
+    if (value !== null && typeof value === "object" && !Array.isArray(value)) {
+      const keys = Object.keys(value);
+      const shape = keys.length > 5 ? `${keys.slice(0, 5).join("")}\0${keys.length}` : keys.join("");
+      return sharedSummary(objectSummaryByKeys, shape, value);
+    }
+    const type = typeof value;
+    if (value === null || type === "boolean" || type === "number" || type === "string" && value.length <= 64) {
+      return sharedSummary(primitiveSummaryByValue, `${type}:${String(value)}`, value);
+    }
+    return buildPropValueSummary(value);
+  }
+  function sharedSummary(cache, key, value) {
+    let summary = cache.get(key);
+    if (!summary) {
+      summary = buildPropValueSummary(value);
+      if (cache.size >= MAX_SHARED_SUMMARIES) cache.clear();
+      cache.set(key, summary);
+    }
+    return summary;
+  }
+  function buildPropValueSummary(value) {
     const isArray = Array.isArray(value);
     const type = value === null ? "null" : isArray ? "array" : typeof value;
     const isFunction = typeof value === "function";
@@ -3816,7 +3874,8 @@ function createAvalancheDetector(options = {}) {
             isSelfSource: false,
             propChanges: fiber.alternate ? diffProps(fiber.alternate.memoizedProps, fiber.memoizedProps) : [],
             hasPropChanges: false,
-            trasherCounts: { effects: 0, callbacks: 0, memos: 0 }
+            // Shared; an amplifier replaces it rather than mutating it.
+            trasherCounts: NO_TRASHER_COUNTS
           };
           initialRenderEvidence.hasPropChanges = initialRenderEvidence.propChanges.length > 0;
           if (existingRenderEvidenceIndex >= 0) {

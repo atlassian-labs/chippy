@@ -54,10 +54,6 @@ await page.goto(STORY, { waitUntil: 'load' });
 await page.waitForSelector('[data-stress-card]', { timeout: 60000 });
 const fibers = await page.evaluate(() => document.querySelectorAll('[data-stress-card]').length);
 
-// Baseline: React alone.
-await clickTimes(page, '[data-stress-rerender]', 3);
-const baseline = stats(await clickTimes(page, '[data-stress-rerender]', RENDERS));
-
 // The lab's Storybook addon connects Chippy to the helper; install the
 // detector as an agent would.
 let clientId = null;
@@ -67,6 +63,16 @@ for (let i = 0; i < 50 && !clientId; i++) {
   if (!clientId) await new Promise((r) => setTimeout(r, 200));
 }
 if (!clientId) throw new Error('StressLab page did not connect to the helper');
+// Baseline: React alone. The lab's addon starts Avalanche on load; stop it in
+// this headless page only, then install it again as an agent would.
+const installedAtStart = await page.evaluate(() => {
+  const api = window.__AVALANCHE__;
+  const installed = !!api?.status?.().installed;
+  if (installed) api.uninstall();
+  return installed;
+});
+await clickTimes(page, '[data-stress-rerender]', 3);
+const baseline = stats(await clickTimes(page, '[data-stress-rerender]', RENDERS));
 await cli('avalanche-install', clientId, 'sources');
 
 await clickTimes(page, '[data-stress-rerender]', 2);
@@ -125,7 +131,7 @@ await browser.close();
 if (profileTop) console.log(profileTop.join('\n'));
 console.log(JSON.stringify({
   fibersPerCard: 'about 12', cards: fibers, renders: RENDERS,
-  clickMs: { reactOnly: baseline, withAvalanche },
+  clickMs: { installedAtStart, reactOnly: baseline, withAvalanche },
   detectorOverheadMs: stats(capture.overhead),
   page: { commits: capture.commits, exportMs: capture.exportMs, stringifyMs: capture.stringifyMs, exportMb: capture.mb, renderedByCommitMb: capture.renderedMb, heapMb: capture.heapMb },
   helperToAgent: {

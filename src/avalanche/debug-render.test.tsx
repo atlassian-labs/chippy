@@ -67,3 +67,58 @@ describe('isHookFrameName', () => {
     expect(isHookFrameName('exports.user')).toBe(false);
   });
 });
+
+describe('debug-render hook sequences', () => {
+  function setup() {
+    const debugRender = createDebugRender();
+    const internals: Record<string, any> = { H: null };
+    (globalThis as any).__REACT_DEVTOOLS_GLOBAL_HOOK__ = { renderers: new Map([[1, { currentDispatcherRef: internals }]]) };
+    debugRender.install();
+    const hooks = { useState: (v: unknown) => [v], useMemo: (f: () => unknown) => f() };
+    const idle = {};
+    // As React does: assign the hooks dispatcher, render, assign the idle one.
+    const render = (component: () => void) => { internals.H = hooks; component(); internals.H = idle; };
+    return { debugRender, internals, render, done: () => { debugRender.uninstall(); delete (globalThis as any).__REACT_DEVTOOLS_GLOBAL_HOOK__; } };
+  }
+
+  it('keeps one sequence per component and adds only positions not yet reached', () => {
+    const { debugRender, internals, render, done } = setup();
+    let showMore = false;
+    function Counter() {
+      internals.H.useState(1);
+      internals.H.useMemo(() => 2);
+      if (showMore) internals.H.useState(3);
+    }
+    function Other() { internals.H.useState('other'); }
+    try {
+      render(Counter);
+      render(Other);
+      render(Counter);
+      expect(debugRender.rawEvents('Counter').map((e) => e.primitive)).toEqual(['State', 'Memo']);
+      showMore = true;
+      render(Counter);
+      const events = debugRender.rawEvents('Counter');
+      expect(events.map((e) => e.args[0])).toEqual([1, events[1].args[0], 3]);
+      expect(events.every((e) => e.componentName === 'Counter')).toBe(true);
+      expect(debugRender.rawEvents('Other')).toHaveLength(1);
+      expect(debugRender.status().totalCapturedEvents).toBe(4);
+    } finally {
+      done();
+    }
+  });
+
+  it('names a component whose first hook sits below many custom hooks', () => {
+    const { debugRender, internals, render, done } = setup();
+    const useA = () => internals.H.useState(0);
+    const useB = () => useA(); const useC = () => useB(); const useD = () => useC();
+    const useE = () => useD(); const useF = () => useE(); const useG = () => useF();
+    function DeepHooks() { useG(); }
+    try {
+      render(DeepHooks);
+      const [event] = debugRender.rawEvents('DeepHooks');
+      expect(event.frames.map((f) => f.name)).toEqual(expect.arrayContaining(['useA', 'useG', 'DeepHooks']));
+    } finally {
+      done();
+    }
+  });
+});
