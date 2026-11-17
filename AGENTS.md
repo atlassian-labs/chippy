@@ -10,6 +10,12 @@ Keep portable Chippy usage instructions in the skill; keep repository-specific
 development and validation procedures in `.agents/references/` or the local
 validation skill.
 
+## Work via pull requests
+
+`main` is protected. Make every change on a branch and open a pull request that
+fills in the [PR template](.github/pull_request_template.md): what changes and
+why.
+
 ## Local responsibilities
 
 - The Storybook lab validates Chippy against running React pages.
