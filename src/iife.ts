@@ -84,6 +84,7 @@ import {
 } from './chippy-bridge/eval-helpers';
 import { applyRecoveredOrigin, readComponentName, resolveComponentOrigin } from './chippy-bridge/component-origin';
 import { applyProductionBreadcrumbs } from './chippy-bridge/production-breadcrumbs';
+import { scriptResultJson } from './chippy-bridge/script-result';
 import {
   safeJson as safeJsonImpl,
   resolveOwnerFiber as resolveOwnerFiberImpl,
@@ -294,6 +295,7 @@ type AvalancheApi = {
     applyRecoveredOrigin: typeof applyRecoveredOrigin;
     applyProductionBreadcrumbs: typeof applyProductionBreadcrumbs;
     safeJson: typeof safeJsonImpl;
+    scriptResultJson: typeof scriptResultJson;
     resolveOwnerFiber: typeof resolveOwnerFiberImpl;
     getOwnerStackKind: typeof getOwnerStackKindImpl;
     findFiberByName: typeof findFiberByNameImpl;
@@ -450,6 +452,7 @@ const api: AvalancheApi = {
     applyRecoveredOrigin,
     applyProductionBreadcrumbs,
     safeJson: safeJsonImpl,
+    scriptResultJson,
     resolveOwnerFiber: resolveOwnerFiberImpl,
     getOwnerStackKind: getOwnerStackKindImpl,
     findFiberByName: findFiberByNameImpl,

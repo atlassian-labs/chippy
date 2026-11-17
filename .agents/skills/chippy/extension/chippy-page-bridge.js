@@ -974,11 +974,20 @@
       const resultPromise = Promise.resolve(factory(ctx));
       const timeout = new Promise((_, reject) => global.setTimeout(() => reject(new Error('script timeout after ' + timeoutMs + 'ms')), timeoutMs));
       const value = await Promise.race([resultPromise, timeout]);
-      const safe = safeJson(value);
+      const safe = scriptResultJson(value);
       return { ok: true, durationMs: Date.now() - startedAt, log, result: safe };
     } catch (e) {
       return { ok: false, durationMs: Date.now() - startedAt, log, error: String(e?.stack || e?.message || e) };
     }
+  }
+
+  // Delegated to avalanche.iife.js — see src/chippy-bridge/script-result.ts.
+  // Snippet results nest deeper than probe values, so they use a node budget
+  // instead of safeJson's six-level cut.
+  function scriptResultJson(value) {
+    const b = getBridge();
+    if (b && typeof b.scriptResultJson === 'function') return b.scriptResultJson(value);
+    return safeJson(value, 16);
   }
 
   // Delegated to avalanche.iife.js — see src/chippy-bridge/fiber-introspect.ts

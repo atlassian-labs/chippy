@@ -6520,6 +6520,65 @@ function warmFindFiberNames(filters, helpers, budgetMs = NAME_RECOVERY_BUDGET_MS
     budgetMs
   );
 }
+const SCRIPT_RESULT_DEPTH = 16;
+const SCRIPT_RESULT_MAX_NODES = 5e4;
+const MAX_ITEMS = 500;
+function scriptResultJson(value, options = {}) {
+  const budget = { left: options.maxNodes ?? SCRIPT_RESULT_MAX_NODES, exhausted: false };
+  const seen = /* @__PURE__ */ new WeakSet();
+  function walk2(input, depth) {
+    if (input == null) return input;
+    const t = typeof input;
+    if (t === "string" || t === "boolean") return input;
+    if (t === "number") return Number.isFinite(input) ? input : String(input);
+    if (t === "function") return "[Function " + (input.name || "anonymous") + "]";
+    if (t !== "object") return String(input);
+    if (depth <= 0) return Array.isArray(input) ? "[Array]" : "[Object]";
+    if (budget.left <= 0) {
+      budget.exhausted = true;
+      return "[Truncated]";
+    }
+    budget.left--;
+    const obj = input;
+    if (seen.has(obj)) return "[Circular]";
+    seen.add(obj);
+    try {
+      if (typeof obj.toJSON === "function" && !(obj instanceof Date)) {
+        return walk2(obj.toJSON(), depth);
+      }
+      if (obj instanceof Date) return obj.toISOString();
+      if (typeof Node !== "undefined" && obj instanceof Node) return "[" + (obj.nodeName || "Node") + "]";
+      if (Array.isArray(obj)) {
+        const out2 = obj.slice(0, MAX_ITEMS).map((v) => walk2(v, depth - 1));
+        if (obj.length > MAX_ITEMS) out2.push("[+" + (obj.length - MAX_ITEMS) + " more]");
+        return out2;
+      }
+      if (obj instanceof Map) return walk2(Object.fromEntries(Array.from(obj.entries()).slice(0, MAX_ITEMS).map(([k, v]) => [String(k), v])), depth);
+      if (obj instanceof Set) return walk2(Array.from(obj), depth);
+      const out = {};
+      let n = 0;
+      for (const k of Object.keys(obj)) {
+        if (n++ >= MAX_ITEMS) {
+          out._truncated = true;
+          break;
+        }
+        try {
+          out[k] = walk2(obj[k], depth - 1);
+        } catch (_) {
+          out[k] = "[Unserializable]";
+        }
+      }
+      return out;
+    } finally {
+      seen.delete(obj);
+    }
+  }
+  const result = walk2(value, options.depth ?? SCRIPT_RESULT_DEPTH);
+  if (budget.exhausted && result && typeof result === "object" && !Array.isArray(result)) {
+    result._truncated = true;
+  }
+  return result;
+}
 function safeJson(value, depth = 6, seen = /* @__PURE__ */ new WeakSet()) {
   if (value == null) return value;
   const t = typeof value;
@@ -7517,6 +7576,7 @@ const api = {
     applyRecoveredOrigin,
     applyProductionBreadcrumbs,
     safeJson,
+    scriptResultJson,
     resolveOwnerFiber,
     getOwnerStackKind,
     findFiberByName,
