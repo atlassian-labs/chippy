@@ -1275,6 +1275,125 @@ this.__AVALANCHE__ = (function() {
   const CS_RESTARTS = 2;
   const CS_UNMOUNTED_COMPONENTS = 8;
   const CS_UNMOUNTED_SUBTREES = 9;
+  const MAX_DEPTH = 2;
+  const MAX_ENTRIES = 8;
+  const MAX_STRING = 200;
+  function cut(text) {
+    return text.length > MAX_STRING ? text.slice(0, MAX_STRING) + `…(${text.length})` : text;
+  }
+  function constructorName(value) {
+    try {
+      const proto = Object.getPrototypeOf(value);
+      const name = proto && proto.constructor && proto.constructor.name;
+      return typeof name === "string" && name ? name : "Object";
+    } catch {
+      return "Object";
+    }
+  }
+  function elementTypeName(type) {
+    if (typeof type === "string") return type;
+    if (typeof type === "function") return type.displayName || type.name || "Anonymous";
+    if (type && typeof type === "object") {
+      const t = type;
+      if (t.displayName) return t.displayName;
+      if (t.render && t.render.name) return t.render.name;
+      if (t.type) return elementTypeName(t.type);
+    }
+    return "Unknown";
+  }
+  function opaqueMarker(value) {
+    const node = value;
+    if (typeof node.nodeType === "number" && typeof node.nodeName === "string") {
+      return `[${constructorName(value)} ${String(node.nodeName).toLowerCase()}]`;
+    }
+    const element = value;
+    if (typeof element.$$typeof === "symbol") {
+      return `[ReactElement ${elementTypeName(element.type)}]`;
+    }
+    const fiber = value;
+    if (typeof fiber.tag === "number" && "stateNode" in fiber && "return" in fiber && "memoizedProps" in fiber) {
+      return "[Fiber]";
+    }
+    if (typeof value.then === "function") return "[Promise]";
+    if (value instanceof Map) return `[Map(${value.size})]`;
+    if (value instanceof Set) return `[Set(${value.size})]`;
+    if (value instanceof Date) return Number.isNaN(value.getTime()) ? "[Date invalid]" : value.toISOString();
+    if (value instanceof RegExp) return cut(String(value));
+    if (value instanceof Error) return cut(`[${value.name}: ${value.message}]`);
+    if (ArrayBuffer.isView(value)) return `[${constructorName(value)}]`;
+    return null;
+  }
+  function copy(value, depth, seen) {
+    if (value === null) return null;
+    switch (typeof value) {
+      case "undefined":
+        return void 0;
+      case "boolean":
+        return value;
+      case "number":
+        return Number.isFinite(value) ? value : String(value);
+      case "string":
+        return cut(value);
+      case "bigint":
+        return `${String(value)}n`;
+      case "symbol":
+        return cut(String(value));
+      case "function":
+        return `[Function ${value.name || "anonymous"}]`;
+    }
+    const object = value;
+    if (seen.has(object)) return "[Circular]";
+    let marker;
+    try {
+      marker = opaqueMarker(object);
+    } catch {
+      return `[${constructorName(object)}]`;
+    }
+    if (marker !== null) return marker;
+    if (Array.isArray(object)) {
+      if (depth >= MAX_DEPTH) return `[Array(${object.length})]`;
+      seen.add(object);
+      const items = object.slice(0, MAX_ENTRIES).map((item) => {
+        const next = copy(item, depth + 1, seen);
+        return next === void 0 ? null : next;
+      });
+      if (object.length > MAX_ENTRIES) items.push(`…(${object.length - MAX_ENTRIES} more)`);
+      seen.delete(object);
+      return items;
+    }
+    let keys;
+    try {
+      keys = Object.keys(object);
+    } catch {
+      return `[${constructorName(object)}]`;
+    }
+    const name = constructorName(object);
+    if (depth >= MAX_DEPTH) return `[${name}(${keys.length} keys)]`;
+    seen.add(object);
+    const out = {};
+    for (const key of keys.slice(0, MAX_ENTRIES)) {
+      let item;
+      try {
+        item = object[key];
+      } catch {
+        item = "[Unreadable]";
+      }
+      out[key] = copy(item, depth + 1, seen);
+    }
+    if (keys.length > MAX_ENTRIES) out["…"] = `${keys.length - MAX_ENTRIES} more keys`;
+    seen.delete(object);
+    return out;
+  }
+  function toWireValue(value) {
+    return copy(value, 0, /* @__PURE__ */ new WeakSet());
+  }
+  function wireTrashers(hooks) {
+    return hooks.map((hook) => ({
+      index: hook.index,
+      prevValue: toWireValue(hook.prevValue),
+      currentValue: toWireValue(hook.currentValue)
+    }));
+  }
   function serializeReport(report) {
     const sources = report.sources.map((source) => ({
       sourceId: source.sourceId,
@@ -1295,7 +1414,7 @@ this.__AVALANCHE__ = (function() {
           collateral: src.collateral,
           rank: src.rank,
           sourceIndex: src.sourceIndex,
-          ...(src.trashers || src.hooks) && { trashers: src.trashers || src.hooks },
+          ...(src.trashers || src.hooks) && { trashers: wireTrashers(src.trashers || src.hooks) },
           ...src.isRepeat && { isRepeat: true }
         }))
       ])
@@ -3837,6 +3956,11 @@ this.__AVALANCHE__ = (function() {
       /** Id of the commit metrics adapter resolved on install, or null. */
       getMetricsAdapterId() {
         return (metricsAdapter == null ? void 0 : metricsAdapter.id) ?? null;
+      },
+      /** Commit and network request counts, without building a report. */
+      counts() {
+        networkCapture.flush();
+        return { commits: state.commits, networkRequests: networkCapture.requests.length };
       }
     };
   }
@@ -5590,10 +5714,11 @@ this.__AVALANCHE__ = (function() {
       } : null
     };
   }
+  const REPORT_ALL_SOURCES = Number.POSITIVE_INFINITY;
   function getReport(api2) {
     if (!api2 || typeof api2.report !== "function") return null;
     try {
-      const r = api2.report();
+      const r = api2.report(REPORT_ALL_SOURCES);
       if (r && typeof r.toSerializable === "function") {
         return { raw: r, serial: r.toSerializable() };
       }
@@ -7286,7 +7411,7 @@ this.__AVALANCHE__ = (function() {
     },
     exportLast(n) {
       if (!detector) return { ok: false, error: "not installed" };
-      const r = detector.report();
+      const r = detector.report(Number.POSITIVE_INFINITY);
       if (n != null && r.commits && Array.isArray(r.commits)) {
         return { ...r, commits: r.commits.slice(-n) };
       }
@@ -7317,13 +7442,8 @@ this.__AVALANCHE__ = (function() {
       let commitCount = 0;
       let networkRequests = 0;
       try {
-        const r = detector ? detector.report() : null;
-        if (r && r.meta && typeof r.meta.commits === "number") {
-          commitCount = r.meta.commits;
-        } else if (r && Array.isArray(r.commits)) {
-          commitCount = r.commits.length;
-        }
-        if (r && Array.isArray(r.networkRequests)) networkRequests = r.networkRequests.length;
+        const counts = detector ? detector.counts() : null;
+        if (counts) ({ commits: commitCount, networkRequests } = counts);
       } catch (_) {
       }
       const integrationMode = detector ? ((_b2 = detector.getIntegrationMode) == null ? void 0 : _b2.call(detector)) ?? "none" : "none";

@@ -35,6 +35,7 @@
 
 import type { CommitMetricsDelta, IntegrationMode } from './commit-metrics-adapter';
 import type { NetworkCaptureStatus, NetworkRequest } from './network-capture';
+import { toWireValue } from './wire-value';
 
 /** A network request as it travels in a report: already plain data. */
 export type NetworkRequestDTO = NetworkRequest;
@@ -160,8 +161,20 @@ export interface SourceByCommitDTO {
   collateral: number;
   rank: number | null;
   sourceIndex: number | null;
+  /** Changed hooks; values are bounded JSON-safe copies (see `toWireValue`). */
   trashers?: Array<{ index: number; prevValue: unknown; currentValue: unknown }>;
   isRepeat?: boolean;
+}
+
+type ChangedHookSample = { index: number; prevValue: unknown; currentValue: unknown };
+
+/** Live hook values can be circular (DOM refs, fibers) or huge; keep bounded copies. */
+function wireTrashers(hooks: ChangedHookSample[]): ChangedHookSample[] {
+  return hooks.map((hook) => ({
+    index: hook.index,
+    prevValue: toWireValue(hook.prevValue),
+    currentValue: toWireValue(hook.currentValue),
+  }));
 }
 
 /**
@@ -332,7 +345,7 @@ export function serializeReport(report: {
             collateral: src.collateral,
             rank: src.rank,
             sourceIndex: src.sourceIndex,
-            ...((src.trashers || src.hooks) && { trashers: src.trashers || src.hooks }),
+            ...((src.trashers || src.hooks) && { trashers: wireTrashers((src.trashers || src.hooks)!) }),
             ...(src.isRepeat && { isRepeat: true }),
           })),
         ])

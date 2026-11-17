@@ -129,7 +129,7 @@ Always surface `key` when present.
 Prefer the `avalanche-*` shell commands. Read the page global directly only when the helper cannot reach the page, for example right after a reload in [mode-a-injection](mode-a-injection.md).
 
 - `status()` — `{ installed, hasMetricsGlobal, commitCount, integrationMode, metricsAdapter }`
-- `exportLast(n?)` — same as `report()` with default arguments; `n` currently has no effect. Use `chippy.sh avalanche-save <clientId> <file> N` to keep only the last N commits
+- `exportLast(n?)` — same as `report()` with every source included; `n` currently has no effect. Use `chippy.sh avalanche-save <clientId> <file> N` to keep only the last N commits
 - `report(topN?, sortBy?)` — live report; `topN` defaults to 10 and `sortBy` is `effect` (default), `callback`, `memo`, or `total`
 - `install(options?)`, `uninstall()`, `reset()` — with no options, non-development builds install `amplifiers` mode with `historySize: 1` and no fiber capture; `avalanche-install` sets its own options
 - `enablePlugins(ids)`, `listPlugins()` — see [React compatibility](../SKILL.md#react-compatibility) in `SKILL.md`

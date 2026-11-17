@@ -449,7 +449,24 @@
 
   function send(message) {
     if (!socket || socket.readyState !== WebSocket.OPEN) return false;
-    socket.send(JSON.stringify(message));
+    let text;
+    try {
+      text = JSON.stringify(message);
+    } catch (error) {
+      // A result that cannot be serialized (for example a circular page value)
+      // must still answer its request; otherwise the helper waits and times out.
+      if (!message || !message.requestId) return false;
+      text = JSON.stringify({
+        type: message.type,
+        clientId: message.clientId,
+        requestId: message.requestId,
+        result: {
+          ok: false,
+          error: 'Chippy could not serialize the result: ' + ((error && error.message) || String(error)).slice(0, 300),
+        },
+      });
+    }
+    socket.send(text);
     return true;
   }
 

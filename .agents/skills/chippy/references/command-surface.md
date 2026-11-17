@@ -77,6 +77,7 @@ Load [active-stimulus](active-stimulus.md) before an active command. A `fiber:*`
 | `avalanche-clear` | Clear capture history before a new bounded measurement. |
 | `avalanche-status` | Read installation, capture, and commit-count state. |
 | `avalanche-install`, `avalanche-recapture` | Install with fiber capture or reinstall and clear in one sequence. |
+| `avalanche-uninstall` | Stop capture and detach the detector; captured history stays readable until the next install or clear. |
 | `avalanche-arm`, `avalanche-disarm` | Control live interaction capture without reloading the page. |
 | `reload-with-avalanche` | Arm, reload, wait, settle, and print initial-load evidence. |
 | `avalanche-hot-sources` | Rank source families before opening commit detail. |
@@ -86,7 +87,7 @@ Load [active-stimulus](active-stimulus.md) before an active command. A `fiber:*`
 | `avalanche-network` | List the network requests that finished during the capture, with the commits each started after, started during, or landed before. |
 | `avalanche-debug-hook` | Interrogate one captured `sourceId + hookIndex`. |
 | `avalanche-export` | Return the full export, optionally written to a file; `lastN` does not trim it. Use `avalanche-save ... N` for the last N commits. Do not open this first. |
-| `avalanche-save` | Save a full or bounded export for repeated offline analysis. |
+| `avalanche-save` | Save a full or bounded export for repeated offline analysis. Waits up to 60 s for a large export. |
 | `avalanche-offline` | Run `summary`, `commit-list`, `commit-peek`, `hot-sources`, `describe-action`, `network`, or `source-search --name` over a saved export; shapes match the live commands. |
 
 ### Capture modes
@@ -170,6 +171,7 @@ avalanche-commit-peek <clientId> <commitId> [include] [depth] [maxItems]
 avalanche-describe-action <clientId> <actionId>
 avalanche-network <clientId> [top] [by] [match] [initiators] [windowMs]
 avalanche-install <clientId> [detectionMode]
+avalanche-uninstall <clientId>
 avalanche-recapture <clientId> [detectionMode]
 avalanche-debug-hook <clientId> <sourceId> <hookIndex> [window]
 avalanche-save <clientId> <file> [count]

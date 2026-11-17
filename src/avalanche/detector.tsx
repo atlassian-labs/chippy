@@ -1954,6 +1954,12 @@ export function createAvalancheDetector(options: DetectorOptions = {}) {
     getMetricsAdapterId(): string | null {
       return metricsAdapter?.id ?? null;
     },
+
+    /** Commit and network request counts, without building a report. */
+    counts(): { commits: number; networkRequests: number } {
+      networkCapture.flush();
+      return { commits: state.commits, networkRequests: networkCapture.requests.length };
+    },
   };
 }
 

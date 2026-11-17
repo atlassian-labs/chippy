@@ -342,7 +342,7 @@ const api: AvalancheApi = {
   },
   exportLast(n) {
     if (!detector) return { ok: false, error: 'not installed' };
-    const r = detector.report();
+    const r = detector.report(Number.POSITIVE_INFINITY);
     if (n != null && (r as any).commits && Array.isArray((r as any).commits)) {
       return { ...(r as any), commits: (r as any).commits.slice(-n) };
     }
@@ -369,13 +369,9 @@ const api: AvalancheApi = {
     let commitCount = 0;
     let networkRequests = 0;
     try {
-      const r = detector ? (detector.report() as any) : null;
-      if (r && r.meta && typeof r.meta.commits === 'number') {
-        commitCount = r.meta.commits;
-      } else if (r && Array.isArray(r.commits)) {
-        commitCount = r.commits.length;
-      }
-      if (r && Array.isArray(r.networkRequests)) networkRequests = r.networkRequests.length;
+      // Counting must not build and walk a full report.
+      const counts = detector ? detector.counts() : null;
+      if (counts) ({ commits: commitCount, networkRequests } = counts);
     } catch (_) {}
     const integrationMode = detector
       ? (detector as any).getIntegrationMode?.() ?? 'none'

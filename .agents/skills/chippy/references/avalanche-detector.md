@@ -139,7 +139,7 @@ stats,sources,timing,metrics,unmounts,actions,rendered,network
 
 `unmounts` returns bounded branch-start samples for this one commit. It is a zoom-in surface, not a full export: use `commit-list ... unmountedComponents` / `unmountedSubtrees` for counts first, then `commit-peek N ... unmounts` to ask where teardown started and how large each sampled branch was.
 
-`sources` rows: `sourceId`, `depth`, `collateralAtCommit`, `rankAtCommit` (position in the top-sources list, or null), `trashers` (`[{ index, prevValue, currentValue }]` for changed hooks when the detection mode records amplifiers), `causedUpdatesTotal`, and `collateralUpdatesTotal`. `missing: true` marks an id that has no aggregate source row.
+`sources` rows: `sourceId`, `depth`, `collateralAtCommit`, `rankAtCommit` (position among all sources ranked by total waste), `trashers` (`[{ index, prevValue, currentValue }]` for changed hooks when the detection mode records amplifiers; primitives are exact and long strings are cut, while objects and arrays are bounded copies two levels deep with up to 8 entries, and DOM nodes, React elements, fibers, functions, promises, maps, sets, and repeated references become short `[...]` markers), `causedUpdatesTotal`, and `collateralUpdatesTotal`. `missing: true` marks an id that has no aggregate source row.
 
 `all` is **not** a supported include value, and neither are `collaterals`, `context`, or `amplifiers`. Live and offline `commit-peek` reject unsupported includes and return `ok:false` with `validInclude`; as with `commit-list`, the live rejection arrives in `result` while the shell exits 0. Omit `include` for the default slice set, or pass an explicit CSV like `stats,sources,metrics` or `stats,unmounts`.
 
@@ -189,7 +189,7 @@ Full JSON export from live page. `lastN` does not trim the payload; to keep the 
 chippy.sh avalanche-save my-client .chippy-captures/raf-1846.json
 chippy.sh avalanche-save my-client .chippy-captures/last-50.json 50
 ```
-Save once. Analyze offline many times. `count=0` or omitted saves the full export; `count=N` saves the last N commits.
+Save once. Analyze offline many times. `count=0` or omitted saves the full export; `count=N` saves the last N commits. The save waits up to 60 seconds for the page, rather than the 5-second default of other commands, so a large capture completes.
 
 Expected success response:
 ```json

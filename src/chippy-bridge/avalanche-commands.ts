@@ -58,7 +58,7 @@ export type AvalancheApi = {
   uninstall?: () => unknown;
   reset?: () => unknown;
   exportLast?: (n?: number) => unknown;
-  report?: () => Reportish;
+  report?: (topN?: number) => Reportish;
   /** Component types the detector recorded; used to recover production names. */
   /** Component types behind the given report source ids. */
   componentTypesFor?: (sourceIds: Iterable<string>) => unknown[];
@@ -157,10 +157,17 @@ function compactLatestAction(action: any): unknown {
 
 type ReportSlice = { raw: Reportish; serial: Record<string, unknown> } | { error: string } | null;
 
+/**
+ * Every command reads the report with all sources. The detector's default
+ * keeps only the top 10, which left commit-peek rows outside them `missing`
+ * and capped hot-sources at 10 whatever the limit.
+ */
+export const REPORT_ALL_SOURCES = Number.POSITIVE_INFINITY;
+
 export function getReport(api: AvalancheApi | null | undefined): ReportSlice {
   if (!api || typeof api.report !== 'function') return null;
   try {
-    const r = api.report();
+    const r = api.report(REPORT_ALL_SOURCES);
     if (r && typeof (r as Reportish).toSerializable === 'function') {
       return { raw: r as Reportish, serial: (r as Reportish).toSerializable!() as Record<string, unknown> };
     }

@@ -91,6 +91,7 @@ Usage:
   ./scripts/chippy.sh avalanche-describe-action <clientId> <actionId>
   ./scripts/chippy.sh avalanche-network <clientId> [top] [by] [match] [initiators] [windowMs]
   ./scripts/chippy.sh avalanche-install <clientId> [detectionMode]
+  ./scripts/chippy.sh avalanche-uninstall <clientId>
   ./scripts/chippy.sh avalanche-recapture <clientId> [detectionMode]
   ./scripts/chippy.sh avalanche-debug-hook <clientId> <sourceId> <hookIndex> [window]
   ./scripts/chippy.sh avalanche-save <clientId> <file> [count]
@@ -1030,6 +1031,14 @@ case "$cmd" in
     body="{\"action\":\"install\",\"options\":{\"captureFibers\":true,\"detectionMode\":\"$detection_mode\",\"historySize\":1000}}"
     post_avalanche "$client_id" "$body"
     ;;
+  avalanche-uninstall)
+    client_id="${2:-}"
+    if [[ -z "$client_id" ]]; then
+      echo "avalanche-uninstall requires <clientId>" >&2
+      exit 1
+    fi
+    post_avalanche "$client_id" '{"action":"uninstall"}'
+    ;;
   avalanche-recapture)
     client_id="${2:-}"
     detection_mode="${3:-sources}"
@@ -1064,10 +1073,12 @@ case "$cmd" in
       echo "  count=0 → full export, count=N → last N commits" >&2
       exit 1
     fi
+    # A full export of a large capture takes longer than the default 5 s.
+    save_timeout_ms=60000
     if [[ "$count" -gt 0 ]]; then
-      body="{\"action\":\"export-last\",\"count\":$count}"
+      body="{\"action\":\"export-last\",\"count\":$count,\"timeoutMs\":$save_timeout_ms}"
     else
-      body='{"action":"export"}'
+      body="{\"action\":\"export\",\"timeoutMs\":$save_timeout_ms}"
     fi
     response=$(post_avalanche "$client_id" "$body")
     if [[ -z "$response" ]]; then

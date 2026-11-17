@@ -218,10 +218,11 @@ function compactLatestAction(action) {
     } : null
   };
 }
+var REPORT_ALL_SOURCES = Number.POSITIVE_INFINITY;
 function getReport(api) {
   if (!api || typeof api.report !== "function") return null;
   try {
-    const r = api.report();
+    const r = api.report(REPORT_ALL_SOURCES);
     if (r && typeof r.toSerializable === "function") {
       return { raw: r, serial: r.toSerializable() };
     }

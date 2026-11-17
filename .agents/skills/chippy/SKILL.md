@@ -238,6 +238,7 @@ avalanche-commit-peek <clientId> <commitId> [include] [depth] [maxItems]
 avalanche-describe-action <clientId> <actionId>
 avalanche-network <clientId> [top] [by] [match] [initiators] [windowMs]
 avalanche-install <clientId> [detectionMode]
+avalanche-uninstall <clientId>
 avalanche-recapture <clientId> [detectionMode]
 avalanche-debug-hook <clientId> <sourceId> <hookIndex> [window]
 avalanche-save <clientId> <file> [count]

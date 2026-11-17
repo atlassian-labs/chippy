@@ -127,10 +127,22 @@ const SHELL_COMMANDS: ShellCommandCase[] = [
     requiredFields: ['type', 'requestId', 'action', 'sourceId', 'hookIndex', 'window'],
   },
   {
+    name: 'avalanche-uninstall',
+    shellLine: 1040,
+    body: { action: 'uninstall' },
+    requiredFields: ['type', 'requestId', 'action'],
+  },
+  {
     name: 'avalanche-save (with count)',
-    shellLine: 692,
-    body: { action: 'export-last', count: 200 },
+    shellLine: 1079,
+    body: { action: 'export-last', count: 200, timeoutMs: 60000 },
     requiredFields: ['type', 'requestId', 'action', 'count'],
+  },
+  {
+    name: 'avalanche-save',
+    shellLine: 1081,
+    body: { action: 'export', timeoutMs: 60000 },
+    requiredFields: ['type', 'requestId', 'action'],
   },
   {
     name: 'reload-with-avalanche reset',
