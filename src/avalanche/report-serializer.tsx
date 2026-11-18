@@ -39,6 +39,7 @@ import type { CommitMetricsDelta, IntegrationMode } from './commit-metrics-adapt
 import type { InputEventDetails } from './input-details';
 import type { NetworkCaptureStatus, NetworkRequest } from './network-capture';
 import type { ScreenChange } from './screen-changes';
+import type { DomCommitDiff } from './dom-diff';
 import type { SuspenseLocation } from './suspense-location';
 import { toWireValue } from './wire-value';
 
@@ -134,6 +135,8 @@ export interface ReportMetaDTO {
   network?: NetworkCaptureStatus;
   /** `renderedByCommit` budget and what it dropped. Absent before the budget existed. */
   renderedEvidence?: RenderedEvidenceStatus;
+  /** `domByCommit` budget and what it dropped. Absent when DOM diff capture is off. */
+  domDiff?: RenderedEvidenceStatus;
   amplifiersMetrics?: {
     totalHookThrashes: number;
     affectedComponentCount: number;
@@ -295,6 +298,8 @@ export interface ReportDTO {
   networkRequests?: NetworkRequestDTO[];
   /** Screen area each commit changed. Absent when screen capture is off. */
   screenByCommit?: Record<number, ScreenChange>;
+  /** DOM changes each commit made. Absent when DOM diff capture is off. */
+  domByCommit?: Record<number, DomCommitDiff>;
   /** Plugin Avalanche hook results (packs), keyed by hook id. */
   hooks?: Record<string, AvalancheHookResult>;
 }
@@ -346,6 +351,7 @@ export function serializeReport(report: {
   commitTimings?: Record<number, CommitTimingDTO>;
   networkRequests?: NetworkRequestDTO[];
   screenByCommit?: Record<number, ScreenChange>;
+  domByCommit?: Record<number, DomCommitDiff>;
   hooks?: Record<string, AvalancheHookResult>;
 }): ReportDTO {
   // Just extract the fields we need - no conversion necessary
@@ -407,6 +413,7 @@ export function serializeReport(report: {
     ...(report.commitTimings && { commitTimings: report.commitTimings }),
     ...(report.networkRequests && { networkRequests: report.networkRequests.map((request) => ({ ...request })) }),
     ...(report.screenByCommit && { screenByCommit: report.screenByCommit }),
+    ...(report.domByCommit && { domByCommit: report.domByCommit }),
     ...(report.hooks && { hooks: report.hooks }),
   };
 }

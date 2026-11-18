@@ -87,10 +87,38 @@ export interface ScreenGeometry {
   now(): number;
 }
 
-interface Found {
+/**
+ * How a host node changed in a commit. `moved` is a node that kept its fiber
+ * but still carries the Placement flag; `hidden` and `shown` are Suspense
+ * visibility toggles.
+ */
+export type HostChangeKind = 'inserted' | 'moved' | 'updated' | 'removed' | 'shown' | 'hidden';
+
+export interface Found {
   node: Node;
   fiber: Fiber;
+  /** True when the node left the screen (removed or hidden). */
   removed: boolean;
+  kind: HostChangeKind;
+  /** For removed nodes: the fiber whose `deletions` listed the subtree. React detaches a deleted subtree from its parent, so this is the way back up. */
+  parent?: Fiber;
+}
+
+export interface FindChangedHostsOptions {
+  /** Maximum nodes to return. */
+  limit?: number;
+  /**
+   * Keep walking below an updated element, so nested updates are returned too.
+   * Off for area measurement, where the element's box already covers them.
+   */
+  descendUpdated?: boolean;
+  /**
+   * Report keyed children React moved. React clears a moved fiber's Placement
+   * flag while it moves the node, so the move is found the way React decides
+   * it: a child whose previous index is lower than that of a child placed
+   * before it.
+   */
+  detectMoves?: boolean;
 }
 
 type HostFiber = Fiber & { stateNode?: unknown };
@@ -117,12 +145,26 @@ function isNode(value: unknown): value is Node {
   return !!value && typeof value === 'object' && typeof (value as Node).nodeType === 'number';
 }
 
-/** True when a host element's props differ in a way that can change what is drawn. */
-export function visiblePropsChanged(prev: unknown, next: unknown): boolean {
+/**
+ * Calls `visit(key, before, after)` for each host prop change that can change
+ * what is drawn: class, attributes, text children, and each changed style key
+ * (`style.<key>`). Event handlers, refs, keys, and element children are
+ * skipped; element children are their own fibers. `visit` returns true to
+ * stop. Returns true when any change was visited.
+ */
+export function forEachVisiblePropChange(
+  prev: unknown,
+  next: unknown,
+  visit: (key: string, before: unknown, after: unknown) => boolean | void,
+): boolean {
   if (prev === next) return false;
-  if (!prev || !next || typeof prev !== 'object' || typeof next !== 'object') return true;
+  if (!prev || !next || typeof prev !== 'object' || typeof next !== 'object') {
+    visit('props', prev, next);
+    return true;
+  }
   const a = prev as Record<string, unknown>;
   const b = next as Record<string, unknown>;
+  let any = false;
   for (const key of new Set([...Object.keys(a), ...Object.keys(b)])) {
     if (key === 'ref' || key === 'key') continue;
     const x = a[key];
@@ -132,48 +174,84 @@ export function visiblePropsChanged(prev: unknown, next: unknown): boolean {
     if (key === 'children') {
       // Element children are their own fibers; only text children are drawn here.
       const textual = (v: unknown) => typeof v === 'string' || typeof v === 'number';
-      if (textual(x) || textual(y)) return true;
+      if (!textual(x) && !textual(y)) continue;
+      any = true;
+      if (visit(key, textual(x) ? x : undefined, textual(y) ? y : undefined)) return true;
       continue;
     }
-    if (key === 'style' || key === 'dangerouslySetInnerHTML') {
-      if (shallowDiffers(x, y)) return true;
+    if (key === 'style') {
+      const sx = (x && typeof x === 'object' ? x : {}) as Record<string, unknown>;
+      const sy = (y && typeof y === 'object' ? y : {}) as Record<string, unknown>;
+      for (const styleKey of new Set([...Object.keys(sx), ...Object.keys(sy)])) {
+        if (Object.is(sx[styleKey], sy[styleKey])) continue;
+        any = true;
+        if (visit('style.' + styleKey, sx[styleKey], sy[styleKey])) return true;
+      }
       continue;
     }
-    return true;
+    if (key === 'dangerouslySetInnerHTML') {
+      const hx = (x as { __html?: unknown } | null | undefined)?.__html;
+      const hy = (y as { __html?: unknown } | null | undefined)?.__html;
+      if (Object.is(hx, hy)) continue;
+      any = true;
+      if (visit(key, hx, hy)) return true;
+      continue;
+    }
+    any = true;
+    if (visit(key, x, y)) return true;
   }
-  return false;
+  return any;
 }
 
-function shallowDiffers(x: unknown, y: unknown): boolean {
-  if (!x || !y || typeof x !== 'object' || typeof y !== 'object') return !Object.is(x, y);
-  const a = x as Record<string, unknown>;
-  const b = y as Record<string, unknown>;
-  const keys = new Set([...Object.keys(a), ...Object.keys(b)]);
-  for (const key of keys) if (!Object.is(a[key], b[key])) return true;
-  return false;
+/** True when a host element's props differ in a way that can change what is drawn. */
+export function visiblePropsChanged(prev: unknown, next: unknown): boolean {
+  return forEachVisiblePropChange(prev, next, () => true);
 }
 
 /**
  * Finds the DOM nodes a commit changed, topmost first. Stops at `limit` nodes.
  * Exported for tests; `createScreenCapture` is the runtime entry.
  */
-export function findChangedHosts(root: Fiber, limit = MAX_NODES_PER_COMMIT): { found: Found[]; truncated: boolean } {
+export function findChangedHosts(
+  root: Fiber,
+  options: number | FindChangedHostsOptions = {},
+): { found: Found[]; truncated: boolean } {
+  const { limit = MAX_NODES_PER_COMMIT, descendUpdated = false, detectMoves = false } = typeof options === 'number' ? { limit: options } : options;
   const found: Found[] = [];
   let truncated = false;
 
-  const push = (fiber: Fiber, removed: boolean) => {
+  const push = (fiber: Fiber, kind: HostChangeKind, parent?: Fiber) => {
     if (found.length >= limit) { truncated = true; return; }
     const node = (fiber as HostFiber).stateNode;
-    if (isNode(node)) found.push({ node, fiber, removed });
+    if (!isNode(node)) return;
+    const removed = kind === 'removed' || kind === 'hidden';
+    found.push(parent ? { node, fiber, removed, kind, parent } : { node, fiber, removed, kind });
   };
 
-  // Topmost host nodes below a fiber (the fiber itself when it is a host).
-  const collectTop = (start: Fiber, removed: boolean) => {
+  // Topmost host nodes below a fiber (the fiber itself when it is a host), in tree order.
+  const collectTop = (start: Fiber, kind: HostChangeKind, parent?: Fiber) => {
     const stack: Fiber[] = [start];
     while (stack.length) {
       const fiber = stack.pop()!;
-      if (isHost(fiber.tag)) { push(fiber, removed); continue; }
-      for (let child = fiber.child; child; child = child.sibling) stack.push(child);
+      if (isHost(fiber.tag)) { push(fiber, kind, parent); continue; }
+      const children: Fiber[] = [];
+      for (let child = fiber.child; child; child = child.sibling) children.push(child);
+      for (let i = children.length - 1; i >= 0; i--) stack.push(children[i]);
+    }
+  };
+
+  // React's move rule (reconcileChildrenArray): walking the new order, a
+  // reused child whose old index is below the highest old index placed so
+  // far is moved. Inserted children (no alternate) are found by the walk.
+  const collectMoves = (first: Fiber) => {
+    if (!first.sibling) return;
+    let lastPlaced = 0;
+    for (let child: Fiber | null = first; child; child = child.sibling) {
+      const old = child.alternate?.index;
+      if (typeof old !== 'number') continue;
+      // eslint-disable-next-line no-bitwise
+      if (old < lastPlaced && (child.flags & Placement) === 0) collectTop(child, 'moved');
+      else lastPlaced = Math.max(lastPlaced, old);
     }
   };
 
@@ -187,7 +265,7 @@ export function findChangedHosts(root: Fiber, limit = MAX_NODES_PER_COMMIT): { f
     // whose subtree flags still carry the bubbled Placement bit.
     if (fiber.alternate === null) {
       const hiddenMount = fiber.tag === OFFSCREEN && !!(fiber.memoizedState as unknown);
-      if (!hiddenMount) collectTop(fiber, false);
+      if (!hiddenMount) collectTop(fiber, 'inserted');
       continue;
     }
     // eslint-disable-next-line no-bitwise -- React fiber flags are bitmasks
@@ -195,17 +273,17 @@ export function findChangedHosts(root: Fiber, limit = MAX_NODES_PER_COMMIT): { f
 
     // eslint-disable-next-line no-bitwise
     if ((fiber.flags & ChildDeletion) !== 0 && fiber.deletions) {
-      for (const deleted of fiber.deletions) collectTop(deleted, true);
+      for (const deleted of fiber.deletions) collectTop(deleted, 'removed', fiber);
     }
     // eslint-disable-next-line no-bitwise
     if ((fiber.flags & Placement) !== 0) {
-      collectTop(fiber, false);
+      collectTop(fiber, 'moved');
       continue;
     }
     // eslint-disable-next-line no-bitwise
     if (fiber.tag === OFFSCREEN && (fiber.flags & Visibility) !== 0) {
       const hidden = !!(fiber.memoizedState as unknown);
-      for (let child = fiber.child; child; child = child.sibling) collectTop(child, hidden);
+      for (let child = fiber.child; child; child = child.sibling) collectTop(child, hidden ? 'hidden' : 'shown');
       continue;
     }
     // eslint-disable-next-line no-bitwise
@@ -214,12 +292,15 @@ export function findChangedHosts(root: Fiber, limit = MAX_NODES_PER_COMMIT): { f
         ? fiber.memoizedProps !== fiber.alternate.memoizedProps
         : visiblePropsChanged(fiber.alternate.memoizedProps, fiber.memoizedProps);
       if (changed) {
-        push(fiber, false);
+        push(fiber, 'updated');
         // The element's box covers its children; nothing below adds area.
-        continue;
+        if (!descendUpdated) continue;
       }
     }
-    if (fiber.child) stack.push(fiber.child);
+    if (fiber.child) {
+      if (detectMoves) collectMoves(fiber.child);
+      stack.push(fiber.child);
+    }
   }
   return { found, truncated };
 }

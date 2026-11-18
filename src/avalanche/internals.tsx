@@ -32,6 +32,8 @@ export interface Fiber {
   memoizedState: Hook | null;
   memoizedProps?: unknown;
   pendingProps?: unknown;
+  /** Position among its parent's children, as set by the reconciler. */
+  index?: number;
   updateQueue: { stores: StoreCheck[] | null } | null;
   /**
    * React populates this array during the render phase with fibers that will be

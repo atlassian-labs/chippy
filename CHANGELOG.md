@@ -16,6 +16,13 @@ must stay compatible with the extension version in the store.
 
 ### Added
 
+- Avalanche records what each commit changed in the DOM, read from the
+  committed fibers: inserted, removed, and moved nodes, each changed prop
+  before and after, and Suspense content hidden or shown. Each commit is one
+  change set with no order inside it; order is between commits.
+  `avalanche-dom-diff` lists the commits in order, `commit-peek` include `dom`
+  returns one commit's changes, and saved captures support both offline.
+  `install` option `domDiff: false` turns the capture off.
 - `perf-entries` reads User Timing `mark` and `measure` entries by default, with
   their `detail` and nearby Avalanche commits. Other entry types the browser
   supports, such as `resource`, can be requested with `--types` and no longer
@@ -57,6 +64,8 @@ must stay compatible with the extension version in the store.
 
 ### Fixed
 
+- `avalanche-offline` treats an empty position (`""`) as skipped. Previously it
+  read as 0, so `timeline 40 "" 100` ended the window at commit 0.
 - `find-fibers` fails on an invalid regex in `--grep`, `--name`, `--file`,
   `--testid`, or `--text`, and on an unknown `--in` scope. The helper answers
   HTTP 422 with the page's error, so `chippy.sh` exits non-zero. Previously the

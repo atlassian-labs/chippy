@@ -20,11 +20,13 @@ Commands:
                 (--top N --by start|end|duration --match regex --initiators csv --window ms)
   timeline      [fromCommit] [toCommit] [minRequestMs] [exclude]
                 (--fromCommit N --toCommit N --minRequestMs ms --top N --exclude regex --format summary|map|full)
+  dom-diff      [fromCommit] [toCommit] [match] [maxItems]
+                (--fromCommit N --toCommit N --match regex --maxItems N --top N)
   source-search --name <regex> [--top N]
 
 commit-list sort keys: collateral sources restarts performedWork effects memos
   callbacks contextUpdates unmountedComponents unmountedSubtrees ticks network
-commit-peek include values: stats,sources,timing,metrics,hooks,actions,rendered,network (atl: deprecated alias of metrics)
+commit-peek include values: stats,sources,timing,metrics,hooks,actions,rendered,network,dom (atl: deprecated alias of metrics)
 `;
 
 function fail(message: string): never {

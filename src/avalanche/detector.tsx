@@ -73,6 +73,7 @@ import { createNetworkCapture } from './network-capture';
 import { createPaintTracker } from './paint-timing';
 import { createAvalancheHookRunner, type AvalancheHookResult } from './avalanche-hooks';
 import { createScreenCapture } from './screen-changes';
+import { createDomDiffCapture } from './dom-diff';
 import { describeSuspenseLocation } from './suspense-location';
 import { createRenderTickTracker } from './render-ticks';
 import { createPropSummarizer } from './prop-summary';
@@ -217,6 +218,7 @@ export function createAvalancheDetector(options: DetectorOptions = {}) {
   const interactionCapture = createInteractionCapture(options);
   const networkCapture = createNetworkCapture(options);
   const screenCapture = createScreenCapture(options);
+  const domDiff = createDomDiffCapture(options);
   // Plugin hooks (packs' onStart/onStep/onEnd); results land in report.hooks.
   const hookRunner = createAvalancheHookRunner();
   const paintTracker = createPaintTracker((ids, paintAt) => {
@@ -441,6 +443,7 @@ export function createAvalancheDetector(options: DetectorOptions = {}) {
     interactionsByCommit: interactionCapture.state.byCommit,
     networkRequests: networkCapture.requests,
     screenByCommit: screenCapture.byCommit,
+    domByCommit: domDiff.byCommit,
     renderedByCommit: {},
   };
   const renderedEvidence = createRenderedEvidenceStore(state.renderedByCommit, maxRenderedEntries);
@@ -1338,6 +1341,7 @@ export function createAvalancheDetector(options: DetectorOptions = {}) {
     interactionCapture.reset();
     networkCapture.reset();
     screenCapture.reset();
+    domDiff.reset();
     paintTracker.reset();
     hookRunner.start();
     boundaryIds = new WeakMap();
@@ -1496,6 +1500,7 @@ export function createAvalancheDetector(options: DetectorOptions = {}) {
     const memoizedUpdaters = root.memoizedUpdaters;
     const committedComponents = recordTree(root.current, memoizedUpdaters || null);
     screenCapture.record(state.commits, root.current);
+    domDiff.record(state.commits, root.current);
 
     // `recordTree` counts deletions from fiber.deletions[]. Some renderers clear
     // that array before the final root callback, while still calling the DevTools
@@ -1856,6 +1861,7 @@ export function createAvalancheDetector(options: DetectorOptions = {}) {
         renderTicks: renderTicks.status(),
         network: networkCapture.status(),
         renderedEvidence: renderedEvidence.status(),
+        ...(domDiff.enabled && { domDiff: domDiff.status() }),
       });
       const hooks = hookRunner.collect();
       if (hooks) report.hooks = hooks;

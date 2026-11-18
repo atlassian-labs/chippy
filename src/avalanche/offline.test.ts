@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { evalAvalanche } from '../chippy-bridge/avalanche-commands';
 import { createAvalancheDetector } from './detector';
-import { PerformedWork, type Fiber } from './internals';
+import { PerformedWork, Update, type Fiber } from './internals';
 import { analyzeSavedReport, keepLastCommits, unwrapSavedReport } from './offline';
 import { registerAvalancheHooks, resetAvalancheHooks, summarizeHookResults } from './avalanche-hooks';
 
@@ -57,6 +57,40 @@ describe('offline Avalanche analysis', () => {
     expect(analyzeSavedReport(report, 'commit-list', { _: ['5', 'collateral'] })).toEqual(liveList);
     const { available: _b, ...livePeek } = evalAvalanche({ action: 'commit-peek', commitId: 2, include: ['stats', 'rendered'] }, api, null) as any;
     expect(analyzeSavedReport(report, 'commit-peek', { _: ['2', 'stats,rendered'] })).toEqual(livePeek);
+  });
+
+  it('returns the same dom-diff and commit-peek DOM changes as the live page', () => {
+    runtime.__REACT_DEVTOOLS_GLOBAL_HOOK__ = { onCommitFiberRoot() {} };
+    detector = createAvalancheDetector({ detectionMode: 'full' });
+    detector.install();
+    const el = document.createElement('div');
+    for (let n = 1; n <= 3; n++) {
+      const host: any = {
+        tag: 5, type: 'div', stateNode: el, flags: Update, subtreeFlags: 0, child: null, sibling: null,
+        memoizedState: null, memoizedProps: { className: `c${n}` }, alternate: { memoizedProps: { className: `c${n - 1}` } },
+      };
+      const panel: any = {
+        tag: 0, type: function Panel() {}, flags: PerformedWork, subtreeFlags: Update, child: host, sibling: null,
+        memoizedState: null, memoizedProps: {}, alternate: { memoizedProps: {} },
+      };
+      const hostRoot: any = { tag: 3, flags: 0, subtreeFlags: Update | PerformedWork, child: panel, sibling: null, return: null, memoizedState: null, memoizedProps: null, alternate: {} };
+      host.return = panel;
+      panel.return = hostRoot;
+      runtime.__REACT_DEVTOOLS_GLOBAL_HOOK__.onCommitFiberRoot(1, { current: hostRoot });
+    }
+    const api = { report: () => detector!.report() as any };
+    const report = unwrapSavedReport(JSON.parse(JSON.stringify(evalAvalanche({ action: 'export' }, api, null).payload)))!;
+
+    const { available: _a, ...live } = evalAvalanche({ action: 'dom-diff', fromCommit: 2, match: 'c3' }, api, null) as any;
+    expect(live.payload.commits.map((c: any) => [c.commitId, c.changes])).toEqual([
+      [3, [{ op: '~', node: 'div', at: 'Panel', props: [['class', '"c2"', '"c3"']] }]],
+    ]);
+    expect(analyzeSavedReport(report, 'dom-diff', { _: ['2', '', 'c3'] })).toEqual(live);
+    expect(analyzeSavedReport(report, 'dom-diff', { _: [], fromCommit: '2', match: 'c3' })).toEqual(live);
+
+    const { available: _b, ...livePeek } = evalAvalanche({ action: 'commit-peek', commitId: 2, include: ['dom'] }, api, null) as any;
+    expect(livePeek.payload.dom).toHaveLength(1);
+    expect(analyzeSavedReport(report, 'commit-peek', { _: ['2', 'dom'] })).toEqual(livePeek);
   });
 
   it('lists network requests from a saved export like the live page', () => {

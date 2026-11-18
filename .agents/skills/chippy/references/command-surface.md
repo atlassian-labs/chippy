@@ -86,10 +86,11 @@ Load [active-stimulus](active-stimulus.md) before an active command. A `fiber:*`
 | `avalanche-describe-action` | Expand one action breadcrumb and its owner/parent context. |
 | `avalanche-timeline` | Put input, network requests, Suspense fallbacks, and commits on one timeline from the interaction, with a summary of what the user waited for, VC50/VC90/VC100, labelled Suspense boundaries, and a Mermaid gantt chart. `format` is `summary` (default), `map` (adds a settle-map SVG), or `full` (adds the map and raw lanes). |
 | `avalanche-network` | List the network requests that finished during the capture, with the commits each started after, started during, or landed before. |
+| `avalanche-dom-diff` | List what each commit changed in the DOM, commits in order: inserted, removed, updated (each prop before and after), moved, and Suspense-hidden or shown nodes, each with the components above it. Each commit is one change set with no order inside it. |
 | `avalanche-debug-hook` | Interrogate one captured `sourceId + hookIndex`. |
 | `avalanche-export` | Return the full export, optionally written to a file; `lastN` does not trim it. Use `avalanche-save ... N` for the last N commits. Do not open this first. |
 | `avalanche-save` | Save a full or bounded export for repeated offline analysis. Waits up to 60 s for a large export. |
-| `avalanche-offline` | Run `summary`, `commit-list`, `commit-peek`, `hot-sources`, `describe-action`, `network`, `timeline`, or `source-search --name` over a saved export; shapes match the live commands. |
+| `avalanche-offline` | Run `summary`, `commit-list`, `commit-peek`, `hot-sources`, `describe-action`, `network`, `timeline`, `dom-diff`, or `source-search --name` over a saved export; shapes match the live commands. |
 
 ### Capture modes
 
@@ -172,12 +173,13 @@ avalanche-commit-peek <clientId> <commitId> [include] [depth] [maxItems]
 avalanche-describe-action <clientId> <actionId>
 avalanche-network <clientId> [top] [by] [match] [initiators] [windowMs]
 avalanche-timeline <clientId> [fromCommit] [toCommit] [minRequestMs] [exclude] [format]
+avalanche-dom-diff <clientId> [fromCommit] [toCommit] [match] [maxItems] [top]
 avalanche-install <clientId> [detectionMode]
 avalanche-uninstall <clientId>
 avalanche-recapture <clientId> [detectionMode]
 avalanche-debug-hook <clientId> <sourceId> <hookIndex> [window]
 avalanche-save <clientId> <file> [count]
-avalanche-offline <file> <summary|commit-list|commit-peek|hot-sources|describe-action|network|timeline|source-search> [args...]
+avalanche-offline <file> <summary|commit-list|commit-peek|hot-sources|describe-action|network|timeline|dom-diff|source-search> [args...]
 eval-page <clientId> <snippet-file-or-name> [--key value ...]
 eval-snippets
 avalanche-arm <clientId> <origin> [maxCommits] [captureFibers=true|false] [detectionMode=sources|full|stats|amplifiers]

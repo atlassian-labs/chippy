@@ -105,8 +105,8 @@ function windowOf(windowMs) {
 }
 function linkNetworkRequests(report, windowMs) {
   const anchors = commitAnchors(report.commitTimings);
-  const window = windowOf(windowMs);
-  return requestsOf(report).map((request) => ({ ...request, ...linkRequest(request, anchors, window) }));
+  const window2 = windowOf(windowMs);
+  return requestsOf(report).map((request) => ({ ...request, ...linkRequest(request, anchors, window2) }));
 }
 function networkView(report, options = {}) {
   const by = String(options.by || "start");
@@ -285,6 +285,11 @@ function settleMapSvg(frames, title = "When each part of the screen last changed
   parts.push("</svg>");
   return parts.join("");
 }
+
+// src/avalanche/internals.tsx
+var Placement = 2;
+var ChildDeletion = 16;
+var Update = 4;
 
 // src/avalanche/suspense-location.ts
 function entryKey(entry) {
@@ -626,6 +631,97 @@ function renderText(result) {
   return [...header, "", ...rows.map((r) => `+${String(r.t).padStart(width)}  ${r.lane.padEnd(5)}  ${r.text}`)].join("\n");
 }
 
+// src/avalanche/screen-changes.ts
+var Visibility = 8192;
+var MUTATION_MASK = Placement | Update | ChildDeletion | Visibility;
+
+// src/avalanche/dom-diff.ts
+var MAX_ELEMENT_COUNT = 1e3;
+
+// src/avalanche/dom-diff-view.ts
+var DEFAULT_DOM_DIFF_COMMITS = 100;
+var DEFAULT_DOM_DIFF_CHANGES = 50;
+var ORDER_NOTE = "Each commit is one change set: its changes reached the DOM together and have no order. Order is between commits.";
+function searchable(change) {
+  const props = (change.props || []).map(([name, before, after]) => `${name} ${before ?? ""} ${after ?? ""}`).join(" ");
+  return `${change.op} ${change.node} ${change.at} ${change.html ?? ""} ${props}`;
+}
+function formatProps(props) {
+  return (props || []).map(([name, before, after]) => `${name} ${before ?? "\u2205"} \u2192 ${after ?? "\u2205"}`).join("; ");
+}
+function formatDomChange(change) {
+  if (change.op === "~") return `~ ${change.node}  ${formatProps(change.props)}`;
+  const size = change.elements && change.elements > 1 ? ` (${change.elements}${change.elements >= MAX_ELEMENT_COUNT ? "+" : ""} el)` : "";
+  return `${change.op} ${change.node}${size}  ${change.html ?? ""}`;
+}
+function renderCommit(view) {
+  const when = view.t === null ? "" : `  +${view.t}ms`;
+  const shown = view.changes.length < view.total ? `${view.changes.length} of ${view.total}` : String(view.total);
+  const lines = [`#${view.commitId}${when} \xB7 ${shown} change${view.total === 1 ? "" : "s"}${view.truncated ? " (commit truncated)" : ""}`];
+  const groups = /* @__PURE__ */ new Map();
+  for (const change of view.changes) {
+    const list = groups.get(change.at);
+    if (list) list.push(change);
+    else groups.set(change.at, [change]);
+  }
+  for (const [at, changes] of groups) {
+    lines.push(`  ${at}`);
+    for (const change of changes) lines.push(`    ${formatDomChange(change)}`);
+  }
+  return lines;
+}
+function buildDomDiffView(report, options = {}) {
+  let pattern = null;
+  if (options.match) {
+    try {
+      pattern = new RegExp(options.match, "i");
+    } catch (error) {
+      return { error: "invalid match regex: " + (error.message || String(error)) };
+    }
+  }
+  const from = Number.isFinite(Number(options.fromCommit)) && options.fromCommit != null ? Number(options.fromCommit) : -Infinity;
+  const to = Number.isFinite(Number(options.toCommit)) && options.toCommit != null ? Number(options.toCommit) : Infinity;
+  const top = Math.max(1, Math.floor(Number(options.top) || DEFAULT_DOM_DIFF_COMMITS));
+  const maxItems = Math.max(1, Math.floor(Number(options.maxItems) || DEFAULT_DOM_DIFF_CHANGES));
+  const byCommit = report.domByCommit || {};
+  const ids = Object.keys(byCommit).map(Number).filter((id) => Number.isFinite(id) && id >= from && id <= to).sort((a, b) => a - b);
+  const matched = [];
+  for (const commitId of ids) {
+    const diff = byCommit[String(commitId)];
+    const changes = pattern ? diff.changes.filter((change) => pattern.test(searchable(change))) : diff.changes;
+    if (changes.length) matched.push({ commitId, diff, changes });
+  }
+  const listed = matched.slice(0, top);
+  const startOf = (id) => {
+    const start = report.commitTimings?.[String(id)]?.startTime;
+    return typeof start === "number" && Number.isFinite(start) ? start : null;
+  };
+  const origin = listed.length ? startOf(listed[0].commitId) : null;
+  const commits = listed.map(({ commitId, diff, changes }) => {
+    const startTime = startOf(commitId);
+    return {
+      commitId,
+      t: startTime === null || origin === null ? null : Math.round((startTime - origin) * 10) / 10,
+      startTime,
+      total: changes.length,
+      changes: changes.slice(0, maxItems),
+      ...diff.truncated && { truncated: true }
+    };
+  });
+  const evicted = report.meta?.domDiff?.evicted ?? null;
+  const lines = [ORDER_NOTE];
+  if (evicted) lines.push(`Commits up to #${evicted.throughCommit} may have lost their DOM changes to the capture budget.`);
+  if (!commits.length) lines.push(pattern ? "No DOM change matched." : "No DOM changes recorded.");
+  for (const view of commits) lines.push(...renderCommit(view));
+  if (matched.length > commits.length) lines.push(`\u2026 ${matched.length - commits.length} more commits; narrow with fromCommit/toCommit or raise top.`);
+  return {
+    commits,
+    commitsTotal: matched.length,
+    ...evicted && { evicted },
+    text: lines.join("\n")
+  };
+}
+
 // src/chippy-bridge/avalanche-commands.ts
 var UPSTREAM_COMMIT_STAT_KEYS = [
   "collateral",
@@ -795,7 +891,7 @@ function evalAvalanche(command, api, mod) {
           return { ok: false, available: true, action, error: "commit-peek requires numeric commitId" };
         }
         const include = Array.isArray(command?.include) && command.include.length ? command.include : ["stats", "sources", "timing", "metrics", "hooks"];
-        const allowedInclude = ["stats", "sources", "timing", "metrics", "atl", "hooks", "unmounts", "actions", "rendered", "network"];
+        const allowedInclude = ["stats", "sources", "timing", "metrics", "atl", "hooks", "unmounts", "actions", "rendered", "network", "dom"];
         const invalidInclude = include.filter((key) => !allowedInclude.includes(key));
         if (invalidInclude.length) {
           return {
@@ -862,6 +958,12 @@ function evalAvalanche(command, api, mod) {
           out.renderedTotal = rendered.length;
           const evicted = ser.meta?.renderedEvidence?.evicted;
           if (!rendered.length && evicted && Number(evicted.throughCommit) >= commitId) out.renderedEvicted = true;
+        }
+        if (include.includes("dom")) {
+          const dom = ser.domByCommit?.[commitId] || ser.domByCommit?.[String(commitId)] || null;
+          out.dom = dom ? dom.changes.slice(0, maxItems) : [];
+          out.domTotal = dom ? dom.changes.length : 0;
+          if (dom?.truncated) out.domTruncated = true;
         }
         if (include.includes("network")) {
           out.network = compactNetwork(networkByCommit(ser, command?.window).get(commitId), maxItems);
@@ -985,6 +1087,21 @@ function evalAvalanche(command, api, mod) {
         const { ok: _ok, lanes, ...rest } = timeline;
         return { ok: true, available: true, action, payload: command?.format === "full" ? { ...rest, lanes } : rest };
       }
+      case "dom-diff": {
+        const r = getReport(api);
+        if (!r || "error" in r) {
+          return { ok: false, available: true, action, error: r && "error" in r ? r.error : "report() unavailable" };
+        }
+        const view = buildDomDiffView(r.serial, {
+          fromCommit: command?.fromCommit,
+          toCommit: command?.toCommit,
+          match: command?.match,
+          top: command?.top,
+          maxItems: command?.maxItems
+        });
+        if ("error" in view) return { ok: false, available: true, action, error: view.error };
+        return { ok: true, available: true, action, payload: view };
+      }
       // Removed: start, stop, metrics, help — not present on the current public surface.
       default:
         return { ok: false, available: true, action, error: "Unknown avalanche action: " + action };
@@ -1002,6 +1119,7 @@ var PER_COMMIT_KEYS = [
   "interactionsByCommit",
   "renderedByCommit",
   "screenByCommit",
+  "domByCommit",
   "metricsByCommit",
   "atlByCommit",
   "timing",
@@ -1099,7 +1217,9 @@ function sourceSearch(report, options) {
 function analyzeSavedReport(report, command, args) {
   const positional = args._;
   const number = (flag, index) => {
-    const value = Number(args[flag] ?? positional[index]);
+    const raw = args[flag] ?? positional[index];
+    if (raw === void 0 || raw === null || raw === "") return void 0;
+    const value = Number(raw);
     return Number.isFinite(value) ? value : void 0;
   };
   switch (command) {
@@ -1144,6 +1264,17 @@ function analyzeSavedReport(report, command, args) {
         ...typeof args.format === "string" && { format: args.format }
       });
     }
+    case "dom-diff": {
+      const match = args.match ?? positional[2];
+      return dispatch(report, {
+        action: "dom-diff",
+        fromCommit: number("fromCommit", 0),
+        toCommit: number("toCommit", 1),
+        ...typeof match === "string" && match && { match },
+        maxItems: number("maxItems", 3),
+        top: number("top", 99)
+      });
+    }
     case "source-search": {
       const name = args.name ?? positional[0];
       if (typeof name !== "string" || !name) return { ok: false, action: "source-search", error: "source-search requires --name <regex>" };
@@ -1167,11 +1298,13 @@ Commands:
                 (--top N --by start|end|duration --match regex --initiators csv --window ms)
   timeline      [fromCommit] [toCommit] [minRequestMs] [exclude]
                 (--fromCommit N --toCommit N --minRequestMs ms --top N --exclude regex --format summary|map|full)
+  dom-diff      [fromCommit] [toCommit] [match] [maxItems]
+                (--fromCommit N --toCommit N --match regex --maxItems N --top N)
   source-search --name <regex> [--top N]
 
 commit-list sort keys: collateral sources restarts performedWork effects memos
   callbacks contextUpdates unmountedComponents unmountedSubtrees ticks network
-commit-peek include values: stats,sources,timing,metrics,hooks,actions,rendered,network (atl: deprecated alias of metrics)
+commit-peek include values: stats,sources,timing,metrics,hooks,actions,rendered,network,dom (atl: deprecated alias of metrics)
 `;
 function fail(message) {
   process.stderr.write(`avalanche-analyze: ${message}

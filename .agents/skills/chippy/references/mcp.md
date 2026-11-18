@@ -107,7 +107,7 @@ and are also included as JSON text.
 
 Avalanche actions: `status`, `install`, `uninstall`, `clear`, `export`,
 `export-last`, `hot-sources`, `commit-list`, `commit-peek`, `debug-hook`,
-`describe-action`, `network`. `install` starts capture; `clear` resets evidence;
+`describe-action`, `network`, `timeline`, `dom-diff`. `install` starts capture; `clear` resets evidence;
 `uninstall` stops capture. Optional `options` contains `detectionMode`
 (`stats`, `sources`, `amplifiers`, `full`), `historySize`, and `captureFibers`.
 Without `options`, `install` uses the runtime defaults (`amplifiers`,
@@ -118,9 +118,11 @@ For `avalanche-recapture <mode>`, call `install` with those options and the
 chosen `detectionMode`, then `clear`.
 Analysis fields are `limit`, `count`, `top`, `by`, `commitId`, `include` (array),
 `depth`, `maxItems`, `sourceId`, `hookIndex`, `window`, `actionId`, `match`,
-`initiators` (array), and `timeoutMs`. For `network`, `commit-peek` with the
+`initiators` (array), `fromCommit`, `toCommit`, and `timeoutMs`. For `network`, `commit-peek` with the
 `network` include, and `commit-list`, `window` is the request-to-commit link
-window in ms (default 250).
+window in ms (default 250). For `dom-diff`, `fromCommit` and `toCommit` bound
+the commits, `match` filters the changes, `maxItems` caps changes per commit,
+and `top` caps commits.
 `depth` is accepted for CLI parity but is currently ignored by the live bridge.
 Use captured ids for commit, hook, and action analysis. See the
 [Avalanche reference](avalanche-detector.md) for result semantics.
