@@ -7,6 +7,10 @@
 //   event                  slow interaction timings (the inputs to INP) → target component
 //   largest-contentful-paint  LCP time, size, element → component
 //   paint, navigation      FCP and TTFB / DOMContentLoaded / load
+//   mark, measure          User Timing (performance.mark / performance.measure), with detail
+//
+// Any other entry type the browser supports (for example `resource`) can be
+// requested with --types; it returns name, startTime, and duration.
 //
 // When Avalanche is installed, each entry also carries the commits it lines up
 // with on the shared `performance.now()` clock (see references/avalanche-detector.md,
@@ -27,7 +31,7 @@
 //
 // Returns: { ok, timeOrigin, now, supported, unsupported, avalanche, summary, entries }
 
-const ALL_TYPES = ['layout-shift', 'long-animation-frame', 'event', 'largest-contentful-paint', 'paint', 'navigation'];
+const ALL_TYPES = ['layout-shift', 'long-animation-frame', 'event', 'largest-contentful-paint', 'paint', 'navigation', 'mark', 'measure'];
 const supportedTypes = (typeof PerformanceObserver !== 'undefined' && PerformanceObserver.supportedEntryTypes) || [];
 const requested = ctx.args.types ? String(ctx.args.types).split(',').map((s) => s.trim()).filter(Boolean) : ALL_TYPES;
 const types = requested.filter((t) => supportedTypes.includes(t));
@@ -37,6 +41,15 @@ const max = Number(ctx.args.max) || 20;
 const scriptMax = Number(ctx.args.scripts) || 5;
 const commitMax = Number(ctx.args.commits) || 10;
 const round = (n) => (typeof n === 'number' && Number.isFinite(n) ? Math.round(n * 10) / 10 : null);
+const MAX_DETAIL = 200;
+// User Timing `detail` is any structured-cloneable value; keep it to one bounded line.
+function detailOf(value) {
+  if (value === undefined || value === null) return null;
+  let text;
+  try { text = JSON.stringify(value); } catch (_) { text = String(value); }
+  if (typeof text !== 'string') text = String(value);
+  return text.length > MAX_DETAIL ? text.slice(0, MAX_DETAIL) + '…' : text;
+}
 
 // ── Collect buffered entries ────────────────────────────────────────────────
 async function collect(type) {
@@ -179,6 +192,19 @@ const shape = {
     commits: commitsNear(e.startTime, e.startTime),
   }),
   paint: (e) => ({ name: e.name, startTime: round(e.startTime) }),
+  mark: (e) => ({
+    name: e.name,
+    startTime: round(e.startTime),
+    detail: detailOf(e.detail),
+    commits: commitsNear(e.startTime, e.startTime),
+  }),
+  measure: (e) => ({
+    name: e.name,
+    startTime: round(e.startTime),
+    duration: round(e.duration),
+    detail: detailOf(e.detail),
+    commits: commitsNear(e.startTime, e.startTime + e.duration),
+  }),
   navigation: (e) => ({
     type: e.type,
     ttfb: round(e.responseStart),
@@ -188,10 +214,16 @@ const shape = {
   }),
 };
 
+// Types the snippet has no shape for keep the fields every entry has.
+const genericShape = (e) => ({ name: e.name, startTime: round(e.startTime), duration: round(e.duration) });
+
 const rank = {
   'layout-shift': (e) => e.value,
   'long-animation-frame': (e) => e.blockingDuration,
   event: (e) => e.duration,
+  // Latest first: the marks of the interaction just measured.
+  mark: (e) => e.startTime,
+  measure: (e) => e.duration,
 };
 
 // ── Summary metrics ─────────────────────────────────────────────────────────
@@ -246,12 +278,18 @@ if (raw.paint) {
   summary.fcpMs = fcp ? round(fcp.startTime) : null;
 }
 if (raw.navigation && raw.navigation[0]) summary.ttfbMs = round(raw.navigation[0].responseStart);
+if (raw.mark) summary.marks = raw.mark.length;
+if (raw.measure) {
+  summary.measures = raw.measure.length;
+  const longest = raw.measure.reduce((best, e) => (!best || e.duration > best.duration ? e : best), null);
+  summary.longestMeasure = longest ? { name: longest.name, duration: round(longest.duration) } : null;
+}
 
 const entries = {};
 for (const type of types) {
   const list = raw[type].slice();
   if (rank[type]) list.sort((a, b) => rank[type](b) - rank[type](a));
-  entries[type] = { count: raw[type].length, items: list.slice(0, max).map(shape[type]) };
+  entries[type] = { count: raw[type].length, items: list.slice(0, max).map(shape[type] || genericShape) };
 }
 
 return {

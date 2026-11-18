@@ -16,6 +16,10 @@ must stay compatible with the extension version in the store.
 
 ### Added
 
+- `perf-entries` reads User Timing `mark` and `measure` entries by default, with
+  their `detail` and nearby Avalanche commits. Other entry types the browser
+  supports, such as `resource`, can be requested with `--types` and no longer
+  make the snippet fail.
 - `find-fibers --grep <regex>` searches the whole fiber tree for matching prop
   keys and values, hook state, and class state, and with `--in debug`,
   `useDebugValue` labels. Each hit carries its scope and path. Only components
