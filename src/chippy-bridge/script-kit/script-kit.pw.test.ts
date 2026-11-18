@@ -78,7 +78,7 @@ return {
 let server: Server;
 let url = '';
 let browser: Browser;
-const scripts: Record<string, string> = {};
+const routes = new Map<string, { type: string; body: string }>();
 
 beforeAll(async () => {
   for (const [kind, alias] of [['stock', {}], ['react-19', { react: 'react-19', 'react-dom': 'react-dom-19' }]] as const) {
@@ -87,17 +87,18 @@ beforeAll(async () => {
       alias, bundle: true, write: false, platform: 'browser', format: 'iife', keepNames: true,
       define: { 'process.env.NODE_ENV': JSON.stringify('development') },
     });
-    scripts[kind] = result.outputFiles[0].text;
+    // Responses are prepared up front, so nothing from a request URL is echoed back.
+    routes.set('/' + kind + '.js', { type: 'text/javascript', body: result.outputFiles[0].text });
+    routes.set('/' + kind, {
+      type: 'text/html',
+      body: '<!doctype html><html><body style="margin:0;font:16px system-ui"><div id="root"></div><script src="/' + kind + '.js"></script></body></html>',
+    });
   }
   server = createServer((request, response) => {
-    const kind = (request.url || '/').slice(1);
-    if (kind.endsWith('.js') && scripts[kind.slice(0, -3)]) {
-      response.setHeader('Content-Type', 'text/javascript');
-      response.end(scripts[kind.slice(0, -3)]);
-    } else if (scripts[kind]) {
-      response.setHeader('Content-Type', 'text/html');
-      response.end('<!doctype html><html><body style="margin:0;font:16px system-ui"><div id="root"></div><script src="/' + kind + '.js"></script></body></html>');
-    } else { response.writeHead(404); response.end(); }
+    const route = routes.get(request.url || '/');
+    if (!route) { response.writeHead(404); response.end(); return; }
+    response.setHeader('Content-Type', route.type);
+    response.end(route.body);
   });
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
   url = 'http://127.0.0.1:' + (server.address() as { port: number }).port;
