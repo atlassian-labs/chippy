@@ -18,6 +18,7 @@ Choose the Chippy decision in front of you—position evidence, trace the page, 
 | Need | Read | What it gives you |
 |---|---|---|
 | Interpret hook output | [Hooks inspection](hooks-inspection.md) | Hook tree reading, limits, and `useDebugValue` guidance |
+| Answer a question no command covers | [Page scripts](page-scripts.md) | The `chippy` toolkit, stdin scripts, gates, limits, and side-effect reports |
 | Automate probe handling | [Playwright probes](playwright-probes.md) | Probe lifecycle, measurement operations, and extension handoff |
 | Work on minified Jira pages | [Jira taxonomy](jira-taxonomy.md) | Production-name patterns and bounded fallback signals |
 

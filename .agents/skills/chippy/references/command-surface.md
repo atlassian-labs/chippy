@@ -116,12 +116,12 @@ Load [avalanche-detector](avalanche-detector.md) for schemas and evidence-readin
 | Command | Purpose |
 |---|---|
 | `eval-snippets` | List packaged snippets. |
-| `eval-page` | Execute one packaged or local snippet in the connected page realm with `--key value` arguments. |
+| `eval-page` | Execute a packaged snippet, a local file, or a [page script](page-scripts.md) from stdin (`-`) in the connected page realm with `--key value` arguments. |
 | `page-reload`, `page-wait-reload` | Request a reload and wait for the helper's reconnect transition. For a Storybook integration, `page-reload` emits `FORCE_REMOUNT`, remounting only the current SUT without navigating the preview iframe; it fails with HTTP 409 when no rendered story matches the selection. |
 | `handoff-to-playwright` | Launch a helper-owned Playwright browser on the page URL with the selected probe descriptors, register it as a helper client, and return the new `targetClientId`. |
 | `proxy-state`, `proxy-start`, `proxy-stop` | Inspect or control the helper's local proxy. |
 
-`eval-page` has a fixed five-second page-script timeout through the shell wrapper. The helper HTTP API accepts a timeout field, but `chippy.sh eval-page` does not expose a timeout option.
+`eval-page` waits five seconds for the page script by default; `--script-timeout <ms>` raises it to at most 120,000. `--allow replay` opens the replay gate for one run. Both options belong to the runner and never reach `ctx.args`.
 
 ## Full signatures
 
@@ -180,7 +180,7 @@ avalanche-recapture <clientId> [detectionMode]
 avalanche-debug-hook <clientId> <sourceId> <hookIndex> [window]
 avalanche-save <clientId> <file> [count]
 avalanche-offline <file> <summary|commit-list|commit-peek|hot-sources|describe-action|network|timeline|dom-diff|source-search> [args...]
-eval-page <clientId> <snippet-file-or-name> [--key value ...]
+eval-page <clientId> <snippet-file-or-name|-> [--allow replay] [--script-timeout ms] [--key value ...]
 eval-snippets
 avalanche-arm <clientId> <origin> [maxCommits] [captureFibers=true|false] [detectionMode=sources|full|stats|amplifiers]
 avalanche-disarm <clientId> <origin>

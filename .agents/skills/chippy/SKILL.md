@@ -95,7 +95,8 @@ OODA **Act** is an evidence move; it is not Chippy **Apply**. Load [operating-mo
 
 - Do not mutate the running page instead of editing source.
 - Do not create temporary globals or monkeypatch product behavior to answer an inspection question. Use documented commands or report the capability gap.
-- Do not use ad-hoc Python, Node, jq reducers, or new snippets over Chippy output to answer inspection questions that existing commands cover. Use `probe-parents` / `inspect-fiber-parents` for `fiber.return` walking, `probe-owners` / `inspect-fiber-owners` for `_debugOwner`, and prepared command views first. Extracting one transport field for an automation harness is fine. If those commands prove a reusable evidence reduction is absent, add a first-class command or report the gap.
+- Do not use ad-hoc Python, Node, jq reducers, or new snippets over Chippy output to answer inspection questions that existing commands cover. Use `probe-parents` / `inspect-fiber-parents` for `fiber.return` walking, `probe-owners` / `inspect-fiber-owners` for `_debugOwner`, and prepared command views first. Extracting one transport field for an automation harness is fine.
+- When no command answers the question, write a [page script](references/page-scripts.md) against the `chippy` toolkit instead of reducing command output elsewhere. Report its `limits`, and say so when the script read `ref.raw`.
 - Do not call a performance hotspot a trigger without causal evidence. Separate **trigger**, **hotspot**, and **collateral**.
 - Do not clear probes, captures, or instrumentation while they remain the evidence anchor for an open investigation.
 
@@ -250,7 +251,7 @@ avalanche-arm <clientId> <origin> [maxCommits] [captureFibers=true|false] [detec
 avalanche-disarm <clientId> <origin>
 reload-with-avalanche <clientId> <origin> [maxCommits] [timeoutMs] [settleMs] [captureFibers=true|false] [detectionMode=sources|full|stats|amplifiers]
 
-eval-page <clientId> <snippet-file-or-name> [--key value ...]
+eval-page <clientId> <snippet-file-or-name|-> [--allow replay] [--script-timeout ms] [--key value ...]
 eval-snippets
 page-reload <clientId>
 page-wait-reload <clientId> [timeoutMs]
@@ -319,11 +320,13 @@ Avalanche records what each commit changed in the DOM, read from the committed f
 
 Every mode records which components rendered and their prop changes (`commit-peek include=rendered`). `stats` never sets `isSelfSource`, and only `full` or `amplifiers` fill `trasherCounts`. When amplifier evidence is required and triage began in the default `sources` mode, run `avalanche-recapture <clientId> full`, reproduce the identical interaction, and only then read `trasherCounts`. Load [avalanche-detector](references/avalanche-detector.md) for exact schemas and [fixing-performance](references/fixing-performance.md) for fix-layer selection.
 
-## Snippets and active stimuli
+## Page scripts, snippets, and active stimuli
 
-`eval-page` executes a version-controlled snippet from `snippets/` in the page realm and returns a circular-safe JSON envelope. It uses helper HTTP/WebSocket transport; Playwright is not required.
+`eval-page` executes a script in the page realm and returns a circular-safe JSON envelope. It uses helper HTTP/WebSocket transport; Playwright is not required. The script is a packaged snippet from `snippets/`, a file, or `-` for a throwaway script on stdin.
 
-- Prefer a snippet for one-off probes, reproducible procedures, or composed stimuli.
+- Use a command when one answers the question. Otherwise write a [page script](references/page-scripts.md) against `chippy`, the toolkit of fiber selection, relations, geometry, hook reads, and overlay that every script receives. Follow that reference's rules: return refs, read `limits` and `sideEffects`, and clear the overlay you paint.
+- Pass `--allow replay` only after the [debug replay preflight](references/active-stimulus.md#debug-replay-preflight); without it, custom-hook names and `chippy.hooks.callers` fail the run with `gate: "replay"`.
+- Prefer a snippet for reproducible procedures or composed stimuli that will be run again.
 - Promote a reusable, round-trip-sensitive capability to the bridge and keep its procedure in a snippet.
 - Read-only snippets may inspect fibers and page state. Stateful or active snippets must document their ownership and anchor contract.
 - `stability-nudge` schedules one extra render via the first-class `fiber-schedule-update` capability. It does not mutate a hook or prop, but the extra commit and any effects it runs are the stimulus.

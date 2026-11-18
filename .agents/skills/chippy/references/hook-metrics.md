@@ -134,8 +134,8 @@ Returns `{ available, label, before, after, delta, clicked, settleMs }`. **Metri
 if the patch is absent / wiped / `NaN` it returns `{ available:false, reason }` and never
 throws.
 
-The whole sample runs inside the five-second page-script limit: keep
-`settleMs + clicks × min(80, settleMs)` under about 4500 ms. `--click` dispatches
+The whole sample runs inside the page-script timeout, five seconds by default: keep
+`settleMs + clicks × min(80, settleMs)` under about 4500 ms, or pass `--script-timeout`. `--click` dispatches
 `element.click()` on the first matching `data-testid`, which is a page stimulus; state the
 anchor contract before using it.
 

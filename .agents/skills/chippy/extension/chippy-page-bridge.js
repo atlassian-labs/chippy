@@ -992,7 +992,21 @@
   // Snippet receives ctx = { args, helpers, log[] }. Must return a JSON-serializable value.
   // Helpers walk React fibers from all roots discovered via DevTools renderer interface.
 
+  // Delegated to avalanche.iife.js — see src/chippy-bridge/script-kit/run-script.ts.
+  // The fallback below is the pre-toolkit runner, kept for a bundle that
+  // predates runChippyScript; it has no ctx.chippy, limits, or gates.
   async function evalScript(command) {
+    const b = getBridge();
+    if (b && typeof b.runChippyScript === 'function') {
+      return b.runChippyScript(command, {
+        buildHelpers: buildScriptHelpers,
+        rememberFiber,
+        getRememberedFiber,
+        evalFiberHooks,
+        replayComponentHooks,
+        scriptResultJson,
+      });
+    }
     const startedAt = Date.now();
     const source = String(command.source || '');
     const args = command.args && typeof command.args === 'object' ? command.args : {};
@@ -2107,6 +2121,7 @@
       evalDescribeComponent,
       evalExplainComponent,
       evalInspectFiberStructure,
+      evalScript,
       rememberFiber,
     },
     destroy,

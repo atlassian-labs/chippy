@@ -573,7 +573,7 @@ function createComponentOriginResolver(deps) {
       occurrences: 0
     };
   }
-  function resolve(type) {
+  function resolve2(type) {
     const fn = componentFunctionOf(type);
     if (!fn) return Promise.resolve(unsupported(null, "unsupported"));
     const cached = pending.get(fn);
@@ -596,7 +596,7 @@ function createComponentOriginResolver(deps) {
     if (!fn) return Promise.resolve(null);
     let answer = referenced.get(fn);
     if (!answer) {
-      answer = resolve(fn).then((origin) => {
+      answer = resolve2(fn).then((origin) => {
         const where = located.get(fn);
         if (origin.status !== "resolved" || !origin.name || !where) return null;
         const names = /* @__PURE__ */ new Set();
@@ -616,7 +616,7 @@ function createComponentOriginResolver(deps) {
     settled.set(fn, origin);
     pending.set(fn, Promise.resolve(origin));
   }
-  return { resolve, peek, references, settle, stats };
+  return { resolve: resolve2, peek, references, settle, stats };
 }
 const SCRIPT_PATH = /\.(?:m?js|cjs|jsx|tsx?)$/i;
 function isChippyAsset(url) {
@@ -846,7 +846,7 @@ function slashPath(fileName) {
 }
 function servedModuleUrls(fileName, page) {
   const file = slashPath(fileName);
-  const matches = /* @__PURE__ */ new Map();
+  const matches2 = /* @__PURE__ */ new Map();
   for (const raw of page.resourceUrls) {
     let url;
     try {
@@ -858,9 +858,9 @@ function servedModuleUrls(fileName, page) {
     const path = decodedPath(url.pathname).replace(/^\/@fs(?=\/)/, "");
     const tail = /^\/[A-Za-z]:\//.test(path) && /^[A-Za-z]:\//.test(file) ? path.slice(1) : path;
     if (tail.length < 2 || !file.endsWith(tail)) continue;
-    matches.set(tail, { url: url.href, length: tail.length });
+    matches2.set(tail, { url: url.href, length: tail.length });
   }
-  const ranked = [...matches.values()].sort((a, b) => b.length - a.length).map((entry) => entry.url);
+  const ranked = [...matches2.values()].sort((a, b) => b.length - a.length).map((entry) => entry.url);
   if (page.vite && (file.startsWith("/") || /^[A-Za-z]:\//.test(file))) {
     const fsUrl = new URL(`/@fs${file.startsWith("/") ? "" : "/"}${file}`, page.origin).href;
     if (!ranked.includes(fsUrl)) ranked.push(fsUrl);
@@ -921,17 +921,17 @@ function parseStackFrames$1(stack) {
 function isVendorPath(path) {
   return path.includes("node_modules") || path.includes("/.vite/deps/") || path.includes("/.yarn/");
 }
-function rawLocation(frame) {
-  return { fileName: frame.url, lineNumber: frame.line, columnNumber: frame.column };
+function rawLocation(frame2) {
+  return { fileName: frame2.url, lineNumber: frame2.line, columnNumber: frame2.column };
 }
 function locationFromOriginal(original) {
   return { fileName: original.source, lineNumber: original.line, columnNumber: original.column };
 }
 function writerLocationOf(frames, originalFor) {
-  for (const frame of frames) {
-    if (isVendorPath(frame.url)) continue;
-    const original = originalFor(frame);
-    if (original === null) return rawLocation(frame);
+  for (const frame2 of frames) {
+    if (isVendorPath(frame2.url)) continue;
+    const original = originalFor(frame2);
+    if (original === null) return rawLocation(frame2);
     if (isVendorPath(original.source)) continue;
     return locationFromOriginal(original);
   }
@@ -949,10 +949,10 @@ function createCallSiteResolver(fetchModule, moduleUrlsFor = () => []) {
     located: 0
   };
   const mapsFor = (url) => modules.forUrl(url);
-  async function locateFrame(frame) {
-    const parsed = await mapsFor(frame.url);
+  async function locateFrame(frame2) {
+    const parsed = await mapsFor(frame2.url);
     if (!parsed || parsed.maps.length === 0) return null;
-    const original = originalPositionFor(parsed.maps, frame.line, frame.column);
+    const original = originalPositionFor(parsed.maps, frame2.line, frame2.column);
     if (!original) return null;
     return {
       fileName: sourcePath(original.source, parsed.sourceBaseUrl),
@@ -961,17 +961,17 @@ function createCallSiteResolver(fetchModule, moduleUrlsFor = () => []) {
     };
   }
   async function locate(frames) {
-    for (const frame of frames) {
-      if (isVendorPath(frame.url)) continue;
-      const key = `${frame.url}:${frame.line}:${frame.column}`;
+    for (const frame2 of frames) {
+      if (isVendorPath(frame2.url)) continue;
+      const key = `${frame2.url}:${frame2.line}:${frame2.column}`;
       let answer = sites.get(key);
       if (!answer) {
         stats.sites += 1;
-        answer = locateFrame(frame);
+        answer = locateFrame(frame2);
         sites.set(key, answer);
       }
       const located = await answer;
-      const chosen = located === null ? writerLocationOf([frame], () => null) : isVendorPath(located.fileName) ? null : located;
+      const chosen = located === null ? writerLocationOf([frame2], () => null) : isVendorPath(located.fileName) ? null : located;
       if (chosen) {
         stats.located += 1;
         return chosen;
@@ -1023,9 +1023,9 @@ function getFiberStackFrames(fiber) {
   const stack = fiber._debugStack.stack;
   if (typeof stack !== "string" || stack === "") return [];
   const candidates = [];
-  for (const frame of parseStackFrames$1(stack)) {
-    if (isVendorPath(frame.url)) continue;
-    candidates.push(frame);
+  for (const frame2 of parseStackFrames$1(stack)) {
+    if (isVendorPath(frame2.url)) continue;
+    candidates.push(frame2);
     if (candidates.length >= MAX_CALL_SITE_FRAMES) break;
   }
   return candidates;
@@ -1856,7 +1856,7 @@ function isHookFrameName(name) {
   return /^use[A-Z0-9_]/.test(name.slice(name.lastIndexOf(".") + 1));
 }
 function deriveComponentName(frames) {
-  const wrapper = frames.findIndex((frame) => frame.name === "atlDispatcherHook" || frame.name.endsWith(".atlDispatcherHook"));
+  const wrapper = frames.findIndex((frame2) => frame2.name === "atlDispatcherHook" || frame2.name.endsWith(".atlDispatcherHook"));
   for (const { name } of wrapper >= 0 ? frames.slice(wrapper + 1) : frames) {
     if (!name) continue;
     if (isReactInternalFrameName(name)) continue;
@@ -1879,15 +1879,15 @@ function deriveComponentNameFromStack(stack) {
   let start = stack.indexOf("\n");
   while (start >= 0) {
     const end = stack.indexOf("\n", start + 1);
-    const frame = parseStackLine(stack.slice(start + 1, end < 0 ? void 0 : end));
+    const frame2 = parseStackLine(stack.slice(start + 1, end < 0 ? void 0 : end));
     start = end;
-    if (!frame) continue;
+    if (!frame2) continue;
     if (afterWrapper) {
-      if (isComponentFrame(frame.name)) return frame.name;
-    } else if (isWrapperFrame(frame.name)) {
+      if (isComponentFrame(frame2.name)) return frame2.name;
+    } else if (isWrapperFrame(frame2.name)) {
       afterWrapper = true;
     } else {
-      seen.push(frame);
+      seen.push(frame2);
     }
   }
   return afterWrapper ? "Unknown" : deriveComponentName(seen);
@@ -2343,7 +2343,7 @@ function describeInputEvent(event) {
   return details;
 }
 const CHIPPY_UI_SELECTOR = "[data-chippy-ui], [data-layout-lab-panel]";
-function isChippyUi(node) {
+function isChippyUi$1(node) {
   return typeof Element !== "undefined" && node instanceof Element && node.matches(CHIPPY_UI_SELECTOR);
 }
 const EXPLICIT_INTERACTION_EVENTS = ["click", "keydown", "keyup", "input", "change", "submit"];
@@ -2426,7 +2426,7 @@ function createInteractionCapture(options = {}) {
   }
   function capture(event) {
     const path = typeof event.composedPath === "function" ? event.composedPath() : [];
-    if (path.some(isChippyUi)) return;
+    if (path.some(isChippyUi$1)) return;
     const pathTarget = path[0] ?? null;
     const target = pathTarget instanceof Element ? pathTarget : event.target;
     state2.actions.push({
@@ -2668,12 +2668,12 @@ function createAvalancheHookRunner(source = getAvalancheHooks) {
   let sessions = /* @__PURE__ */ new Map();
   let commits = 0;
   let started = false;
-  function fail2(session, error) {
-    session.result.errorCount += 1;
-    if (session.result.errors.length < MAX_RECORDED_ERRORS) session.result.errors.push(error);
+  function fail2(session2, error) {
+    session2.result.errorCount += 1;
+    if (session2.result.errors.length < MAX_RECORDED_ERRORS) session2.result.errors.push(error);
   }
   function open(hooks, runStart) {
-    const session = {
+    const session2 = {
       hooks,
       context: { id: hooks.id, state: {}, commits },
       result: {
@@ -2685,15 +2685,15 @@ function createAvalancheHookRunner(source = getAvalancheHooks) {
       },
       stepFailures: 0
     };
-    sessions.set(hooks, session);
+    sessions.set(hooks, session2);
     if (runStart && hooks.onStart) {
       try {
-        session.result.start = toEvidence(hooks.onStart(session.context));
+        session2.result.start = toEvidence(hooks.onStart(session2.context));
       } catch (error) {
-        fail2(session, { phase: "start", message: messageOf(error) });
+        fail2(session2, { phase: "start", message: messageOf(error) });
       }
     }
-    return session;
+    return session2;
   }
   function current() {
     const live = source();
@@ -2715,8 +2715,8 @@ function createAvalancheHookRunner(source = getAvalancheHooks) {
     /** Run onStep for one captured commit. */
     step(commit) {
       commits += 1;
-      for (const session of current()) {
-        const { hooks, context, result } = session;
+      for (const session2 of current()) {
+        const { hooks, context, result } = session2;
         context.commits = commits;
         if (!hooks.onStep || result.stepDisabled) continue;
         context.commit = commit;
@@ -2724,9 +2724,9 @@ function createAvalancheHookRunner(source = getAvalancheHooks) {
           const value = toEvidence(hooks.onStep(context));
           if (value !== void 0) result.steps[commit.id] = value;
         } catch (error) {
-          fail2(session, { phase: "step", commitId: commit.id, message: messageOf(error) });
-          session.stepFailures += 1;
-          if (session.stepFailures >= MAX_STEP_FAILURES) result.stepDisabled = true;
+          fail2(session2, { phase: "step", commitId: commit.id, message: messageOf(error) });
+          session2.stepFailures += 1;
+          if (session2.stepFailures >= MAX_STEP_FAILURES) result.stepDisabled = true;
         } finally {
           context.commit = void 0;
         }
@@ -2737,8 +2737,8 @@ function createAvalancheHookRunner(source = getAvalancheHooks) {
       const live = current();
       if (live.length === 0) return null;
       const out = {};
-      for (const session of live) {
-        const { hooks, context, result } = session;
+      for (const session2 of live) {
+        const { hooks, context, result } = session2;
         context.commits = commits;
         const snapshot = { ...result, steps: { ...result.steps }, errors: [...result.errors] };
         if (hooks.onEnd) {
@@ -3717,9 +3717,9 @@ function elementName(value) {
   }
   return "Anonymous";
 }
-var __defProp = Object.defineProperty;
-var __defNormalProp = (obj, key, value) => key in obj ? __defProp(obj, key, { enumerable: true, configurable: true, writable: true, value }) : obj[key] = value;
-var __publicField = (obj, key, value) => __defNormalProp(obj, typeof key !== "symbol" ? key + "" : key, value);
+var __defProp$1 = Object.defineProperty;
+var __defNormalProp$1 = (obj, key, value) => key in obj ? __defProp$1(obj, key, { enumerable: true, configurable: true, writable: true, value }) : obj[key] = value;
+var __publicField$1 = (obj, key, value) => __defNormalProp$1(obj, typeof key !== "symbol" ? key + "" : key, value);
 function summarizeFiberSource(fiber) {
   const source = getFiberSourceCandidate(fiber);
   return source ? { fileName: source.fileName, lineNumber: source.lineNumber } : null;
@@ -3766,10 +3766,10 @@ function createAvalancheDetector(options = {}) {
   const valueProvenance = /* @__PURE__ */ new WeakMap();
   class StableSourceIdManager {
     constructor() {
-      __publicField(this, "idMap", /* @__PURE__ */ new WeakMap());
-      __publicField(this, "typeToId", /* @__PURE__ */ new WeakMap());
-      __publicField(this, "instanceCounters", /* @__PURE__ */ new Map());
-      __publicField(this, "nextTypeId", 1);
+      __publicField$1(this, "idMap", /* @__PURE__ */ new WeakMap());
+      __publicField$1(this, "typeToId", /* @__PURE__ */ new WeakMap());
+      __publicField$1(this, "instanceCounters", /* @__PURE__ */ new Map());
+      __publicField$1(this, "nextTypeId", 1);
     }
     getSourceId(fiber, type, depth) {
       let sourceId = this.idMap.get(fiber);
@@ -3832,13 +3832,13 @@ function createAvalancheDetector(options = {}) {
     if (!type) return "Unknown";
     return type.displayName || type.name || String(type);
   }
-  function isDebugInternalFrame(frame, componentName) {
+  function isDebugInternalFrame(frame2, componentName) {
     var _a2, _b2;
-    const name = frame.name || "";
+    const name = frame2.name || "";
     return !!((_b2 = (_a2 = metricsAdapter ?? resolveMetricsAdapter()) == null ? void 0 : _a2.frameFilters) == null ? void 0 : _b2.includes(name)) || name === "record" || name === componentName || name.includes("react-dom") || name.includes("renderWithHooks") || name.includes("mount") || name.includes("update");
   }
   function parentFramesForEvent(event, componentName) {
-    return event.frames.filter((frame) => !isDebugInternalFrame(frame, componentName));
+    return event.frames.filter((frame2) => !isDebugInternalFrame(frame2, componentName));
   }
   function captureMetricsSnapshot() {
     return (metricsAdapter == null ? void 0 : metricsAdapter.snapshot()) ?? null;
@@ -5525,7 +5525,7 @@ function replayComponentHooks(fiber) {
 const MAX_BOUNDARY_FIBERS = 400;
 const SUSPENSE_TAG$1 = 13;
 const CLASS_COMPONENT_TAG$1 = 1;
-function fiberTag$1(fiber) {
+function fiberTag$2(fiber) {
   return fiber.tag;
 }
 function describeErrorBoundary(fiber) {
@@ -5533,7 +5533,7 @@ function describeErrorBoundary(fiber) {
   const componentName = getDisplayName(fiber.type) || getDisplayName(fiber.elementType);
   const type = fiber.type;
   const hasLifecycle = !!type && (typeof type.getDerivedStateFromError === "function" || typeof ((_a2 = type.prototype) == null ? void 0 : _a2.componentDidCatch) === "function");
-  if (hasLifecycle && (fiberTag$1(fiber) === CLASS_COMPONENT_TAG$1 || fiberTag$1(fiber) === void 0)) {
+  if (hasLifecycle && (fiberTag$2(fiber) === CLASS_COMPONENT_TAG$1 || fiberTag$2(fiber) === void 0)) {
     return { componentName: componentName || "ErrorBoundary", detectedBy: "lifecycle" };
   }
   if (componentName && /ErrorBoundary$/.test(componentName)) {
@@ -5543,7 +5543,7 @@ function describeErrorBoundary(fiber) {
 }
 function describeSuspenseBoundary(fiber) {
   const displayName = getDisplayName(fiber.type) || getDisplayName(fiber.elementType);
-  const isSuspense = fiberTag$1(fiber) === SUSPENSE_TAG$1 || displayName === "Suspense" || displayName === "SuspenseComponent" || displayName === "SuspenseList";
+  const isSuspense = fiberTag$2(fiber) === SUSPENSE_TAG$1 || displayName === "Suspense" || displayName === "SuspenseComponent" || displayName === "SuspenseList";
   if (!isSuspense) return null;
   return { componentName: displayName || "Suspense" };
 }
@@ -6128,7 +6128,7 @@ function compileComponents(pack) {
     matchBoundary(fiber) {
       const name = displayNameOf(fiber);
       if (!name) return null;
-      const hit = rules.find(({ rule, matches }) => rule.kind !== "error" && matches(name));
+      const hit = rules.find(({ rule, matches: matches2 }) => rule.kind !== "error" && matches2(name));
       return hit ? hit.rule.kind : null;
     }
   };
@@ -7017,13 +7017,13 @@ function grid(frames) {
   const cw = width / cols;
   const ch = height / rows;
   const last = new Float64Array(cols * rows).fill(Number.NaN);
-  for (const frame of frames) {
-    for (const [l, t, r, b] of frame.change.rects) {
+  for (const frame2 of frames) {
+    for (const [l, t, r, b] of frame2.change.rects) {
       const c0 = Math.max(0, Math.round(l / cw));
       const c1 = Math.min(cols, Math.round(r / cw));
       const r0 = Math.max(0, Math.round(t / ch));
       const r1 = Math.min(rows, Math.round(b / ch));
-      for (let y = r0; y < r1; y++) for (let x = c0; x < c1; x++) last[y * cols + x] = frame.t;
+      for (let y = r0; y < r1; y++) for (let x = c0; x < c1; x++) last[y * cols + x] = frame2.t;
     }
   }
   return { width, height, cols, rows, cw, ch, last };
@@ -7097,13 +7097,13 @@ function settleMapSvg(frames, title = "When each part of the screen last changed
       x = end;
     }
   }
-  for (const frame of sorted.slice(-3)) {
-    const [l, t, r, b] = frame.change.rects[0];
-    const label = (_a2 = frame.change.regions[0]) == null ? void 0 : _a2.label;
+  for (const frame2 of sorted.slice(-3)) {
+    const [l, t, r, b] = frame2.change.rects[0];
+    const label = (_a2 = frame2.change.regions[0]) == null ? void 0 : _a2.label;
     if (!label) continue;
     const cx = (l + r) / 2 * scale;
     const cy = (t + b) / 2 * scale;
-    parts.push(`<text x="${cx.toFixed(0)}" y="${cy.toFixed(0)}" text-anchor="middle" fill="#fff" stroke="#000" stroke-width="2.5" paint-order="stroke">${escapeXml(`${label} +${frame.t}`)}</text>`);
+    parts.push(`<text x="${cx.toFixed(0)}" y="${cy.toFixed(0)}" text-anchor="middle" fill="#fff" stroke="#000" stroke-width="2.5" paint-order="stroke">${escapeXml(`${label} +${frame2.t}`)}</text>`);
   }
   const sw = Math.max(18, Math.floor((w - 120) / RAMP.length));
   parts.push(`<rect x="0" y="${h + 8}" width="14" height="12" fill="${UNCHANGED}"/><text x="18" y="${h + 18}" fill="#444">unchanged</text>`);
@@ -8067,10 +8067,10 @@ function grepValue(root, re, scope, rootPath, limits, hits, skipRootKeys = /* @_
   visit(root, rootPath, 0);
 }
 const CLASS_COMPONENT_TAG = 1;
-const HOST_TAGS = /* @__PURE__ */ new Set([5, 6, 26, 27]);
+const HOST_TAGS$1 = /* @__PURE__ */ new Set([5, 6, 26, 27]);
 function hookSlots(fiber) {
   const out = [];
-  if (fiber.tag === CLASS_COMPONENT_TAG || HOST_TAGS.has(fiber.tag)) return out;
+  if (fiber.tag === CLASS_COMPONENT_TAG || HOST_TAGS$1.has(fiber.tag)) return out;
   const seen = /* @__PURE__ */ new Set();
   let node = fiber.memoizedState;
   let index = 0;
@@ -8127,7 +8127,7 @@ function grepFiber(fiber, re, scopes, limits, replay) {
       replayInfo = { status: result.replayStatus || "unknown", ...result.replayError ? { error: result.replayError } : {} };
       for (const rec of result.records) {
         if (rec.debugLabel === void 0 || hits.length >= limits.maxHits) continue;
-        const hookPath = (rec.path || []).map((frame) => frame.name);
+        const hookPath = (rec.path || []).map((frame2) => frame2.name);
         const before = hits.length;
         const label = "debug" + (hookPath.length ? "(" + hookPath.join(">") + ")" : "");
         grepValue(rec.debugLabel, re, "debug", label, limits, hits);
@@ -8298,7 +8298,7 @@ function evalFindFibers(filters, helpers, rememberFiber, deps = {}) {
   }
   const propName = (filters == null ? void 0 : filters.prop) ? String(filters.prop) : null;
   const max = Number.isFinite(Number(filters == null ? void 0 : filters.max)) ? Math.max(1, Math.floor(Number(filters == null ? void 0 : filters.max))) : 50;
-  const matches = [];
+  const matches2 = [];
   let grepRe;
   try {
     grepRe = filterRegex(filters == null ? void 0 : filters.grep, "grep");
@@ -8319,7 +8319,7 @@ function evalFindFibers(filters, helpers, rememberFiber, deps = {}) {
   let truncated = false;
   helpers.walkAll((fiber) => {
     var _a2;
-    if (matches.length >= max) {
+    if (matches2.length >= max) {
       truncated = true;
       return;
     }
@@ -8356,7 +8356,7 @@ function evalFindFibers(filters, helpers, rememberFiber, deps = {}) {
       hits = result.hits;
     }
     const fiberId = rememberFiber(fiber);
-    matches.push({
+    matches2.push({
       fiberId,
       ...info,
       ...possibleNames ? { match: "possible", possibleNames } : {},
@@ -8364,12 +8364,12 @@ function evalFindFibers(filters, helpers, rememberFiber, deps = {}) {
       ...replayInfo && replayInfo.status !== "complete" ? { replay: replayInfo } : {}
     });
   }, { limit: 2e5 });
-  const possible = matches.filter((item) => item.match === "possible").length;
+  const possible = matches2.filter((item) => item.match === "possible").length;
   const possibleMatches = possible ? { possibleMatches: possible } : {};
-  if (!grepRe) return { count: matches.length, items: matches, ...possibleMatches };
+  if (!grepRe) return { count: matches2.length, items: matches2, ...possibleMatches };
   return {
-    count: matches.length,
-    items: matches,
+    count: matches2.length,
+    items: matches2,
     ...possibleMatches,
     truncated,
     grep: {
@@ -8381,12 +8381,12 @@ function evalFindFibers(filters, helpers, rememberFiber, deps = {}) {
     }
   };
 }
-async function resolveFindFiberSources(items, getFiber2, resolve) {
+async function resolveFindFiberSources(items, getFiber2, resolve2) {
   await Promise.all(items.map(async (item) => {
     const fiber = item.fiberId == null ? null : getFiber2(String(item.fiberId));
     if (!fiber) return;
     try {
-      const source = await resolve(fiber);
+      const source = await resolve2(fiber);
       if (source) item.source = source;
     } catch {
     }
@@ -8488,6 +8488,146 @@ function scriptResultJson(value, options = {}) {
     result._truncated = true;
   }
   return result;
+}
+const TAG = {
+  hostRoot: 3,
+  hostPortal: 4,
+  hostComponent: 5,
+  hostText: 6,
+  suspense: 13,
+  offscreen: 22,
+  legacyHidden: 23,
+  hostHoistable: 26,
+  hostSingleton: 27
+};
+const COMPOSITE_TAGS$1 = /* @__PURE__ */ new Set([0, 1, 2, 11, 14, 15]);
+const HOST_TAGS = /* @__PURE__ */ new Set([TAG.hostComponent, TAG.hostHoistable, TAG.hostSingleton]);
+const HIDDEN_TAGS = /* @__PURE__ */ new Set([TAG.offscreen, TAG.legacyHidden]);
+const MAX_CLIMB = 2e3;
+function fiberTag$1(fiber) {
+  return typeof (fiber == null ? void 0 : fiber.tag) === "number" ? fiber.tag : -1;
+}
+function isHostFiber(fiber) {
+  return HOST_TAGS.has(fiberTag$1(fiber));
+}
+function classifyFiber(fiber) {
+  const tag = fiberTag$1(fiber);
+  if (tag === TAG.suspense || describeSuspenseBoundary(fiber)) return "suspense";
+  if (COMPOSITE_TAGS$1.has(tag) || tag === -1) {
+    if (describeErrorBoundary(fiber)) return "error";
+    if (tag !== -1) return "component";
+  }
+  if (HOST_TAGS.has(tag)) return "host";
+  if (tag === TAG.hostText) return "text";
+  if (tag === TAG.hostPortal) return "portal";
+  return "other";
+}
+function fiberName$1(fiber) {
+  const tag = fiberTag$1(fiber);
+  if (HOST_TAGS.has(tag)) return typeof fiber.type === "string" ? fiber.type : null;
+  if (tag === TAG.suspense) return readComponentName(fiber.type) || "Suspense";
+  return readComponentName(fiber.type) || readComponentName(fiber.elementType);
+}
+function currentOf(fiber) {
+  const alternate = fiber.alternate;
+  if (!alternate) return fiber;
+  let node = fiber;
+  let steps = 0;
+  while (node && node.return && steps++ < MAX_CLIMB) node = node.return;
+  if (node && fiberTag$1(node) === TAG.hostRoot) {
+    const root = node.stateNode;
+    if (root && root.current) return root.current === node ? fiber : alternate;
+  }
+  return fiber;
+}
+const rememberedIds = /* @__PURE__ */ new WeakMap();
+function createRefRegistry(deps) {
+  const refs = /* @__PURE__ */ new WeakMap();
+  const fibers = /* @__PURE__ */ new WeakMap();
+  function rememberedId(fiber) {
+    const known = rememberedIds.get(fiber) || (fiber.alternate ? rememberedIds.get(fiber.alternate) : void 0);
+    if (known) return known;
+    const id = String(deps.rememberFiber(fiber));
+    rememberedIds.set(fiber, id);
+    if (fiber.alternate) rememberedIds.set(fiber.alternate, id);
+    return id;
+  }
+  function live(ref2) {
+    return currentOf(fibers.get(ref2));
+  }
+  function ref(fiber) {
+    const existing = refs.get(fiber) || (fiber.alternate ? refs.get(fiber.alternate) : void 0);
+    if (existing) return existing;
+    let kind = null;
+    const made = {
+      get id() {
+        return rememberedId(live(made));
+      },
+      get name() {
+        return fiberName$1(live(made));
+      },
+      get kind() {
+        return kind || (kind = classifyFiber(live(made)));
+      },
+      get tag() {
+        return fiberTag$1(live(made));
+      },
+      get key() {
+        const k = live(made).key;
+        return k == null ? null : String(k);
+      },
+      get source() {
+        return describeFiberSource(live(made));
+      },
+      get status() {
+        const k = made.kind;
+        if (k === "suspense") return live(made).memoizedState == null ? "showing-content" : "showing-fallback";
+        return k === "error" ? "unknown" : null;
+      },
+      get hidden() {
+        return isHidden(live(made));
+      },
+      get raw() {
+        deps.ledger.add("ref.raw", "raw", "the script read a raw fiber; results built from it bypass the kit guarantees");
+        return live(made);
+      },
+      resolveSource() {
+        return resolveFiberSource(live(made));
+      },
+      toJSON() {
+        return { fiberId: made.id, name: made.name, kind: made.kind, source: made.source };
+      },
+      toString() {
+        return `${made.name || made.kind} (${made.id})`;
+      }
+    };
+    fibers.set(made, fiber);
+    refs.set(fiber, made);
+    if (fiber.alternate) refs.set(fiber.alternate, made);
+    return made;
+  }
+  return {
+    ref,
+    refOrNull(fiber) {
+      return fiber ? ref(fiber) : null;
+    },
+    isRef(value) {
+      return !!value && typeof value === "object" && fibers.has(value);
+    },
+    fiberOf: live
+  };
+}
+function isHidden(fiber) {
+  let node = fiber.return || null;
+  let steps = 0;
+  while (node && steps++ < MAX_CLIMB) {
+    if (HIDDEN_TAGS.has(fiberTag$1(node))) {
+      const current = currentOf(node);
+      if (current.memoizedState != null) return true;
+    }
+    node = node.return || null;
+  }
+  return false;
 }
 const SUSPENSE_TAG = 13;
 const OFFSCREEN_TAGS = /* @__PURE__ */ new Set([22, 23]);
@@ -8668,7 +8808,7 @@ function measureComponentArea(options = {}, geometry = domGeometry, doc = typeof
   return {
     ok: true,
     at: round$1(startedAt, 1),
-    root: { label: rootLabel(options.root ?? null, rootEl), rect: roundRect(clip2), area: Math.round(rootArea) },
+    root: { label: rootLabel(options.root ?? null, rootEl), rect: roundRect$1(clip2), area: Math.round(rootArea) },
     cellSize: cell,
     placeholder: { area: Math.round(placeholder.area()), share: share(placeholder.area()) },
     content: { area: Math.round(content.area()), share: share(content.area()) },
@@ -8707,8 +8847,698 @@ function round$1(n, digits) {
   const f = 10 ** digits;
   return Math.round(n * f) / f;
 }
+function roundRect$1(r) {
+  return { left: Math.round(r.left), top: Math.round(r.top), right: Math.round(r.right), bottom: Math.round(r.bottom) };
+}
+function createGeometry(deps) {
+  const { registry } = deps;
+  const geometry = deps.geometry || domGeometry;
+  function hostNodes(ref) {
+    const root = registry.fiberOf(ref);
+    const out = [];
+    const stack = [root];
+    while (stack.length) {
+      const fiber = stack.pop();
+      if (fiber !== root && fiber.sibling) stack.push(fiber.sibling);
+      const node = fiber.stateNode;
+      if ((isHostFiber(fiber) || fiberTag$1(fiber) === TAG.hostText) && node && typeof node.nodeType === "number") {
+        out.push(node);
+      } else if (fiber.child) {
+        stack.push(fiber.child);
+      }
+    }
+    return out;
+  }
+  function nodeRects(node) {
+    const rects2 = node.nodeType === 3 ? geometry.textRects(node) : [geometry.rect(node)];
+    return rects2.filter((r) => rectArea(r) > 0);
+  }
+  function rects(ref) {
+    return hostNodes(ref).flatMap(nodeRects).map(roundRect);
+  }
+  function bounds(target) {
+    const refs = (Array.isArray(target) ? target : [target]).filter((r) => !!r);
+    const boxes = refs.flatMap((ref) => hostNodes(ref).flatMap(nodeRects));
+    return boxes.length ? roundRect(unionBox(boxes)) : null;
+  }
+  function area(target) {
+    const refs = (Array.isArray(target) ? target : [target]).filter((r) => !!r);
+    const boxes = [];
+    let nodes = 0;
+    for (const ref of refs) {
+      for (const node of hostNodes(ref)) {
+        nodes += 1;
+        boxes.push(...nodeRects(node));
+      }
+    }
+    if (boxes.length === 0) return { area: 0, visibleArea: 0, box: null, nodes, cellSize: 1 };
+    const box = unionBox(boxes);
+    const whole = createAreaGrid(box);
+    for (const r of boxes) whole.add(r);
+    const viewport = intersectRect(box, geometry.viewport());
+    let visibleArea = 0;
+    if (viewport) {
+      const visible = createAreaGrid(viewport);
+      for (const r of boxes) visible.add(r);
+      visibleArea = visible.area();
+    }
+    return {
+      area: Math.round(whole.area()),
+      visibleArea: Math.round(visibleArea),
+      box: roundRect(box),
+      nodes,
+      cellSize: whole.cell
+    };
+  }
+  return { hostNodes, rects, bounds, area };
+}
+function unionBox(boxes) {
+  return boxes.reduce((acc, r) => ({
+    left: Math.min(acc.left, r.left),
+    top: Math.min(acc.top, r.top),
+    right: Math.max(acc.right, r.right),
+    bottom: Math.max(acc.bottom, r.bottom)
+  }));
+}
 function roundRect(r) {
   return { left: Math.round(r.left), top: Math.round(r.top), right: Math.round(r.right), bottom: Math.round(r.bottom) };
+}
+var __defProp = Object.defineProperty;
+var __defNormalProp = (obj, key, value) => key in obj ? __defProp(obj, key, { enumerable: true, configurable: true, writable: true, value }) : obj[key] = value;
+var __publicField = (obj, key, value) => __defNormalProp(obj, key + "", value);
+function createLedger() {
+  const byKey = /* @__PURE__ */ new Map();
+  return {
+    add(primitive, kind, detail) {
+      const key = primitive + "\0" + kind + "\0" + detail;
+      const existing = byKey.get(key);
+      if (existing) existing.count += 1;
+      else byKey.set(key, { primitive, kind, detail, count: 1 });
+    },
+    entries() {
+      return Array.from(byKey.values(), (entry) => ({ ...entry }));
+    }
+  };
+}
+class GateError extends Error {
+  constructor(gate, reason) {
+    super(`${reason} Rerun eval-page with --allow ${gate} after stating the target and what the stimulus pollutes.`);
+    __publicField(this, "gate");
+    this.name = "GateError";
+    this.gate = gate;
+  }
+}
+const SCRIPT_GATES = ["replay"];
+function parseGates(value) {
+  const raw = Array.isArray(value) ? value : typeof value === "string" ? value.split(",") : [];
+  const allowed = [];
+  const unknown = [];
+  for (const item of raw) {
+    const gate = String(item).trim();
+    if (!gate) continue;
+    if (SCRIPT_GATES.includes(gate)) {
+      if (!allowed.includes(gate)) allowed.push(gate);
+    } else if (!unknown.includes(gate)) {
+      unknown.push(gate);
+    }
+  }
+  return { allowed, unknown };
+}
+const HOOK_COMPONENT_TAGS = /* @__PURE__ */ new Set([0, 11, 14, 15]);
+const DEFAULT_MAX_REPLAYS = 2e3;
+function bareHookName(frameName) {
+  return frameName.slice(frameName.lastIndexOf(".") + 1);
+}
+function matchesHook(matcher, name) {
+  if (matcher instanceof RegExp) {
+    matcher.lastIndex = 0;
+    return matcher.test(name);
+  }
+  return name === matcher;
+}
+function createHooks(deps) {
+  const { registry, ledger } = deps;
+  const cache = /* @__PURE__ */ new Map();
+  function requireReplay(what) {
+    if (!deps.allowed.includes("replay")) {
+      ledger.add("hooks", "gap", `${what} needs --allow replay`);
+      throw new GateError("replay", `${what} runs component render functions through debug replay.`);
+    }
+  }
+  function fiberOnly(ref) {
+    const raw = deps.evalFiberHooks(registry.fiberOf(ref));
+    if (raw.truncated) ledger.add("hooks", "truncated", `hook list cut at ${raw.maxHooks} hooks`);
+    return {
+      component: ref,
+      status: "fiber-only",
+      hooks: raw.hooks.map((hook) => ({
+        index: hook.index,
+        primitive: hook.tag,
+        path: [],
+        value: hook.value !== void 0 ? hook.value : hook.current !== void 0 ? hook.current : hook.deps
+      })),
+      customHooks: [],
+      truncated: raw.truncated,
+      error: raw.error || null
+    };
+  }
+  function replayed(ref) {
+    const cached = cache.get(ref);
+    if (cached) return cached;
+    const raw = deps.replayComponentHooks(registry.fiberOf(ref));
+    if (raw.replayStatus !== "complete") {
+      ledger.add("hooks", "confidence", `replay ${raw.replayStatus}${raw.replayError ? ": " + raw.replayError : ""}`);
+    }
+    const customHooks = [];
+    const hooks2 = raw.records.map((record) => {
+      const path = (record.path || []).map((frame2) => bareHookName(frame2.name));
+      for (const name of path) if (!customHooks.includes(name)) customHooks.push(name);
+      return { index: record.index, primitive: record.primitive, path, value: record.value };
+    });
+    const result = {
+      component: ref,
+      status: raw.replayStatus,
+      hooks: hooks2,
+      customHooks,
+      truncated: false,
+      error: raw.replayError || null
+    };
+    cache.set(ref, result);
+    return result;
+  }
+  function hooks(ref, options = {}) {
+    if (!options.replay) return fiberOnly(ref);
+    requireReplay("hooks(ref, { replay: true })");
+    return replayed(ref);
+  }
+  function callers(hook, options = {}) {
+    requireReplay(`hooks.callers(${String(hook)})`);
+    const maxReplays = Math.max(1, Math.floor(options.maxReplays ?? DEFAULT_MAX_REPLAYS));
+    const { maxReplays: _ignored, ...query } = options;
+    const candidates = deps.find({ kind: "component", ...query, where: (ref) => HOOK_COMPONENT_TAGS.has(ref.tag) });
+    if (candidates.length > maxReplays) {
+      ledger.add("hooks.callers", "truncated", `replayed ${maxReplays} of ${candidates.length} candidate components; narrow with name, file, or within`);
+    }
+    return candidates.slice(0, maxReplays).filter((ref) => replayed(ref).customHooks.some((name) => matchesHook(hook, name)));
+  }
+  function props(ref) {
+    const value = registry.fiberOf(ref).memoizedProps;
+    return value && typeof value === "object" ? value : {};
+  }
+  return { hooks: Object.assign(hooks, { callers }), props };
+}
+const KIND_COLORS = {
+  suspense: "#1D7AFC",
+  error: "#E2483D",
+  component: "#8270DB",
+  host: "#22A06B",
+  text: "#758195",
+  portal: "#758195",
+  other: "#758195"
+};
+const MAX_BOXES = 500;
+const INSET_PX = 3;
+const REFRESH_MS = 1e3;
+const sets = /* @__PURE__ */ new Map();
+let host = null;
+let layer = null;
+let frame = 0;
+let timer = null;
+let activeDeps = null;
+function resolve(value, ref, index, fallback) {
+  if (value === void 0) return fallback;
+  return typeof value === "function" ? value(ref, index) : value;
+}
+function schedule$1() {
+  if (frame || typeof requestAnimationFrame !== "function") return;
+  frame = requestAnimationFrame(() => {
+    frame = 0;
+    render();
+  });
+}
+function mount(doc) {
+  if (host && host.isConnected) return;
+  host = doc.createElement("div");
+  host.setAttribute("data-chippy-ui", "true");
+  host.setAttribute("data-chippy-overlay", "true");
+  host.style.cssText = "position:fixed;inset:0;pointer-events:none;z-index:2147483646;contain:strict;";
+  const shadow = host.attachShadow({ mode: "open" });
+  shadow.innerHTML = '<style>.b{position:fixed;box-sizing:border-box;border:2px solid var(--c);background:color-mix(in srgb,var(--c) 7%,transparent);border-radius:2px}.b.d{border-style:dashed}.l{position:absolute;left:-2px;top:-2px;transform:translateY(-100%);max-width:360px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font:600 11px/16px system-ui,sans-serif;color:#fff;background:var(--c);padding:0 5px;border-radius:2px 2px 0 0}.l.in{transform:none;border-radius:0 0 2px 0}</style><div class="layer"></div>';
+  layer = shadow.querySelector(".layer");
+  doc.documentElement.appendChild(host);
+  const view = doc.defaultView || window;
+  view.addEventListener("scroll", schedule$1, { capture: true, passive: true });
+  view.addEventListener("resize", schedule$1, { passive: true });
+  timer = setInterval(render, REFRESH_MS);
+}
+function unmount() {
+  var _a2;
+  const view = ((_a2 = host == null ? void 0 : host.ownerDocument) == null ? void 0 : _a2.defaultView) || (typeof window !== "undefined" ? window : null);
+  view == null ? void 0 : view.removeEventListener("scroll", schedule$1, { capture: true });
+  view == null ? void 0 : view.removeEventListener("resize", schedule$1);
+  if (timer) clearInterval(timer);
+  timer = null;
+  if (frame && typeof cancelAnimationFrame === "function") cancelAnimationFrame(frame);
+  frame = 0;
+  host == null ? void 0 : host.remove();
+  host = null;
+  layer = null;
+}
+function render() {
+  if (!layer || !activeDeps) return;
+  const doc = layer.ownerDocument;
+  const fragment = doc.createDocumentFragment();
+  for (const boxes of sets.values()) {
+    for (const box of boxes) {
+      const rect = activeDeps.boxOf(box.ref);
+      if (!rect) continue;
+      const inset = box.depth * INSET_PX;
+      const el = doc.createElement("div");
+      el.className = box.dashed ? "b d" : "b";
+      el.style.setProperty("--c", box.color);
+      el.style.left = rect.left + inset + "px";
+      el.style.top = rect.top + inset + "px";
+      el.style.width = Math.max(0, rect.right - rect.left - 2 * inset) + "px";
+      el.style.height = Math.max(0, rect.bottom - rect.top - 2 * inset) + "px";
+      if (box.label) {
+        const label = doc.createElement("div");
+        label.className = rect.top + inset < 16 || box.depth > 0 ? "l in" : "l";
+        label.textContent = box.label;
+        el.appendChild(label);
+      }
+      fragment.appendChild(el);
+    }
+  }
+  layer.replaceChildren(fragment);
+}
+function paintOverlay(layers, options, deps) {
+  const doc = deps.document || document;
+  const id = String(options.id || "default");
+  const boxes = [];
+  let skipped = 0;
+  for (const spec of Array.isArray(layers) ? layers : [layers]) {
+    (spec.items || []).forEach((ref, index) => {
+      if (!ref || boxes.length >= MAX_BOXES) {
+        if (ref) skipped += 1;
+        return;
+      }
+      if (!deps.boxOf(ref)) {
+        skipped += 1;
+        return;
+      }
+      boxes.push({
+        ref,
+        color: resolve(spec.color, ref, index, "kind") === "kind" ? KIND_COLORS[ref.kind] : resolve(spec.color, ref, index, "kind"),
+        label: resolve(spec.label, ref, index, ref.name),
+        dashed: resolve(spec.dashed, ref, index, ref.status === "showing-fallback"),
+        depth: 0
+      });
+    });
+  }
+  const all = [...boxes, ...Array.from(sets.entries()).filter(([key]) => key !== id).flatMap(([, list]) => list)];
+  for (const box of boxes) box.depth = all.filter((other) => other.ref !== box.ref && deps.isAncestor(other.ref, box.ref)).length;
+  sets.set(id, boxes);
+  activeDeps = deps;
+  mount(doc);
+  render();
+  return { ok: true, id, boxes: boxes.length, skipped };
+}
+function clearOverlay(id) {
+  var _a2;
+  let cleared = 0;
+  if (id === void 0) {
+    for (const list of sets.values()) cleared += list.length;
+    sets.clear();
+  } else {
+    cleared = ((_a2 = sets.get(String(id))) == null ? void 0 : _a2.length) || 0;
+    sets.delete(String(id));
+  }
+  if (sets.size === 0) unmount();
+  else render();
+  return { ok: true, cleared };
+}
+function listOverlay() {
+  return Array.from(sets.entries(), ([id, list]) => ({ id, boxes: list.length }));
+}
+const SHOWN_IN_PARENTS = /* @__PURE__ */ new Set(["component", "error", "suspense"]);
+function createRelate(deps) {
+  const { registry, ledger } = deps;
+  function stopsAt(until, ref) {
+    if (!until) return false;
+    return typeof until === "function" ? !!until(ref) : until === ref;
+  }
+  function parents(ref, options = {}) {
+    const onlyComponents = options.components !== false;
+    const max = Math.max(1, Math.floor(options.max ?? MAX_BOUNDARY_FIBERS));
+    const out = [];
+    let node = registry.fiberOf(ref).return || null;
+    let steps = 0;
+    while (node) {
+      if (++steps > MAX_BOUNDARY_FIBERS * 5) {
+        ledger.add("parents", "truncated", "parent walk stopped at the climb ceiling");
+        break;
+      }
+      const parent = registry.ref(node);
+      const stop = stopsAt(options.until, parent);
+      if (stop && !options.inclusive) break;
+      if (!onlyComponents || SHOWN_IN_PARENTS.has(parent.kind)) {
+        out.push(parent);
+        if (out.length >= max && !stop) {
+          ledger.add("parents", "truncated", `stopped at max ${max} parents`);
+          break;
+        }
+      }
+      if (stop) break;
+      node = node.return || null;
+    }
+    if (options.until && typeof options.until !== "function" && !node) {
+      ledger.add("parents", "gap", "the until fiber is not an ancestor; the walk reached the root");
+    }
+    return out;
+  }
+  function boundaries(ref, options = {}) {
+    const kinds = options.kinds || ["suspense", "error"];
+    return parents(ref, { components: true, max: MAX_BOUNDARY_FIBERS * 5 }).filter((parent) => kinds.includes(parent.kind));
+  }
+  function nearest(ref, kind) {
+    return boundaries(ref, { kinds: [kind] })[0] || null;
+  }
+  function components(ref, query = {}) {
+    return deps.find({ kind: "component", ...query, within: ref });
+  }
+  function distance(from, to) {
+    if (from === to) return 0;
+    let node = registry.fiberOf(from).return || null;
+    let hops = 1;
+    while (node && hops < MAX_BOUNDARY_FIBERS * 5) {
+      if (registry.ref(node) === to) return hops;
+      node = node.return || null;
+      hops += 1;
+    }
+    return null;
+  }
+  function isAncestor(ancestor, of) {
+    return ancestor !== of && distance(of, ancestor) !== null;
+  }
+  function owners(ref) {
+    const chain = getOwnerChainFibers(registry.fiberOf(ref));
+    if (chain.ownerStackKind === "parents") ledger.add("owners", "confidence", "no _debugOwner on this build; owners are component parents");
+    return chain.fibers.map((fiber) => registry.ref(fiber));
+  }
+  return { parents, boundaries, nearest, components, distance, isAncestor, owners };
+}
+const SCAN_CEILING = 3e5;
+const DEFAULT_MAX = 5e3;
+function matches(matcher, value, exact) {
+  if (matcher === void 0) return true;
+  if (value == null) return false;
+  if (matcher instanceof RegExp) {
+    matcher.lastIndex = 0;
+    return matcher.test(value);
+  }
+  return exact ? value === matcher : value.includes(matcher);
+}
+function kindMatches(filter, kind) {
+  for (const f of filter) {
+    if (f === "any" || f === kind) return true;
+    if (f === "boundary" && (kind === "suspense" || kind === "error")) return true;
+    if (f === "component" && kind === "error") return true;
+  }
+  return false;
+}
+function firstElement(fiber) {
+  var _a2;
+  const stack = [fiber];
+  while (stack.length) {
+    const node = stack.pop();
+    if (isHostFiber(node) && ((_a2 = node.stateNode) == null ? void 0 : _a2.nodeType) === 1) return node.stateNode;
+    if (node.sibling && node !== fiber) stack.push(node.sibling);
+    if (node.child) stack.push(node.child);
+  }
+  return null;
+}
+function createSelect(deps) {
+  const { registry, ledger } = deps;
+  function roots() {
+    return deps.getRootFibers().map((root) => registry.ref(currentOf(root)));
+  }
+  function find(query = {}, options = {}) {
+    var _a2;
+    const kinds = Array.isArray(query.kind) ? query.kind : [query.kind || "component"];
+    const max = Math.max(1, Math.floor(query.max ?? DEFAULT_MAX));
+    const out = [];
+    const seen = /* @__PURE__ */ new Set();
+    let scanned = 0;
+    let fileOnUrl = false;
+    const within = query.within ? registry.fiberOf(query.within) : null;
+    const starts = within ? [within] : deps.getRootFibers().map((root) => currentOf(root));
+    for (const start of starts) {
+      const stack = [start];
+      while (stack.length) {
+        const fiber = stack.pop();
+        if (seen.has(fiber) || fiber.alternate && seen.has(fiber.alternate)) continue;
+        seen.add(fiber);
+        if (++scanned > SCAN_CEILING) {
+          ledger.add("find", "truncated", `scan stopped after ${SCAN_CEILING} fibers`);
+          return out;
+        }
+        const ref = registry.ref(fiber);
+        if (fiber !== within && kindMatches(kinds, ref.kind) && !(query.visibleOnly && ref.hidden)) {
+          let ok = matches(query.name, ref.name, true);
+          if (ok && query.file !== void 0) {
+            const file = ((_a2 = ref.source) == null ? void 0 : _a2.fileName) || null;
+            if (file && /^https?:/.test(file)) fileOnUrl = true;
+            ok = matches(query.file, file, false);
+          }
+          if (ok && (query.testId !== void 0 || query.text !== void 0)) {
+            const el = firstElement(fiber);
+            ok = matches(query.testId, el == null ? void 0 : el.getAttribute("data-testid"), true) && matches(query.text, (el == null ? void 0 : el.textContent) ? el.textContent.replace(/\s+/g, " ").trim() : null, false);
+          }
+          if (ok && query.where) ok = !!query.where(ref);
+          if (ok) {
+            if (out.length >= max) {
+              if (!options.quiet) ledger.add("find", "truncated", `more than ${max} matches; raise max or narrow the query`);
+              return out;
+            }
+            out.push(ref);
+          }
+        }
+        if (fiber.sibling && fiber !== start) stack.push(fiber.sibling);
+        if (fiber.child) stack.push(fiber.child);
+      }
+    }
+    if (fileOnUrl) ledger.add("find", "confidence", "file was matched against generated module URLs (React 19 before source resolution)");
+    return out;
+  }
+  function first(query = {}) {
+    return find({ ...query, max: 1 }, { quiet: true })[0] || null;
+  }
+  function fromElement(target) {
+    const el = typeof target === "string" ? document.querySelector(target) : target;
+    if (!el) return null;
+    const fiber = getFiber(el);
+    return fiber ? registry.ref(currentOf(fiber)) : null;
+  }
+  return { roots, find: (query) => find(query), first, fromElement };
+}
+const SCRIPT_KIT_VERSION = 1;
+const session = {};
+const HELP = {
+  select: 'roots() | first(query) | find({ name, file, testId, text, kind, within, visibleOnly, where, max }) | fromElement(el|selector) | byId("fiber:N")',
+  relate: 'parents(ref, { until, inclusive, components, max }) | boundaries(ref, { kinds }) | nearest(ref, "suspense"|"error") | components(ref, query) | distance(from, to) | isAncestor(a, b) | owners(ref)',
+  measure: "hostNodes(ref) | rects(ref) | bounds(ref|refs) | area(ref|refs) -> { area, visibleArea, box, nodes, cellSize }",
+  hooks: 'hooks(ref) fiber-only | hooks(ref, { replay: true }) names custom hooks (needs --allow replay) | hooks.callers("useQuery", query) (needs --allow replay) | props(ref)',
+  overlay: "overlay.paint({ items, color, label, dashed } | layers[], { id }) | overlay.clear(id?) | overlay.list()",
+  run: "checkpoint(value) keeps a partial result for timeouts | session persists between runs | log(...values) | allowed lists the gates of this run",
+  ref: "FiberRef: id name kind tag key source status hidden raw resolveSource(); serializes as { fiberId, name, kind, source }; refs compare with ==="
+};
+function createScriptKit(deps) {
+  const ledger = deps.ledger || createLedger();
+  const registry = createRefRegistry({ rememberFiber: deps.rememberFiber, ledger });
+  const select = createSelect({ getRootFibers: deps.getRootFibers, registry, ledger });
+  const relate = createRelate({ registry, ledger, find: select.find });
+  const geometry = createGeometry({ registry, geometry: deps.geometry });
+  const hookReads = createHooks({
+    registry,
+    ledger,
+    allowed: deps.allowed,
+    find: select.find,
+    evalFiberHooks: deps.evalFiberHooks,
+    replayComponentHooks: deps.replayComponentHooks
+  });
+  let partial = null;
+  function byId(id) {
+    var _a2;
+    const key = /^\d+$/.test(String(id)) ? "fiber:" + id : String(id);
+    const fiber = (_a2 = deps.getRememberedFiber) == null ? void 0 : _a2.call(deps, key);
+    if (!fiber) {
+      ledger.add("byId", "gap", `no remembered fiber ${key} on this page session`);
+      return null;
+    }
+    return registry.ref(currentOf(fiber));
+  }
+  const overlay = {
+    paint(layers, options = {}) {
+      return paintOverlay(layers, options, { boxOf: geometry.bounds, isAncestor: relate.isAncestor });
+    },
+    clear: clearOverlay,
+    list: listOverlay
+  };
+  const chippy = {
+    version: SCRIPT_KIT_VERSION,
+    allowed: [...deps.allowed],
+    ...select,
+    byId,
+    ...relate,
+    ...geometry,
+    ...hookReads,
+    overlay,
+    session,
+    isRef: registry.isRef,
+    checkpoint(value) {
+      partial = { value };
+      return value;
+    },
+    log(...values) {
+      deps.log.push(values.length === 1 ? values[0] : values);
+    },
+    help(topic) {
+      return topic ? HELP[topic] || `unknown topic; one of ${Object.keys(HELP).join(", ")}` : HELP;
+    }
+  };
+  return {
+    chippy,
+    ledger,
+    partial: () => partial
+  };
+}
+const MAX_GLOBALS = 20;
+function isChippyUi(node) {
+  const el = node && (node.nodeType === 1 ? node : node.parentElement);
+  return !!el && typeof el.closest === "function" && !!el.closest("[data-chippy-ui]");
+}
+function countable(record) {
+  if (isChippyUi(record.target)) return false;
+  if (record.type !== "childList") return true;
+  const changed = [...Array.from(record.addedNodes), ...Array.from(record.removedNodes)];
+  return changed.length === 0 || changed.some((node) => !(node.nodeType === 1 && node.hasAttribute("data-chippy-ui")) && !isChippyUi(node));
+}
+function watchSideEffects(deps) {
+  var _a2;
+  const win = deps.win || window;
+  const before = /* @__PURE__ */ new Map();
+  for (const root of deps.fiberRoots()) before.set(root, root.current);
+  const globals = new Set(Object.keys(win));
+  let mutations = 0;
+  let observer = null;
+  if (typeof win.MutationObserver === "function" && ((_a2 = win.document) == null ? void 0 : _a2.documentElement)) {
+    observer = new win.MutationObserver((records) => {
+      for (const record of records) if (countable(record)) mutations += 1;
+    });
+    observer.observe(win.document.documentElement, { subtree: true, childList: true, attributes: true, characterData: true });
+  }
+  return function stop() {
+    if (observer) {
+      for (const record of observer.takeRecords()) if (countable(record)) mutations += 1;
+      observer.disconnect();
+    }
+    let rootsCommitted = 0;
+    for (const [root, current] of before) if (root.current !== current) rootsCommitted += 1;
+    const globalsAdded = [];
+    for (const key of Object.keys(win)) {
+      if (!globals.has(key)) {
+        globalsAdded.push(key);
+        if (globalsAdded.length >= MAX_GLOBALS) break;
+      }
+    }
+    return { domMutations: mutations, rootsCommitted, globalsAdded };
+  };
+}
+function fiberRootsOf(hostRoots) {
+  const out = [];
+  for (const fiber of hostRoots) {
+    const root = fiber && fiber.stateNode;
+    if (root && typeof root === "object" && "current" in root && !out.includes(root)) out.push(root);
+  }
+  return out;
+}
+const DEFAULT_SCRIPT_TIMEOUT_MS = 5e3;
+const MAX_SCRIPT_TIMEOUT_MS = 12e4;
+const MIN_SCRIPT_TIMEOUT_MS = 50;
+function clampScriptTimeout(value) {
+  const ms = Number(value) || DEFAULT_SCRIPT_TIMEOUT_MS;
+  return Math.min(MAX_SCRIPT_TIMEOUT_MS, Math.max(MIN_SCRIPT_TIMEOUT_MS, ms));
+}
+class ScriptTimeout extends Error {
+  constructor(ms) {
+    super(`script timeout after ${ms}ms; the script may still be running in the page`);
+    this.name = "ScriptTimeout";
+  }
+}
+async function runChippyScript(command, deps) {
+  const now = deps.now || Date.now;
+  const startedAt = now();
+  const source = String(command.source || "");
+  const args = command.args && typeof command.args === "object" ? command.args : {};
+  const timeoutMs = clampScriptTimeout(command.timeoutMs);
+  const gates = parseGates(command.allow);
+  const log = [];
+  const ledger = createLedger();
+  const serialize = (value) => deps.scriptResultJson(value);
+  const base = () => ({
+    durationMs: now() - startedAt,
+    log: serialize(log),
+    limits: ledger.entries(),
+    allowed: gates.allowed,
+    ...gates.unknown.length ? { unknownGates: gates.unknown } : {}
+  });
+  if (!source.trim()) {
+    return { ok: false, error: "empty script source", sideEffects: { domMutations: 0, rootsCommitted: 0, globalsAdded: [] }, ...base() };
+  }
+  const helpers = deps.buildHelpers(log);
+  const kit = createScriptKit({
+    rememberFiber: deps.rememberFiber,
+    getRememberedFiber: deps.getRememberedFiber,
+    getRootFibers: helpers.getRootFibers,
+    evalFiberHooks: deps.evalFiberHooks,
+    replayComponentHooks: deps.replayComponentHooks,
+    allowed: gates.allowed,
+    log,
+    ledger
+  });
+  const ctx = { args, helpers, log, chippy: kit.chippy };
+  const stopWatching = watchSideEffects({ fiberRoots: () => fiberRootsOf(helpers.getRootFibers()) });
+  let timer2 = null;
+  try {
+    const factory = new Function(
+      "ctx",
+      "chippy",
+      '"use strict"; return (async function chippyScript(ctx, chippy){\n' + source + "\n}).call(globalThis, ctx, chippy);"
+    );
+    const timeout = new Promise((_, reject) => {
+      timer2 = setTimeout(() => reject(new ScriptTimeout(timeoutMs)), timeoutMs);
+    });
+    const value = await Promise.race([Promise.resolve().then(() => factory(ctx, kit.chippy)), timeout]);
+    const result = serialize(value);
+    return { ok: true, result, sideEffects: stopWatching(), ...base() };
+  } catch (error) {
+    const partial = kit.partial();
+    const envelope = {
+      ok: false,
+      error: String((error == null ? void 0 : error.stack) || (error == null ? void 0 : error.message) || error),
+      sideEffects: stopWatching(),
+      ...base()
+    };
+    if (error instanceof GateError) {
+      envelope.gate = error.gate;
+      envelope.error = error.message;
+    }
+    if (error instanceof ScriptTimeout) envelope.timedOut = true;
+    if (partial) envelope.partial = serialize(partial.value);
+    return envelope;
+  } finally {
+    if (timer2) clearTimeout(timer2);
+  }
 }
 let state = null;
 const domWatchDeps = {
@@ -9660,21 +10490,21 @@ function inspectPageDeclarativeBoundaries(max, deps) {
         truncated = true;
         break;
       }
-      const frame = stack.pop();
-      const current = frame.fiber;
+      const frame2 = stack.pop();
+      const current = frame2.fiber;
       if (alreadyVisited(current, seen)) continue;
       markVisited(current, seen);
       scannedFibers += 1;
-      let nextParentBoundary = frame.parentBoundary;
+      let nextParentBoundary = frame2.parentBoundary;
       const summary = describeBoundary(current, deps);
       if (summary) {
         const node = {
           ...summary,
-          fiberDepth: frame.fiberDepth,
-          distanceFromParent: frame.parentBoundary ? frame.fiberDepth - frame.parentBoundary.fiberDepth : null,
+          fiberDepth: frame2.fiberDepth,
+          distanceFromParent: frame2.parentBoundary ? frame2.fiberDepth - frame2.parentBoundary.fiberDepth : null,
           children: []
         };
-        if (frame.parentBoundary) frame.parentBoundary.children.push(node);
+        if (frame2.parentBoundary) frame2.parentBoundary.children.push(node);
         else rootItems.push(node);
         nextParentBoundary = node;
         count += 1;
@@ -9682,14 +10512,14 @@ function inspectPageDeclarativeBoundaries(max, deps) {
       if (current.sibling) {
         stack.push({
           fiber: current.sibling,
-          fiberDepth: frame.fiberDepth,
-          parentBoundary: frame.parentBoundary
+          fiberDepth: frame2.fiberDepth,
+          parentBoundary: frame2.parentBoundary
         });
       }
       if (current.child) {
         stack.push({
           fiber: current.child,
-          fiberDepth: frame.fiberDepth + 1,
+          fiberDepth: frame2.fiberDepth + 1,
           parentBoundary: nextParentBoundary
         });
       }
@@ -9911,6 +10741,8 @@ const api = {
     applyProductionBreadcrumbs,
     safeJson,
     scriptResultJson,
+    runChippyScript,
+    clearScriptOverlay: clearOverlay,
     measureComponentArea: (options) => measureComponentArea(options),
     areaWatch: { start: (options) => startAreaWatch(options), read: readAreaWatch, stop: stopAreaWatch },
     resolveOwnerFiber,

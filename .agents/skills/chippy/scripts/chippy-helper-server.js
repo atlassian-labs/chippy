@@ -125,14 +125,20 @@ function buildAvalancheCommand(body = {}) {
   return _buildAvalancheCommandPure(body, crypto.randomUUID());
 }
 
+// The page clamps script time to the same ceiling (src/chippy-bridge/script-kit/run-script.ts).
+const MAX_SCRIPT_TIMEOUT_MS = 120000;
+
 async function requestEvalScript(clientId, body = {}) {
-  const timeoutMs = body.timeoutMs != null ? Number(body.timeoutMs) : 8000;
+  const scriptTimeoutMs = Math.min(MAX_SCRIPT_TIMEOUT_MS, body.scriptTimeoutMs != null ? Number(body.scriptTimeoutMs) || 5000 : 5000);
+  // Wait past the page's own timeout so its envelope (with any checkpoint) arrives.
+  const timeoutMs = body.timeoutMs != null ? Number(body.timeoutMs) : scriptTimeoutMs + 3000;
   const command = {
     type: 'eval-script',
     requestId: crypto.randomUUID(),
     source: String(body.source || ''),
     args: body.args && typeof body.args === 'object' ? body.args : {},
-    timeoutMs: body.scriptTimeoutMs != null ? Number(body.scriptTimeoutMs) : 5000,
+    timeoutMs: scriptTimeoutMs,
+    allow: Array.isArray(body.allow) ? body.allow.map(String) : typeof body.allow === 'string' ? body.allow.split(',') : [],
   };
   if (!command.source.trim()) {
     return { ok: false, code: 400, payload: { ok: false, error: 'eval-script: empty source' } };
@@ -1370,7 +1376,7 @@ async function handleChippyHttp(req, res, url) {
     return true;
   }
 
-  // eval-script: POST /api/pages/:clientId/eval-script { source, args?, timeoutMs?, scriptTimeoutMs? }
+  // eval-script: POST /api/pages/:clientId/eval-script { source, args?, timeoutMs?, scriptTimeoutMs?, allow? }
   if (method === 'POST' && /^\/__chippy\/api\/pages\/[^/]+\/eval-script$/.test(p)) {
     const clientId = p.split('/')[4];
     try {

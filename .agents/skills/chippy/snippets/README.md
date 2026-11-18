@@ -17,7 +17,7 @@ From the Chippy skill directory:
 
 `snippet-name` resolves to `snippets/<name>.js`. An absolute path or a path relative to the current directory also works.
 
-The shell wrapper forwards every `--key value` pair into `ctx.args`, coercing numbers and `true`/`false`. Its page-script timeout is fixed at five seconds; the wrapper does not expose a timeout override.
+The shell wrapper forwards every `--key value` pair into `ctx.args`, coercing numbers and `true`/`false`. The page-script timeout is five seconds; `--script-timeout <ms>` raises it to at most 120,000. `--allow` and `--script-timeout` belong to the runner and never reach `ctx.args`. Pass `-` instead of a name to run a throwaway [page script](../references/page-scripts.md) from stdin.
 
 ## Choose a packaged snippet
 
@@ -104,13 +104,18 @@ Prefer the smallest result that answers the question. Return summaries or bounde
   "ok": true,
   "durationMs": 42,
   "log": ["matched 3 fibers"],
-  "result": { "count": 3 }
+  "result": { "count": 3 },
+  "limits": [],
+  "sideEffects": { "domMutations": 0, "rootsCommitted": 0, "globalsAdded": [] },
+  "allowed": []
 }
 ```
 
+`limits`, `sideEffects`, and `allowed` are described in [page scripts](../references/page-scripts.md#result-envelope). A snippet that walks fibers through `ctx.helpers` records no limits of its own.
+
 The helper removes circular references, trims depth, represents functions as strings, and caps arrays at 200 items per level.
 
-When a snippet throws or exceeds the five-second page-script limit, the helper answers HTTP 504. `chippy.sh` exits 22, prints its generic 504 "timed out while waiting for an upstream result" explanation to stderr, and then prints the page's `error`: the thrown stack, or `script timeout after 5000ms`. `log` is not printed. Read `error` before treating the failure as an unresponsive page. A snippet that returns its own `{ ok: false, reason }` still arrives inside a successful envelope's `result`. An unknown snippet name exits 1 with `snippet not found: <name>` before contacting the page.
+When a snippet throws or exceeds its page-script timeout, the envelope has `ok: false` and `error` (the thrown stack, or `script timeout after <ms>ms`), plus `timedOut` and the last `ctx.chippy.checkpoint` value as `partial`. `chippy.sh` prints the whole response, `log` included, and exits 1. The helper answers HTTP 504 only when the page sends no answer at all, which `chippy.sh` reports with exit 22. A snippet that returns its own `{ ok: false, reason }` still arrives inside a successful envelope's `result`. An unknown snippet name exits 1 with `snippet not found: <name>` before contacting the page.
 
 ## Safety and ownership
 

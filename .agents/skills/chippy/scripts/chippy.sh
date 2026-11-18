@@ -98,7 +98,7 @@ Usage:
   ./scripts/chippy.sh avalanche-debug-hook <clientId> <sourceId> <hookIndex> [window]
   ./scripts/chippy.sh avalanche-save <clientId> <file> [count]
   ./scripts/chippy.sh avalanche-offline <file> <summary|commit-list|commit-peek|hot-sources|describe-action|network|timeline|dom-diff|source-search> [args...]
-  ./scripts/chippy.sh eval-page <clientId> <snippet-file-or-name> [--key value ...]
+  ./scripts/chippy.sh eval-page <clientId> <snippet-file-or-name|-> [--allow replay] [--script-timeout ms] [--key value ...]
   ./scripts/chippy.sh eval-snippets
   ./scripts/chippy.sh avalanche-arm <clientId> <origin> [maxCommits] [captureFibers=true|false] [detectionMode=sources|full|stats|amplifiers]
   ./scripts/chippy.sh avalanche-disarm <clientId> <origin>
@@ -1150,19 +1150,35 @@ case "$cmd" in
     snippet="${3:-}"
     shift 3 || true
     if [[ -z "$client_id" || -z "$snippet" ]]; then
-      echo "eval-page requires <clientId> <snippet-file-or-name> [--key value ...]" >&2
-      echo "  snippet may be an absolute path, a path relative to cwd, or a name resolved against $SCRIPT_DIR/../snippets/<name>.js" >&2
+      echo "eval-page requires <clientId> <snippet-file-or-name|-> [--allow gates] [--script-timeout ms] [--key value ...]" >&2
+      echo "  snippet may be '-' (script on stdin), an absolute path, a path relative to cwd, or a name resolved against $SCRIPT_DIR/../snippets/<name>.js" >&2
       exit 1
     fi
     snip_path=""
-    if [[ -f "$snippet" ]]; then snip_path="$snippet"; fi
+    stdin_snip=""
+    if [[ "$snippet" == "-" ]]; then
+      stdin_snip=$(mktemp)
+      # Keep the auth-header cleanup that may already own the EXIT trap.
+      trap 'rm -f "$stdin_snip" ${AUTH_HEADER_FILE:+"$AUTH_HEADER_FILE"}' EXIT
+      cat > "$stdin_snip"
+      snip_path="$stdin_snip"
+    fi
+    if [[ -z "$snip_path" && -f "$snippet" ]]; then snip_path="$snippet"; fi
     if [[ -z "$snip_path" && -f "$SCRIPT_DIR/../snippets/$snippet" ]]; then snip_path="$SCRIPT_DIR/../snippets/$snippet"; fi
     if [[ -z "$snip_path" && -f "$SCRIPT_DIR/../snippets/$snippet.js" ]]; then snip_path="$SCRIPT_DIR/../snippets/$snippet.js"; fi
     if [[ -z "$snip_path" ]]; then echo "snippet not found: $snippet" >&2; exit 1; fi
-    # Build args object from --key value pairs.
+    # Build args object from --key value pairs. --allow and --script-timeout
+    # are runner options, not script args.
     args_json='{}'
+    allow_gates=""
+    script_timeout=""
     while [[ $# -gt 0 ]]; do
-      if [[ "$1" == --* ]]; then
+      if [[ "$1" == "--allow" ]]; then
+        allow_gates="${allow_gates:+$allow_gates,}${2:-}"; shift 2 || shift
+      elif [[ "$1" == "--script-timeout" ]]; then
+        script_timeout="${2:-}"; shift 2 || shift
+        if [[ ! "$script_timeout" =~ ^[0-9]+$ ]]; then echo "--script-timeout takes milliseconds, got: $script_timeout" >&2; exit 1; fi
+      elif [[ "$1" == --* ]]; then
         k="${1#--}"; v="${2:-}"; shift 2
         args_json=$(node -e '
           const o = JSON.parse(process.argv[1]);
@@ -1176,13 +1192,24 @@ case "$cmd" in
         ' "$args_json" "$k" "$v") || exit 1
       else shift; fi
     done
-    src=$(cat "$snip_path")
     body=$(node -e '
       const src = require("fs").readFileSync(process.argv[1], "utf8");
       const args = JSON.parse(process.argv[2]);
-      process.stdout.write(JSON.stringify({ source: src, args }));
-    ' "$snip_path" "$args_json") || exit 1
-    run_curl POST "$BASE_URL/api/pages/$client_id/eval-script" "$body"
+      const body = { source: src, args };
+      if (process.argv[3]) body.allow = process.argv[3].split(",").map((g) => g.trim()).filter(Boolean);
+      if (process.argv[4]) body.scriptTimeoutMs = Number(process.argv[4]);
+      process.stdout.write(JSON.stringify(body));
+    ' "$snip_path" "$args_json" "$allow_gates" "$script_timeout") || exit 1
+    # The helper answers 200 with the page's envelope under `result` even when
+    # the script threw, hit a gate, or timed out; print it whole, then exit
+    # non-zero so the failure is not mistaken for a result.
+    eval_out=$(run_curl POST "$BASE_URL/api/pages/$client_id/eval-script" "$body") || exit $?
+    printf '%s\n' "$eval_out"
+    node -e '
+      let ok = true;
+      try { const body = JSON.parse(require("fs").readFileSync(0, "utf8")); ok = !(body && body.result && body.result.ok === false); } catch {}
+      process.exit(ok ? 0 : 1);
+    ' <<<"$eval_out" || exit 1
     ;;
   avalanche-arm)
     client_id="${2:-}"

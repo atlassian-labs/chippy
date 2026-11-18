@@ -16,6 +16,15 @@ must stay compatible with the extension version in the store.
 
 ### Added
 
+- Page scripts: `eval-page <clientId> -` runs a throwaway script from stdin
+  for a question no command answers. Every script receives `chippy`, a toolkit
+  that finds fibers, walks parents and the nearest Suspense or error boundary,
+  measures areas, reads hooks, and paints a page overlay. Returned fibers
+  serialize as refs with a `fiberId`. The envelope adds `limits` (answers that
+  were cut short or uncertain) and `sideEffects` (DOM mutations, commits, and
+  new globals during the run). `--script-timeout <ms>` raises the wait to 120 s,
+  and naming custom hooks needs `--allow replay`. See
+  `references/page-scripts.md`.
 - Avalanche records what each commit changed in the DOM, read from the
   committed fibers: inserted, removed, and moved nodes, each changed prop
   before and after, and Suspense content hidden or shown. Each commit is one
@@ -64,6 +73,9 @@ must stay compatible with the extension version in the store.
 
 ### Fixed
 
+- `eval-page` prints a failed script's whole envelope, `log` included, and
+  exits 1. The docs had described an HTTP 504 for a script that throws; the
+  helper answers 504 only when the page sends no answer.
 - `avalanche-offline` treats an empty position (`""`) as skipped. Previously it
   read as 0, so `timeline 40 "" 100` ended the window at commit 0.
 - `find-fibers` fails on an invalid regex in `--grep`, `--name`, `--file`,
