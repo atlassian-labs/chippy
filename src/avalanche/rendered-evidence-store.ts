@@ -25,22 +25,37 @@ export interface RenderedEvidenceStatus {
 }
 
 export function createRenderedEvidenceStore<T>(byCommit: Record<number, T[]>, maxEntries = DEFAULT_MAX_RENDERED_ENTRIES) {
-  const budget = Number.isFinite(maxEntries) && maxEntries > 0 ? Math.floor(maxEntries) : DEFAULT_MAX_RENDERED_ENTRIES;
+  return createCommitBudgetStore(byCommit, maxEntries, (list) => list.length, DEFAULT_MAX_RENDERED_ENTRIES);
+}
+
+/**
+ * Keeps a per-commit map within an entry budget, dropping the oldest commits
+ * first and never the newest. `sizeOf` counts the entries one commit's value
+ * holds. `createRenderedEvidenceStore` is this store over arrays.
+ */
+export function createCommitBudgetStore<V>(
+  byCommit: Record<number, V>,
+  maxEntries: number,
+  sizeOf: (value: V) => number,
+  fallbackMaxEntries = DEFAULT_MAX_RENDERED_ENTRIES,
+) {
+  const budget = Number.isFinite(maxEntries) && maxEntries > 0 ? Math.floor(maxEntries) : fallbackMaxEntries;
   // Commit ids in the order they were stored; `head` is the oldest still held.
   let order: number[] = [];
   let head = 0;
   let entries = 0;
   let evicted: RenderedEvidenceStatus['evicted'] = null;
 
-  function add(commitId: number, list: T[]): void {
+  function add(commitId: number, value: V): void {
     const previous = byCommit[commitId];
-    if (previous) entries -= previous.length;
+    if (previous !== undefined) entries -= sizeOf(previous);
     else order.push(commitId);
-    byCommit[commitId] = list;
-    entries += list.length;
+    byCommit[commitId] = value;
+    entries += sizeOf(value);
     while (entries > budget && order.length - head > 1) {
       const oldest = order[head++];
-      const dropped = byCommit[oldest]?.length ?? 0;
+      const held = byCommit[oldest];
+      const dropped = held === undefined ? 0 : sizeOf(held);
       // eslint-disable-next-line @typescript-eslint/no-dynamic-delete
       delete byCommit[oldest];
       entries -= dropped;

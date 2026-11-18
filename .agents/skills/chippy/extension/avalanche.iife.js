@@ -1446,6 +1446,7 @@ this.__AVALANCHE__ = (function() {
       ...report.commitTimings && { commitTimings: report.commitTimings },
       ...report.networkRequests && { networkRequests: report.networkRequests.map((request) => ({ ...request })) },
       ...report.screenByCommit && { screenByCommit: report.screenByCommit },
+      ...report.domByCommit && { domByCommit: report.domByCommit },
       ...report.hooks && { hooks: report.hooks }
     };
   }
@@ -1670,6 +1671,7 @@ this.__AVALANCHE__ = (function() {
       },
       renderTicks,
       ...(detectorConfig == null ? void 0 : detectorConfig.renderedEvidence) && { renderedEvidence: detectorConfig.renderedEvidence },
+      ...(detectorConfig == null ? void 0 : detectorConfig.domDiff) && { domDiff: detectorConfig.domDiff },
       network: (detectorConfig == null ? void 0 : detectorConfig.network) ?? { supported: false, enabled: false, windowStart: 0, requests: 0, dropped: 0, ignoredOwn: 0 },
       timing: {
         totalDetectorOverhead,
@@ -1690,6 +1692,7 @@ this.__AVALANCHE__ = (function() {
       renderedByCommit: state2.renderedByCommit,
       networkRequests: state2.networkRequests.slice(),
       ...state2.screenByCommit && Object.keys(state2.screenByCommit).length > 0 && { screenByCommit: { ...state2.screenByCommit } },
+      ...state2.domByCommit && Object.keys(state2.domByCommit).length > 0 && { domByCommit: { ...state2.domByCommit } },
       ...hasMetricsData && { metricsByCommit: state2.metricsByCommit, atlByCommit: state2.metricsByCommit },
       toSerializable() {
         return serializeReport(this);
@@ -2782,22 +2785,22 @@ this.__AVALANCHE__ = (function() {
     const bottom = Math.min(a.bottom, b.bottom);
     return right > left && bottom > top ? { left, top, right, bottom } : null;
   }
-  function cellSizeFor(clip) {
-    const area = rectArea(clip);
+  function cellSizeFor(clip2) {
+    const area = rectArea(clip2);
     return Math.max(1, Math.ceil(Math.sqrt(area / MAX_CELLS)));
   }
-  function createAreaGrid(clip, cell = cellSizeFor(clip)) {
-    const cols = Math.max(0, Math.ceil((clip.right - clip.left) / cell));
-    const rows = Math.max(0, Math.ceil((clip.bottom - clip.top) / cell));
+  function createAreaGrid(clip2, cell = cellSizeFor(clip2)) {
+    const cols = Math.max(0, Math.ceil((clip2.right - clip2.left) / cell));
+    const rows = Math.max(0, Math.ceil((clip2.bottom - clip2.top) / cell));
     const bits = new Uint8Array(cols * rows);
     let covered = 0;
     function add(rect) {
-      const r = intersectRect(rect, clip);
+      const r = intersectRect(rect, clip2);
       if (!r) return;
-      const c0 = Math.max(0, Math.round((r.left - clip.left) / cell));
-      const c1 = Math.min(cols, Math.round((r.right - clip.left) / cell));
-      const r0 = Math.max(0, Math.round((r.top - clip.top) / cell));
-      const r1 = Math.min(rows, Math.round((r.bottom - clip.top) / cell));
+      const c0 = Math.max(0, Math.round((r.left - clip2.left) / cell));
+      const c1 = Math.min(cols, Math.round((r.right - clip2.left) / cell));
+      const r0 = Math.max(0, Math.round((r.top - clip2.top) / cell));
+      const r1 = Math.min(rows, Math.round((r.bottom - clip2.top) / cell));
       for (let y = r0; y < r1; y++) {
         const row = y * cols;
         for (let x = c0; x < c1; x++) {
@@ -2809,10 +2812,10 @@ this.__AVALANCHE__ = (function() {
       }
     }
     function area() {
-      const full = rectArea(clip);
+      const full = rectArea(clip2);
       return Math.min(full, covered * cell * cell);
     }
-    return { clip, cell, add, area };
+    return { clip: clip2, cell, add, area };
   }
   const Visibility = 8192;
   const MUTATION_MASK = Placement | Update | ChildDeletion | Visibility;
@@ -2843,11 +2846,15 @@ this.__AVALANCHE__ = (function() {
   function isNode(value) {
     return !!value && typeof value === "object" && typeof value.nodeType === "number";
   }
-  function visiblePropsChanged(prev, next) {
+  function forEachVisiblePropChange(prev, next, visit) {
     if (prev === next) return false;
-    if (!prev || !next || typeof prev !== "object" || typeof next !== "object") return true;
+    if (!prev || !next || typeof prev !== "object" || typeof next !== "object") {
+      visit("props", prev, next);
+      return true;
+    }
     const a = prev;
     const b = next;
+    let any = false;
     for (const key of /* @__PURE__ */ new Set([...Object.keys(a), ...Object.keys(b)])) {
       if (key === "ref" || key === "key") continue;
       const x = a[key];
@@ -2856,45 +2863,73 @@ this.__AVALANCHE__ = (function() {
       if (typeof x === "function" || typeof y === "function") continue;
       if (key === "children") {
         const textual = (v) => typeof v === "string" || typeof v === "number";
-        if (textual(x) || textual(y)) return true;
+        if (!textual(x) && !textual(y)) continue;
+        any = true;
+        if (visit(key, textual(x) ? x : void 0, textual(y) ? y : void 0)) return true;
         continue;
       }
-      if (key === "style" || key === "dangerouslySetInnerHTML") {
-        if (shallowDiffers(x, y)) return true;
+      if (key === "style") {
+        const sx = x && typeof x === "object" ? x : {};
+        const sy = y && typeof y === "object" ? y : {};
+        for (const styleKey of /* @__PURE__ */ new Set([...Object.keys(sx), ...Object.keys(sy)])) {
+          if (Object.is(sx[styleKey], sy[styleKey])) continue;
+          any = true;
+          if (visit("style." + styleKey, sx[styleKey], sy[styleKey])) return true;
+        }
         continue;
       }
-      return true;
+      if (key === "dangerouslySetInnerHTML") {
+        const hx = x == null ? void 0 : x.__html;
+        const hy = y == null ? void 0 : y.__html;
+        if (Object.is(hx, hy)) continue;
+        any = true;
+        if (visit(key, hx, hy)) return true;
+        continue;
+      }
+      any = true;
+      if (visit(key, x, y)) return true;
     }
-    return false;
+    return any;
   }
-  function shallowDiffers(x, y) {
-    if (!x || !y || typeof x !== "object" || typeof y !== "object") return !Object.is(x, y);
-    const a = x;
-    const b = y;
-    const keys = /* @__PURE__ */ new Set([...Object.keys(a), ...Object.keys(b)]);
-    for (const key of keys) if (!Object.is(a[key], b[key])) return true;
-    return false;
+  function visiblePropsChanged(prev, next) {
+    return forEachVisiblePropChange(prev, next, () => true);
   }
-  function findChangedHosts(root, limit = MAX_NODES_PER_COMMIT) {
+  function findChangedHosts(root, options = {}) {
+    const { limit = MAX_NODES_PER_COMMIT, descendUpdated = false, detectMoves = false } = typeof options === "number" ? { limit: options } : options;
     const found = [];
     let truncated = false;
-    const push = (fiber, removed) => {
+    const push = (fiber, kind, parent) => {
       if (found.length >= limit) {
         truncated = true;
         return;
       }
       const node = fiber.stateNode;
-      if (isNode(node)) found.push({ node, fiber, removed });
+      if (!isNode(node)) return;
+      const removed = kind === "removed" || kind === "hidden";
+      found.push(parent ? { node, fiber, removed, kind, parent } : { node, fiber, removed, kind });
     };
-    const collectTop = (start, removed) => {
+    const collectTop = (start, kind, parent) => {
       const stack2 = [start];
       while (stack2.length) {
         const fiber = stack2.pop();
         if (isHost(fiber.tag)) {
-          push(fiber, removed);
+          push(fiber, kind, parent);
           continue;
         }
-        for (let child = fiber.child; child; child = child.sibling) stack2.push(child);
+        const children = [];
+        for (let child = fiber.child; child; child = child.sibling) children.push(child);
+        for (let i = children.length - 1; i >= 0; i--) stack2.push(children[i]);
+      }
+    };
+    const collectMoves = (first) => {
+      var _a2;
+      if (!first.sibling) return;
+      let lastPlaced = 0;
+      for (let child = first; child; child = child.sibling) {
+        const old = (_a2 = child.alternate) == null ? void 0 : _a2.index;
+        if (typeof old !== "number") continue;
+        if (old < lastPlaced && (child.flags & Placement) === 0) collectTop(child, "moved");
+        else lastPlaced = Math.max(lastPlaced, old);
       }
     };
     const stack = root.child ? [root.child] : [];
@@ -2903,30 +2938,33 @@ this.__AVALANCHE__ = (function() {
       if (fiber.sibling) stack.push(fiber.sibling);
       if (fiber.alternate === null) {
         const hiddenMount = fiber.tag === OFFSCREEN && !!fiber.memoizedState;
-        if (!hiddenMount) collectTop(fiber, false);
+        if (!hiddenMount) collectTop(fiber, "inserted");
         continue;
       }
       if (((fiber.flags | fiber.subtreeFlags) & MUTATION_MASK) === 0) continue;
       if ((fiber.flags & ChildDeletion) !== 0 && fiber.deletions) {
-        for (const deleted of fiber.deletions) collectTop(deleted, true);
+        for (const deleted of fiber.deletions) collectTop(deleted, "removed", fiber);
       }
       if ((fiber.flags & Placement) !== 0) {
-        collectTop(fiber, false);
+        collectTop(fiber, "moved");
         continue;
       }
       if (fiber.tag === OFFSCREEN && (fiber.flags & Visibility) !== 0) {
         const hidden = !!fiber.memoizedState;
-        for (let child = fiber.child; child; child = child.sibling) collectTop(child, hidden);
+        for (let child = fiber.child; child; child = child.sibling) collectTop(child, hidden ? "hidden" : "shown");
         continue;
       }
       if (isHost(fiber.tag) && (fiber.flags & Update) !== 0 && fiber.alternate) {
         const changed = fiber.tag === HOST_TEXT ? fiber.memoizedProps !== fiber.alternate.memoizedProps : visiblePropsChanged(fiber.alternate.memoizedProps, fiber.memoizedProps);
         if (changed) {
-          push(fiber, false);
-          continue;
+          push(fiber, "updated");
+          if (!descendUpdated) continue;
         }
       }
-      if (fiber.child) stack.push(fiber.child);
+      if (fiber.child) {
+        if (detectMoves) collectMoves(fiber.child);
+        stack.push(fiber.child);
+      }
     }
     return { found, truncated };
   }
@@ -3024,6 +3062,208 @@ this.__AVALANCHE__ = (function() {
       lastRects = /* @__PURE__ */ new WeakMap();
     }
     return { enabled, byCommit, record, reset };
+  }
+  const DEFAULT_MAX_RENDERED_ENTRIES = 25e4;
+  function createRenderedEvidenceStore(byCommit, maxEntries = DEFAULT_MAX_RENDERED_ENTRIES) {
+    return createCommitBudgetStore(byCommit, maxEntries, (list) => list.length, DEFAULT_MAX_RENDERED_ENTRIES);
+  }
+  function createCommitBudgetStore(byCommit, maxEntries, sizeOf, fallbackMaxEntries = DEFAULT_MAX_RENDERED_ENTRIES) {
+    const budget = Number.isFinite(maxEntries) && maxEntries > 0 ? Math.floor(maxEntries) : fallbackMaxEntries;
+    let order = [];
+    let head = 0;
+    let entries = 0;
+    let evicted = null;
+    function add(commitId, value) {
+      const previous = byCommit[commitId];
+      if (previous !== void 0) entries -= sizeOf(previous);
+      else order.push(commitId);
+      byCommit[commitId] = value;
+      entries += sizeOf(value);
+      while (entries > budget && order.length - head > 1) {
+        const oldest = order[head++];
+        const held = byCommit[oldest];
+        const dropped = held === void 0 ? 0 : sizeOf(held);
+        delete byCommit[oldest];
+        entries -= dropped;
+        evicted = {
+          commits: ((evicted == null ? void 0 : evicted.commits) ?? 0) + 1,
+          entries: ((evicted == null ? void 0 : evicted.entries) ?? 0) + dropped,
+          throughCommit: Math.max((evicted == null ? void 0 : evicted.throughCommit) ?? oldest, oldest)
+        };
+      }
+      if (head > 1024 && head * 2 > order.length) {
+        order = order.slice(head);
+        head = 0;
+      }
+    }
+    function reset() {
+      for (const key of Object.keys(byCommit)) delete byCommit[Number(key)];
+      order = [];
+      head = 0;
+      entries = 0;
+      evicted = null;
+    }
+    function status() {
+      return { maxEntries: budget, entries, commits: order.length - head, evicted: evicted && { ...evicted } };
+    }
+    function inEvictedRange(commitId) {
+      return !!evicted && commitId <= evicted.throughCommit && byCommit[commitId] === void 0;
+    }
+    return { add, reset, status, inEvictedRange };
+  }
+  const MAX_DOM_CHANGES_PER_COMMIT = 200;
+  const DEFAULT_MAX_DOM_CHANGES = 5e4;
+  const MAX_PROPS_PER_CHANGE = 12;
+  const MAX_VALUE$1 = 80;
+  const MAX_ATTR_VALUE = 40;
+  const MAX_TEXT_HINT = 60;
+  const MAX_MARKUP = 200;
+  const MAX_ELEMENT_COUNT = 1e3;
+  const ANCHOR_DEPTH = 3;
+  const OPS = {
+    inserted: "+",
+    removed: "-",
+    updated: "~",
+    moved: "move",
+    shown: "show",
+    hidden: "hide"
+  };
+  const PROP_NAMES = {
+    children: "text",
+    className: "class",
+    htmlFor: "for",
+    dangerouslySetInnerHTML: "innerHTML"
+  };
+  const VOID_TAGS = /* @__PURE__ */ new Set(["area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "source", "track", "wbr"]);
+  function clip(text, max) {
+    return text.length > max ? text.slice(0, max - 1) + "…" : text;
+  }
+  function formatValue(value) {
+    if (value === void 0) return null;
+    if (typeof value === "string") return clip(JSON.stringify(value), MAX_VALUE$1);
+    if (value === null || typeof value === "number" || typeof value === "boolean") return String(value);
+    try {
+      return clip(JSON.stringify(value) ?? String(value), MAX_VALUE$1);
+    } catch {
+      return "[object]";
+    }
+  }
+  function isElement(node) {
+    return node.nodeType === 1;
+  }
+  function describeNode(node) {
+    if (!isElement(node)) {
+      const parent = node.parentElement;
+      return parent ? describeNode(parent) + " #text" : "#text";
+    }
+    const tag = node.tagName.toLowerCase();
+    const testId = node.getAttribute("data-testid");
+    if (testId) return `${tag}[data-testid=${clip(testId, MAX_ATTR_VALUE)}]`;
+    if (node.id) return `${tag}#${clip(node.id, MAX_ATTR_VALUE)}`;
+    const role = node.getAttribute("role");
+    return role ? `${tag}[role=${role}]` : tag;
+  }
+  function textHint(node) {
+    if (!isElement(node)) return (node.nodeValue || "").replace(/\s+/g, " ").trim();
+    const doc = node.ownerDocument;
+    if (!(doc == null ? void 0 : doc.createTreeWalker)) return "";
+    const walker = doc.createTreeWalker(
+      node,
+      4
+      /* NodeFilter.SHOW_TEXT */
+    );
+    let out = "";
+    while (out.length <= MAX_TEXT_HINT && walker.nextNode()) {
+      const text = (walker.currentNode.nodeValue || "").replace(/\s+/g, " ");
+      if (text.trim()) out += text;
+    }
+    return clip(out.replace(/\s+/g, " ").trim(), MAX_TEXT_HINT);
+  }
+  function countElements(node, cap = MAX_ELEMENT_COUNT) {
+    if (!isElement(node)) return 0;
+    const doc = node.ownerDocument;
+    if (!(doc == null ? void 0 : doc.createTreeWalker)) return 1;
+    const walker = doc.createTreeWalker(
+      node,
+      1
+      /* NodeFilter.SHOW_ELEMENT */
+    );
+    let count = 1;
+    while (count < cap && walker.nextNode()) count++;
+    return count;
+  }
+  function markup(node) {
+    if (!isElement(node)) return clip(JSON.stringify(textHint(node)), MAX_MARKUP);
+    const tag = node.tagName.toLowerCase();
+    let open = "<" + tag;
+    for (const attr of Array.from(node.attributes)) {
+      open += ` ${attr.name}="${clip(attr.value, MAX_ATTR_VALUE)}"`;
+    }
+    open += ">";
+    if (VOID_TAGS.has(tag)) return clip(open, MAX_MARKUP);
+    return clip(open + textHint(node), MAX_MARKUP - tag.length - 3) + `</${tag}>`;
+  }
+  function anchorOf(fiber, parent) {
+    const names = [];
+    let f = fiber.return;
+    let resumed = false;
+    while (names.length < ANCHOR_DEPTH) {
+      if (!f) {
+        if (resumed || !parent) break;
+        f = parent;
+        resumed = true;
+        continue;
+      }
+      if (isComponentFiber$1(f.tag)) names.push(getComponentName(f));
+      f = f.return;
+    }
+    return names.length ? names.reverse().join(" › ") : "(root)";
+  }
+  function propChanges(found) {
+    var _a2;
+    const { fiber } = found;
+    const before = (_a2 = fiber.alternate) == null ? void 0 : _a2.memoizedProps;
+    const after = fiber.memoizedProps;
+    if (found.node.nodeType === 3) return [["text", formatValue(before), formatValue(after)]];
+    const out = [];
+    forEachVisiblePropChange(before, after, (key, x, y) => {
+      out.push([PROP_NAMES[key] || key, formatValue(x), formatValue(y)]);
+      return out.length >= MAX_PROPS_PER_CHANGE;
+    });
+    return out;
+  }
+  function toDomChange(found) {
+    const op = OPS[found.kind];
+    const base = { op, node: describeNode(found.node), at: anchorOf(found.fiber, found.parent) };
+    if (op === "~") return { ...base, props: propChanges(found) };
+    return { ...base, html: markup(found.node), elements: countElements(found.node) };
+  }
+  function diffCommit(root, limit = MAX_DOM_CHANGES_PER_COMMIT) {
+    const { found, truncated } = findChangedHosts(root, { limit, descendUpdated: true, detectMoves: true });
+    return { changes: found.map(toDomChange), truncated };
+  }
+  function createDomDiffCapture(options = {}, now = () => performance.now()) {
+    const enabled = options.domDiff !== false && typeof document !== "undefined";
+    const byCommit = {};
+    const store = createCommitBudgetStore(byCommit, options.maxDomChanges ?? DEFAULT_MAX_DOM_CHANGES, (diff2) => diff2.changes.length, DEFAULT_MAX_DOM_CHANGES);
+    function record(commitId, root) {
+      if (!enabled) return;
+      const started = now();
+      const { changes, truncated } = diffCommit(root);
+      if (changes.length === 0) return;
+      store.add(commitId, {
+        changes,
+        ...truncated && { truncated: true },
+        ms: Math.round((now() - started) * 100) / 100
+      });
+    }
+    return {
+      enabled,
+      byCommit,
+      record,
+      reset: store.reset,
+      status: () => store.status()
+    };
   }
   const LOCATION_PARENTS = 5;
   const LOCATION_OWNERS = 5;
@@ -3479,51 +3719,6 @@ this.__AVALANCHE__ = (function() {
     }
     return "Anonymous";
   }
-  const DEFAULT_MAX_RENDERED_ENTRIES = 25e4;
-  function createRenderedEvidenceStore(byCommit, maxEntries = DEFAULT_MAX_RENDERED_ENTRIES) {
-    const budget = Number.isFinite(maxEntries) && maxEntries > 0 ? Math.floor(maxEntries) : DEFAULT_MAX_RENDERED_ENTRIES;
-    let order = [];
-    let head = 0;
-    let entries = 0;
-    let evicted = null;
-    function add(commitId, list) {
-      var _a2;
-      const previous = byCommit[commitId];
-      if (previous) entries -= previous.length;
-      else order.push(commitId);
-      byCommit[commitId] = list;
-      entries += list.length;
-      while (entries > budget && order.length - head > 1) {
-        const oldest = order[head++];
-        const dropped = ((_a2 = byCommit[oldest]) == null ? void 0 : _a2.length) ?? 0;
-        delete byCommit[oldest];
-        entries -= dropped;
-        evicted = {
-          commits: ((evicted == null ? void 0 : evicted.commits) ?? 0) + 1,
-          entries: ((evicted == null ? void 0 : evicted.entries) ?? 0) + dropped,
-          throughCommit: Math.max((evicted == null ? void 0 : evicted.throughCommit) ?? oldest, oldest)
-        };
-      }
-      if (head > 1024 && head * 2 > order.length) {
-        order = order.slice(head);
-        head = 0;
-      }
-    }
-    function reset() {
-      for (const key of Object.keys(byCommit)) delete byCommit[Number(key)];
-      order = [];
-      head = 0;
-      entries = 0;
-      evicted = null;
-    }
-    function status() {
-      return { maxEntries: budget, entries, commits: order.length - head, evicted: evicted && { ...evicted } };
-    }
-    function inEvictedRange(commitId) {
-      return !!evicted && commitId <= evicted.throughCommit && byCommit[commitId] === void 0;
-    }
-    return { add, reset, status, inEvictedRange };
-  }
   var __defProp = Object.defineProperty;
   var __defNormalProp = (obj, key, value) => key in obj ? __defProp(obj, key, { enumerable: true, configurable: true, writable: true, value }) : obj[key] = value;
   var __publicField = (obj, key, value) => __defNormalProp(obj, typeof key !== "symbol" ? key + "" : key, value);
@@ -3618,6 +3813,7 @@ this.__AVALANCHE__ = (function() {
     const interactionCapture = createInteractionCapture(options);
     const networkCapture = createNetworkCapture(options);
     const screenCapture = createScreenCapture(options);
+    const domDiff = createDomDiffCapture(options);
     const hookRunner = createAvalancheHookRunner();
     const paintTracker = createPaintTracker((ids, paintAt) => {
       for (const id of ids) {
@@ -3700,6 +3896,7 @@ this.__AVALANCHE__ = (function() {
       interactionsByCommit: interactionCapture.state.byCommit,
       networkRequests: networkCapture.requests,
       screenByCommit: screenCapture.byCommit,
+      domByCommit: domDiff.byCommit,
       renderedByCommit: {}
     };
     const renderedEvidence = createRenderedEvidenceStore(state2.renderedByCommit, maxRenderedEntries);
@@ -3954,8 +4151,8 @@ this.__AVALANCHE__ = (function() {
             };
             if (parentSourceId) initialRenderEvidence.parentSourceId = parentSourceId;
             if (fiber.alternate) {
-              const propChanges = diffProps(fiber.alternate.memoizedProps, fiber.memoizedProps);
-              if (propChanges.length) initialRenderEvidence.propChanges = propChanges;
+              const propChanges2 = diffProps(fiber.alternate.memoizedProps, fiber.memoizedProps);
+              if (propChanges2.length) initialRenderEvidence.propChanges = propChanges2;
             }
             if (existingRenderEvidenceIndex >= 0) {
               perCommit.rendered[existingRenderEvidenceIndex] = initialRenderEvidence;
@@ -4290,6 +4487,7 @@ this.__AVALANCHE__ = (function() {
       interactionCapture.reset();
       networkCapture.reset();
       screenCapture.reset();
+      domDiff.reset();
       paintTracker.reset();
       hookRunner.start();
       boundaryIds = /* @__PURE__ */ new WeakMap();
@@ -4384,6 +4582,7 @@ this.__AVALANCHE__ = (function() {
       const memoizedUpdaters = root.memoizedUpdaters;
       const committedComponents = recordTree(root.current, memoizedUpdaters || null);
       screenCapture.record(state2.commits, root.current);
+      domDiff.record(state2.commits, root.current);
       const currentStats = state2.commitStats[state2.commits];
       if (currentStats && (pendingDevtoolsUnmounts.components > 0 || pendingDevtoolsUnmounts.subtrees > 0)) {
         const recordTreeSawDeletions = (currentStats[CS_UNMOUNTED_COMPONENTS] || 0) > 0;
@@ -4695,7 +4894,8 @@ this.__AVALANCHE__ = (function() {
           integrationMode,
           renderTicks: renderTicks.status(),
           network: networkCapture.status(),
-          renderedEvidence: renderedEvidence.status()
+          renderedEvidence: renderedEvidence.status(),
+          ...domDiff.enabled && { domDiff: domDiff.status() }
         });
         const hooks = hookRunner.collect();
         if (hooks) report.hooks = hooks;
@@ -7242,6 +7442,90 @@ this.__AVALANCHE__ = (function() {
     const width = Math.max(...rows.map((r) => String(r.t).length), 1);
     return [...header, "", ...rows.map((r) => `+${String(r.t).padStart(width)}  ${r.lane.padEnd(5)}  ${r.text}`)].join("\n");
   }
+  const DEFAULT_DOM_DIFF_COMMITS = 100;
+  const DEFAULT_DOM_DIFF_CHANGES = 50;
+  const ORDER_NOTE = "Each commit is one change set: its changes reached the DOM together and have no order. Order is between commits.";
+  function searchable(change) {
+    const props = (change.props || []).map(([name, before, after]) => `${name} ${before ?? ""} ${after ?? ""}`).join(" ");
+    return `${change.op} ${change.node} ${change.at} ${change.html ?? ""} ${props}`;
+  }
+  function formatProps(props) {
+    return (props || []).map(([name, before, after]) => `${name} ${before ?? "∅"} → ${after ?? "∅"}`).join("; ");
+  }
+  function formatDomChange(change) {
+    if (change.op === "~") return `~ ${change.node}  ${formatProps(change.props)}`;
+    const size = change.elements && change.elements > 1 ? ` (${change.elements}${change.elements >= MAX_ELEMENT_COUNT ? "+" : ""} el)` : "";
+    return `${change.op} ${change.node}${size}  ${change.html ?? ""}`;
+  }
+  function renderCommit(view) {
+    const when = view.t === null ? "" : `  +${view.t}ms`;
+    const shown = view.changes.length < view.total ? `${view.changes.length} of ${view.total}` : String(view.total);
+    const lines = [`#${view.commitId}${when} · ${shown} change${view.total === 1 ? "" : "s"}${view.truncated ? " (commit truncated)" : ""}`];
+    const groups = /* @__PURE__ */ new Map();
+    for (const change of view.changes) {
+      const list = groups.get(change.at);
+      if (list) list.push(change);
+      else groups.set(change.at, [change]);
+    }
+    for (const [at, changes] of groups) {
+      lines.push(`  ${at}`);
+      for (const change of changes) lines.push(`    ${formatDomChange(change)}`);
+    }
+    return lines;
+  }
+  function buildDomDiffView(report, options = {}) {
+    var _a2, _b2;
+    let pattern = null;
+    if (options.match) {
+      try {
+        pattern = new RegExp(options.match, "i");
+      } catch (error) {
+        return { error: "invalid match regex: " + (error.message || String(error)) };
+      }
+    }
+    const from = Number.isFinite(Number(options.fromCommit)) && options.fromCommit != null ? Number(options.fromCommit) : -Infinity;
+    const to = Number.isFinite(Number(options.toCommit)) && options.toCommit != null ? Number(options.toCommit) : Infinity;
+    const top = Math.max(1, Math.floor(Number(options.top) || DEFAULT_DOM_DIFF_COMMITS));
+    const maxItems = Math.max(1, Math.floor(Number(options.maxItems) || DEFAULT_DOM_DIFF_CHANGES));
+    const byCommit = report.domByCommit || {};
+    const ids = Object.keys(byCommit).map(Number).filter((id) => Number.isFinite(id) && id >= from && id <= to).sort((a, b) => a - b);
+    const matched = [];
+    for (const commitId of ids) {
+      const diff2 = byCommit[String(commitId)];
+      const changes = pattern ? diff2.changes.filter((change) => pattern.test(searchable(change))) : diff2.changes;
+      if (changes.length) matched.push({ commitId, diff: diff2, changes });
+    }
+    const listed = matched.slice(0, top);
+    const startOf = (id) => {
+      var _a3, _b3;
+      const start = (_b3 = (_a3 = report.commitTimings) == null ? void 0 : _a3[String(id)]) == null ? void 0 : _b3.startTime;
+      return typeof start === "number" && Number.isFinite(start) ? start : null;
+    };
+    const origin = listed.length ? startOf(listed[0].commitId) : null;
+    const commits = listed.map(({ commitId, diff: diff2, changes }) => {
+      const startTime = startOf(commitId);
+      return {
+        commitId,
+        t: startTime === null || origin === null ? null : Math.round((startTime - origin) * 10) / 10,
+        startTime,
+        total: changes.length,
+        changes: changes.slice(0, maxItems),
+        ...diff2.truncated && { truncated: true }
+      };
+    });
+    const evicted = ((_b2 = (_a2 = report.meta) == null ? void 0 : _a2.domDiff) == null ? void 0 : _b2.evicted) ?? null;
+    const lines = [ORDER_NOTE];
+    if (evicted) lines.push(`Commits up to #${evicted.throughCommit} may have lost their DOM changes to the capture budget.`);
+    if (!commits.length) lines.push(pattern ? "No DOM change matched." : "No DOM changes recorded.");
+    for (const view of commits) lines.push(...renderCommit(view));
+    if (matched.length > commits.length) lines.push(`… ${matched.length - commits.length} more commits; narrow with fromCommit/toCommit or raise top.`);
+    return {
+      commits,
+      commitsTotal: matched.length,
+      ...evicted && { evicted },
+      text: lines.join("\n")
+    };
+  }
   const UPSTREAM_COMMIT_STAT_KEYS = [
     "collateral",
     "sources",
@@ -7328,7 +7612,7 @@ this.__AVALANCHE__ = (function() {
     }
   }
   function evalAvalanche(command, api2, mod) {
-    var _a2, _b2, _c2, _d2, _e2, _f, _g, _h, _i, _j, _k, _l, _m, _n, _o, _p, _q, _r;
+    var _a2, _b2, _c2, _d2, _e2, _f, _g, _h, _i, _j, _k, _l, _m, _n, _o, _p, _q, _r, _s, _t;
     const action = String((command == null ? void 0 : command.action) || "status");
     if (!api2) {
       return { ok: false, available: false, action, error: "__AVALANCHE__ not available" };
@@ -7411,7 +7695,7 @@ this.__AVALANCHE__ = (function() {
             return { ok: false, available: true, action, error: "commit-peek requires numeric commitId" };
           }
           const include = Array.isArray(command == null ? void 0 : command.include) && command.include.length ? command.include : ["stats", "sources", "timing", "metrics", "hooks"];
-          const allowedInclude = ["stats", "sources", "timing", "metrics", "atl", "hooks", "unmounts", "actions", "rendered", "network"];
+          const allowedInclude = ["stats", "sources", "timing", "metrics", "atl", "hooks", "unmounts", "actions", "rendered", "network", "dom"];
           const invalidInclude = include.filter((key) => !allowedInclude.includes(key));
           if (invalidInclude.length) {
             return {
@@ -7479,12 +7763,18 @@ this.__AVALANCHE__ = (function() {
             const evicted = (_p = (_o = ser.meta) == null ? void 0 : _o.renderedEvidence) == null ? void 0 : _p.evicted;
             if (!rendered.length && evicted && Number(evicted.throughCommit) >= commitId) out.renderedEvicted = true;
           }
+          if (include.includes("dom")) {
+            const dom = ((_q = ser.domByCommit) == null ? void 0 : _q[commitId]) || ((_r = ser.domByCommit) == null ? void 0 : _r[String(commitId)]) || null;
+            out.dom = dom ? dom.changes.slice(0, maxItems) : [];
+            out.domTotal = dom ? dom.changes.length : 0;
+            if (dom == null ? void 0 : dom.truncated) out.domTruncated = true;
+          }
           if (include.includes("network")) {
             out.network = compactNetwork(networkByCommit(ser, command == null ? void 0 : command.window).get(commitId), maxItems);
           }
           if (include.includes("unmounts")) {
             const raw = r.raw || {};
-            const samples = ((_q = raw.unmountsByCommit) == null ? void 0 : _q[commitId]) || ((_r = raw.unmountsByCommit) == null ? void 0 : _r[String(commitId)]) || null;
+            const samples = ((_s = raw.unmountsByCommit) == null ? void 0 : _s[commitId]) || ((_t = raw.unmountsByCommit) == null ? void 0 : _t[String(commitId)]) || null;
             out.unmounts = samples ? samples.slice(0, maxItems) : [];
             out.unmountsTotal = Array.isArray(samples) ? samples.length : 0;
           }
@@ -7603,6 +7893,21 @@ this.__AVALANCHE__ = (function() {
           const { ok: _ok, lanes, ...rest } = timeline;
           return { ok: true, available: true, action, payload: (command == null ? void 0 : command.format) === "full" ? { ...rest, lanes } : rest };
         }
+        case "dom-diff": {
+          const r = getReport(api2);
+          if (!r || "error" in r) {
+            return { ok: false, available: true, action, error: r && "error" in r ? r.error : "report() unavailable" };
+          }
+          const view = buildDomDiffView(r.serial, {
+            fromCommit: command == null ? void 0 : command.fromCommit,
+            toCommit: command == null ? void 0 : command.toCommit,
+            match: command == null ? void 0 : command.match,
+            top: command == null ? void 0 : command.top,
+            maxItems: command == null ? void 0 : command.maxItems
+          });
+          if ("error" in view) return { ok: false, available: true, action, error: view.error };
+          return { ok: true, available: true, action, payload: view };
+        }
         // Removed: start, stop, metrics, help — not present on the current public surface.
         default:
           return { ok: false, available: true, action, error: "Unknown avalanche action: " + action };
@@ -7612,7 +7917,7 @@ this.__AVALANCHE__ = (function() {
     }
   }
   const AVALANCHE_NAME_BUDGET_MS = 3e3;
-  const NAME_FREE_ACTIONS = /* @__PURE__ */ new Set(["install", "uninstall", "reset", "clear", "status", "debug-hook", "network", "timeline"]);
+  const NAME_FREE_ACTIONS = /* @__PURE__ */ new Set(["install", "uninstall", "reset", "clear", "status", "debug-hook", "network", "timeline", "dom-diff"]);
   const SOURCE_ID = /^[^\s#@]+#\d+@-?\d+$/;
   const MAX_SOURCE_IDS = 2e3;
   function sourceIdsIn(value, limit = MAX_SOURCE_IDS) {
@@ -8247,11 +8552,11 @@ this.__AVALANCHE__ = (function() {
     const viewport = geometry.viewport();
     const isViewport = rootEl === doc.documentElement;
     const rootRect = isViewport ? viewport : geometry.rect(rootEl);
-    const clip = intersectRect(rootRect, viewport);
-    if (!clip) return { ok: false, reason: "root-offscreen", root: rootName, at: startedAt };
-    const cell = cellSizeFor(clip);
-    const placeholder = createAreaGrid(clip, cell);
-    const content = createAreaGrid(clip, cell);
+    const clip2 = intersectRect(rootRect, viewport);
+    if (!clip2) return { ok: false, reason: "root-offscreen", root: rootName, at: startedAt };
+    const cell = cellSizeFor(clip2);
+    const placeholder = createAreaGrid(clip2, cell);
+    const content = createAreaGrid(clip2, cell);
     const placeholderPattern = options.placeholderNames ? options.placeholderNames instanceof RegExp ? options.placeholderNames : new RegExp(options.placeholderNames) : null;
     const targets = [];
     const componentIndex = /* @__PURE__ */ new Map();
@@ -8265,15 +8570,15 @@ this.__AVALANCHE__ = (function() {
         kind,
         name,
         elements: 0,
-        box: createAreaGrid(clip, cell),
-        content: createAreaGrid(clip, cell),
-        placeholder: createAreaGrid(clip, cell)
+        box: createAreaGrid(clip2, cell),
+        content: createAreaGrid(clip2, cell),
+        placeholder: createAreaGrid(clip2, cell)
       });
     }
     for (const name of options.components || []) if (name) addTarget("component", name);
     for (const id of options.testIds || []) if (id) addTarget("testid", id);
     if (targets.length === 0) {
-      for (const id of largestTestIds(rootEl, clip, geometry, options)) addTarget("testid", id);
+      for (const id of largestTestIds(rootEl, clip2, geometry, options)) addTarget("testid", id);
     }
     let elements = 0;
     let textRects = 0;
@@ -8359,13 +8664,13 @@ this.__AVALANCHE__ = (function() {
       content.add(rect);
       for (const index of m.groups) targets[index].content.add(rect);
     }
-    visit(rootEl, null, { groups: [], placeholder: false }, clip, true);
-    const rootArea = rectArea(clip);
+    visit(rootEl, null, { groups: [], placeholder: false }, clip2, true);
+    const rootArea = rectArea(clip2);
     const share = (n) => rootArea > 0 ? round$1(n / rootArea, 4) : 0;
     return {
       ok: true,
       at: round$1(startedAt, 1),
-      root: { label: rootLabel(options.root ?? null, rootEl), rect: roundRect(clip), area: Math.round(rootArea) },
+      root: { label: rootLabel(options.root ?? null, rootEl), rect: roundRect(clip2), area: Math.round(rootArea) },
       cellSize: cell,
       placeholder: { area: Math.round(placeholder.area()), share: share(placeholder.area()) },
       content: { area: Math.round(content.area()), share: share(content.area()) },
@@ -8383,15 +8688,15 @@ this.__AVALANCHE__ = (function() {
       stats: { elements, textRects, ms: round$1(performance.now() - startedAt, 1) }
     };
   }
-  function largestTestIds(rootEl, clip, geometry, options) {
+  function largestTestIds(rootEl, clip2, geometry, options) {
     const limit = options.autoTargets ?? DEFAULT_AUTO_TARGETS;
     if (limit <= 0) return [];
-    const minArea = rectArea(clip) * (options.minShare ?? DEFAULT_MIN_SHARE);
+    const minArea = rectArea(clip2) * (options.minShare ?? DEFAULT_MIN_SHARE);
     const best = /* @__PURE__ */ new Map();
     for (const el of Array.from(rootEl.querySelectorAll("[data-testid]"))) {
       const id = el.getAttribute("data-testid");
       if (!id) continue;
-      const box = intersectRect(geometry.rect(el), clip);
+      const box = intersectRect(geometry.rect(el), clip2);
       const area = box ? rectArea(box) : 0;
       if (area >= minArea && area > (best.get(id) || 0)) best.set(id, area);
     }
@@ -9184,7 +9489,7 @@ this.__AVALANCHE__ = (function() {
     }
     const allChanges = [];
     let changedFibers = 0;
-    let propChanges = 0;
+    let propChanges2 = 0;
     for (const [beforeEntry, match] of matched) {
       const added = [];
       const removed = [];
@@ -9202,7 +9507,7 @@ this.__AVALANCHE__ = (function() {
       const count = added.length + removed.length + changed.length;
       if (!count) continue;
       changedFibers++;
-      propChanges += count;
+      propChanges2 += count;
       allChanges.push({
         kind: "props-changed",
         match: match.confidence,
@@ -9246,7 +9551,7 @@ this.__AVALANCHE__ = (function() {
         changedFibers,
         addedFibers: addedFibers.length,
         removedFibers: removedFibers.length,
-        propChanges,
+        propChanges: propChanges2,
         returnedChanges: changes.length,
         captureTruncated,
         changesTruncated,

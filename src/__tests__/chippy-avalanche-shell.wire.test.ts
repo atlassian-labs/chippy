@@ -122,3 +122,53 @@ describe('chippy.sh avalanche-save on a large capture', () => {
     expect(helper.bodies()[0]).toEqual({ action: 'export-last', count: 5, timeoutMs: 60000 });
   });
 });
+
+describe('chippy.sh avalanche-dom-diff', () => {
+  function captureWithDomChanges(): AvalancheApi {
+    const state = {
+      commits: 3, sources: new Map(), amplifiers: new Map(), amplifierSources: new Map(), thrashCounts: null,
+      memoizedUpdatersAvailable: false, commitsWithMemoizedUpdaters: 0, commitStats: {},
+      metricsByCommit: {}, lastMetricsSnapshot: null, commitTimings: { 2: { startTime: 10 }, 3: { startTime: 25 } }, lastCommitEndTime: 0,
+      suspenseByCommit: {}, unmountsByCommit: {}, interactionActions: [], interactionsByCommit: {},
+      networkRequests: [], renderedByCommit: {},
+      domByCommit: {
+        2: { changes: [{ op: '+', node: 'li[data-testid=item-a]', at: 'List › Item', html: '<li>a</li>', elements: 1 }], ms: 0.1 },
+        3: {
+          changes: [
+            { op: '~', node: 'span', at: 'Header', props: [['text', '"1"', '"2"']] },
+            { op: '-', node: 'li[data-testid=item-b]', at: 'List › Item', html: '<li>b</li>', elements: 1 },
+          ],
+          ms: 0.1,
+        },
+      },
+    } as unknown as ProfilerState;
+    return { report: (topN = 10) => buildReport(state, false, topN, 'effect') as never };
+  }
+
+  it('posts every position, which reaches the bridge and filters the diff', () => {
+    const helper = fakeHelper({ ok: true, result: { ok: true } });
+    helper.run('avalanche-dom-diff', 'client-1', '2', '9', 'item', '5', '10');
+    const [body] = helper.bodies();
+    expect(body).toEqual({ action: 'dom-diff', fromCommit: 2, toCommit: 9, match: 'item', maxItems: 5, top: 10 });
+    const command = buildAvalancheCommand(body, 'rq-1');
+    expect(command).toMatchObject({ type: 'eval-avalanche', action: 'dom-diff', fromCommit: 2, toCommit: 9, match: 'item', maxItems: 5, top: 10 });
+    const result = evalAvalanche(command, captureWithDomChanges(), null) as any;
+    expect(result.ok).toBe(true);
+    expect(result.payload.commits.map((c: any) => [c.commitId, c.t, c.changes.map((x: any) => x.op)])).toEqual([[2, 0, ['+']], [3, 15, ['-']]]);
+  });
+
+  it('skips empty positions', () => {
+    const helper = fakeHelper({ ok: true, result: { ok: true } });
+    helper.run('avalanche-dom-diff', 'client-1', '', '', 'a"b');
+    expect(helper.bodies()).toEqual([{ action: 'dom-diff', match: 'a"b' }]);
+  });
+
+  it('requires a client id', () => {
+    const helper = fakeHelper({ ok: true });
+    expect(() => helper.run('avalanche-dom-diff')).toThrow(/requires <clientId>/);
+  });
+
+  it('is listed in the usage text', () => {
+    expect(execFileSync('bash', [CHIPPY, 'help'], { encoding: 'utf8' })).toContain('avalanche-dom-diff <clientId>');
+  });
+});

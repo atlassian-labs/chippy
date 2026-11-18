@@ -18,7 +18,7 @@ type SavedReport = {
 // Per-commit maps in a ReportDTO, keyed by commit id.
 const PER_COMMIT_KEYS = [
   'commitStats', 'suspenseByCommit', 'sourcesByCommit', 'interactionsByCommit',
-  'renderedByCommit', 'screenByCommit', 'metricsByCommit', 'atlByCommit', 'timing', 'commitTimings',
+  'renderedByCommit', 'screenByCommit', 'domByCommit', 'metricsByCommit', 'atlByCommit', 'timing', 'commitTimings',
 ];
 
 export function isSavedReport(value: unknown): value is SavedReport {
@@ -128,7 +128,10 @@ export function sourceSearch(report: SavedReport, options: { name: string; top?:
 export function analyzeSavedReport(report: SavedReport, command: string, args: { _: string[]; [flag: string]: unknown }) {
   const positional = args._;
   const number = (flag: string, index: number) => {
-    const value = Number(args[flag] ?? positional[index]);
+    const raw = args[flag] ?? positional[index];
+    // An empty position ("") skips it, as in the live shell commands.
+    if (raw === undefined || raw === null || raw === '') return undefined;
+    const value = Number(raw);
     return Number.isFinite(value) ? value : undefined;
   };
   switch (command) {
@@ -171,6 +174,17 @@ export function analyzeSavedReport(report: SavedReport, command: string, args: {
         top: number('top', 99),
         ...(typeof exclude === 'string' && exclude && { exclude }),
         ...(typeof args.format === 'string' && { format: args.format }),
+      });
+    }
+    case 'dom-diff': {
+      const match = args.match ?? positional[2];
+      return dispatch(report, {
+        action: 'dom-diff',
+        fromCommit: number('fromCommit', 0),
+        toCommit: number('toCommit', 1),
+        ...(typeof match === 'string' && match && { match }),
+        maxItems: number('maxItems', 3),
+        top: number('top', 99),
       });
     }
     case 'source-search': {

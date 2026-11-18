@@ -11,6 +11,7 @@ import { CS_RESTARTS } from './commit-stats-indices';
 import type { CommitTicks, RenderTickStatus } from './render-ticks';
 import type { NetworkCaptureStatus, NetworkRequest } from './network-capture';
 import type { ScreenChange } from './screen-changes';
+import type { DomCommitDiff } from './dom-diff';
 import type { SuspenseLocation } from './suspense-location';
 import { getComponentName } from './internals';
 import type { ReportDTO } from './report-serializer';
@@ -294,6 +295,8 @@ export interface ReportMeta {
    * commits up to it may have lost their rendered evidence.
    */
   renderedEvidence?: RenderedEvidenceStatus;
+  /** `domByCommit` budget and what it dropped. Absent when DOM diff capture is off. */
+  domDiff?: RenderedEvidenceStatus;
   /** Amplifier summary (when detectionMode: 'amplifierMetrics') */
   amplifiersMetrics?: {
     totalHookThrashes: number;
@@ -511,6 +514,13 @@ export interface Report {
   screenByCommit?: Record<number, ScreenChange>;
 
   /**
+   * What each commit changed in the DOM: inserted, removed, moved, shown, and
+   * hidden nodes, and updated props with before and after values. Only commits
+   * that changed the DOM have an entry. Absent when DOM diff capture is off.
+   */
+  domByCommit?: Record<number, DomCommitDiff>;
+
+  /**
    * Convert this report to a serializable DTO (safe for JSON.stringify, IPC, network).
    * Strips non-serializable fields like Fiber references and ComponentType functions.
    */
@@ -579,6 +589,15 @@ export interface DetectorOptions {
    * in the commit hook; the cost is reported per commit as `ms`.
    */
   screenCapture?: boolean;
+
+  /**
+   * Record what each commit changed in the DOM, read from committed fibers
+   * (`domByCommit`). Default true in a browser.
+   */
+  domDiff?: boolean;
+
+  /** DOM changes kept across the capture; the oldest commits are dropped first. Default 50,000. */
+  maxDomChanges?: number;
 
   /** Network requests kept per capture; the oldest are dropped first. Default: 500. */
   maxNetworkRequests?: number;
@@ -733,6 +752,9 @@ export interface ProfilerState {
   /** Screen area each commit changed. */
   screenByCommit?: Record<number, ScreenChange>;
 
+  /** DOM changes each commit made. */
+  domByCommit?: Record<number, DomCommitDiff>;
+
   /** Structural evidence for each component that rendered in a commit. */
   renderedByCommit: Record<number, RenderedComponentEvidence[]>;
 }
@@ -815,6 +837,7 @@ export function buildReport(
     /** Network capture status from the detector. */
     network?: NetworkCaptureStatus;
     renderedEvidence?: RenderedEvidenceStatus;
+    domDiff?: RenderedEvidenceStatus;
   }
 ): Report {
   const { minCollateral = 1 } = options;
@@ -1069,6 +1092,7 @@ export function buildReport(
     },
     renderTicks,
     ...(detectorConfig?.renderedEvidence && { renderedEvidence: detectorConfig.renderedEvidence }),
+    ...(detectorConfig?.domDiff && { domDiff: detectorConfig.domDiff }),
     network: detectorConfig?.network
       ?? { supported: false, enabled: false, windowStart: 0, requests: 0, dropped: 0, ignoredOwn: 0 },
     timing: {
@@ -1091,6 +1115,7 @@ export function buildReport(
     renderedByCommit: state.renderedByCommit,
     networkRequests: state.networkRequests.slice(),
     ...(state.screenByCommit && Object.keys(state.screenByCommit).length > 0 && { screenByCommit: { ...state.screenByCommit } }),
+    ...(state.domByCommit && Object.keys(state.domByCommit).length > 0 && { domByCommit: { ...state.domByCommit } }),
     ...(hasMetricsData && { metricsByCommit: state.metricsByCommit, atlByCommit: state.metricsByCommit }),
     toSerializable() {
       return serializeReport(this);

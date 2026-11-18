@@ -115,6 +115,18 @@ const SHELL_COMMANDS: ShellCommandCase[] = [
     requiredFields: ['type', 'requestId', 'action'],
   },
   {
+    name: 'avalanche-dom-diff (all positions)',
+    shellLine: 1043,
+    body: { action: 'dom-diff', fromCommit: 2, toCommit: 9, match: 'item', maxItems: 5, top: 10 },
+    requiredFields: ['type', 'requestId', 'action', 'fromCommit', 'toCommit', 'match', 'maxItems', 'top'],
+  },
+  {
+    name: 'avalanche-dom-diff (defaults)',
+    shellLine: 1043,
+    body: { action: 'dom-diff' },
+    requiredFields: ['type', 'requestId', 'action'],
+  },
+  {
     name: 'avalanche-install',
     shellLine: 655,
     body: {

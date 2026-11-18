@@ -65,6 +65,22 @@ describe('Chippy React compatibility', () => {
     } finally { await page.close(); }
   }, 30000);
 
+  it.each(['stock', 'react-19'])('records what each %s React commit changed in the DOM', async (kind) => {
+    const page = await openPage(kind);
+    try {
+      await page.locator('#counter').click();
+      await expect.poll(() => page.locator('#counter').textContent()).toBe('Count: 1');
+      const domByCommit = await page.evaluate(() => (window as any).__AVALANCHE__.report(100, 'effect').toSerializable().domByCommit);
+      const ids = Object.keys(domByCommit).map(Number).sort((a, b) => a - b);
+      expect(ids).toEqual([1, 2]);
+      // The mount inserts the app; the click changes only the label's text.
+      expect(domByCommit[1].changes).toEqual([expect.objectContaining({ op: '+' })]);
+      expect(domByCommit[2].changes).toEqual([
+        { op: '~', node: 'span', at: expect.stringMatching(/StockCounter › CounterLabel$/), props: [['text', '"Count: 0"', '"Count: 1"']] },
+      ]);
+    } finally { await page.close(); }
+  }, 30000);
+
   it.each(['stock', 'react-19'])('records when a %s React commit reached the screen', async (kind) => {
     const page = await openPage(kind);
     try {

@@ -134,8 +134,10 @@ Defaults: include `stats,sources,timing,metrics,hooks`, maxItems 20 (MCP and HTT
 
 Valid include values (live and offline):
 ```text
-stats,sources,timing,metrics,hooks,unmounts,actions,rendered,network
+stats,sources,timing,metrics,hooks,unmounts,actions,rendered,network,dom
 ```
+
+`dom` returns `dom`, the DOM changes this commit made (the `avalanche-dom-diff` change shape, cut to `maxItems`), and `domTotal`, their untrimmed count. `domTruncated: true` is added when the commit changed more nodes than were recorded. `domTotal` is 0 for a commit that changed nothing in the DOM.
 
 `atl` is a deprecated alias of `metrics`; it returns the same slice under `atl`.
 
@@ -148,7 +150,7 @@ stats,sources,timing,metrics,hooks,unmounts,actions,rendered,network
 Response envelopes (live responses also add `targetClientId`, `resolvedFrom`, and `requestId`):
 - commit-list: `{by,total,rows:[{commitId,stat,sourceCount,ticks,network,latestAction}]}`. Rows are top-level, not under `payload`.
 - hot-sources: `{total,payload:{count,items:[...]}}`.
-- commit-peek: `{payload:{commitId,found:true,stats,sources,sourcesTotal,timing,metrics,hooks,actions,actionsTotal,rendered,renderedTotal,unmounts,unmountsTotal,network}}`, containing only the requested slices. An unknown commit returns flat `{commitId,found:false}` without `payload`.
+- commit-peek: `{payload:{commitId,found:true,stats,sources,sourcesTotal,timing,metrics,hooks,actions,actionsTotal,rendered,renderedTotal,unmounts,unmountsTotal,network,dom,domTotal}}`, containing only the requested slices. An unknown commit returns flat `{commitId,found:false}` without `payload`.
 
 ### `avalanche-describe-action <clientId> <actionId>`
 ```bash
@@ -223,6 +225,34 @@ Limits:
 - Screen changes are recorded from React's committed host nodes and their boxes, not from pixels. CSS animations, images that finish decoding later, and DOM writes outside React are not seen, a removed node counts only if Chippy measured it earlier, and a subtree React moved without remounting is not seen (React clears the insertion flag before the commit hook). Measuring boxes reads layout during the commit. Turn it off with the detector option `screenCapture: false`.
 - Commit `endTime - startTime` is the detector's own overhead, so a commit has a duration only when the report records render start. Otherwise commits are drawn as points, and `rendered` stands in for work.
 
+### `avalanche-dom-diff <clientId> [fromCommit] [toCommit] [match] [maxItems] [top]`
+```bash
+chippy.sh avalanche-dom-diff my-client
+chippy.sh avalanche-dom-diff my-client 40 60 'item|row' 20
+chippy.sh avalanche-offline capture.json dom-diff --match 'data-testid=toast'
+```
+Lists what each commit changed in the DOM, commits in order. Use it for flicker, content that appears and then disappears, a node that is removed and inserted instead of updated, or to check what one interaction did to the page. Defaults: every recorded commit, 100 commits (`top`), and 50 changes per commit (`maxItems`). `match` is a case-insensitive regex over each change's op, node, `at`, markup, and props; a commit with no matching change is left out. Pass `""` to skip a position.
+
+Ordering: each commit is one change set. React applies all of a commit's DOM changes before the browser can paint, so two changes in one commit, in sibling branches or nested, happened together and have no order. Changes are listed in tree order only so the output is stable. Order exists only between commits.
+
+Changes are read in the commit hook from the committed fibers, using each host fiber's previous props for the value before. Nothing observes or patches the DOM.
+
+Output: `payload: {commits, commitsTotal, evicted?, text}`.
+- `commits[]`: `commitId`, `t` (ms since the first listed commit, null without commit timings), `startTime` (`performance.now()` when the commit hook ran), `total` (changes after `match`), `changes` (cut to `maxItems`), and `truncated` when the commit changed more than 200 nodes and the rest were not recorded.
+- `commitsTotal`: commits with a matching change; more than `commits.length` when `top` cut the list.
+- `text`: one header per commit (`#7  +42ms · 3 changes`), changes grouped by `at`. Read it first.
+
+Each change is `{op, node, at, props?, html?, elements?}`:
+- `op`: `+` the topmost node of an inserted subtree; `-` the topmost node of a removed subtree; `~` an updated node; `move` a keyed node React moved among its siblings; `show`/`hide` Suspense content that stays mounted while its fallback is shown or cleared.
+- `node`: `tag[data-testid=…]`, `tag#id`, `tag[role=…]`, or `tag`. A text node is `<parent> #text`.
+- `at`: up to three nearest components above the node, outermost first, joined by ` › `; `(root)` when there are none. For a removed node, the components above the place it was removed from. Names are read at capture time, so production builds may show minified names.
+- `props` (`~` only): `[name, before, after]` per changed prop, at most 12. `class`, `text` (textual children), `style.<key>` per style key, `innerHTML`, and other attributes. Strings are JSON-quoted and cut to 80 characters; null means the prop was absent. Handlers, refs, and keys are ignored.
+- `html` and `elements` (every op except `~`): the opening tag, the start of the text, and the closing tag, cut to 200 characters; and the elements in the subtree, the node included, up to 1000 (`1000+` in `text`).
+
+Limits:
+- DOM writes outside React (a library writing to the DOM directly, `innerHTML` set by hand), attributes React does not own, and CSS animations are not recorded.
+- The capture keeps 50,000 changes (`maxDomChanges`) and drops the oldest commits first; `meta.domDiff.evicted` and the first line of `text` say when that happened. `install` option `domDiff: false` turns the capture off.
+
 ### `avalanche-export <clientId> [lastN] [outFile]`
 ```bash
 chippy.sh avalanche-export my-client
@@ -254,16 +284,16 @@ In the Chippy panel, **● Record** clears the capture, as `avalanche-clear` doe
 
 The Avalanche pill beside Record shows whether the capture includes the page's first render. Green: Avalanche was installed before React's first commit by an armed reload. Amber (`late`): it was installed on the live page. Grey (`off`): not installed. Clicking amber or grey reloads the page with Avalanche installed from page start, with the defaults of `reload-with-avalanche`.
 
-### `avalanche-offline <path> <summary|commit-list|commit-peek|hot-sources|describe-action|network|timeline|source-search> ...`
+### `avalanche-offline <path> <summary|commit-list|commit-peek|hot-sources|describe-action|network|timeline|dom-diff|source-search> ...`
 ```bash
 chippy.sh avalanche-offline .chippy-captures/raf-1846.json summary
 chippy.sh avalanche-offline .chippy-captures/raf-1846.json commit-list 10 collateral
 chippy.sh avalanche-offline .chippy-captures/raf-1846.json commit-peek 42 stats,sources,rendered 20
 chippy.sh avalanche-offline .chippy-captures/raf-1846.json source-search --name 'Issue(Row|List)'
 ```
-Use saved captures without a live page. `commit-list`, `commit-peek`, `hot-sources`, `describe-action`, `network`, and `timeline` run the same code as the live commands and return the same shapes, so sort keys and include values match the live tables above (`unmounts` is live-only; a saved capture always returns it empty).
+Use saved captures without a live page. `commit-list`, `commit-peek`, `hot-sources`, `describe-action`, `network`, `timeline`, and `dom-diff` run the same code as the live commands and return the same shapes, so sort keys and include values match the live tables above (`unmounts` is live-only; a saved capture always returns it empty).
 
-Offline arguments: `commit-list [top] [by]`, `commit-peek <commitId> [include] [maxItems]` (no `depth`; the third value is maxItems, default 50), `hot-sources [limit]`, `describe-action <actionId>`, `network [top] [by] [match] [initiators] [windowMs]`, `timeline [fromCommit] [toCommit] [minRequestMs] [exclude]` (`--top N` keeps the N longest requests, `--format full` adds lanes), and `source-search --name <regex> [--top N]` (default top 50). Flags such as `--top`, `--by`, `--include`, `--maxItems`, `--match`, `--initiators`, and `--window` are accepted in place of positional values.
+Offline arguments: `commit-list [top] [by]`, `commit-peek <commitId> [include] [maxItems]` (no `depth`; the third value is maxItems, default 50), `hot-sources [limit]`, `describe-action <actionId>`, `network [top] [by] [match] [initiators] [windowMs]`, `timeline [fromCommit] [toCommit] [minRequestMs] [exclude]` (`--top N` keeps the N longest requests, `--format full` adds lanes), `dom-diff [fromCommit] [toCommit] [match] [maxItems]` (`--top N` caps commits), and `source-search --name <regex> [--top N]` (default top 50). Flags such as `--top`, `--by`, `--include`, `--maxItems`, `--match`, `--initiators`, and `--window` are accepted in place of positional values.
 
 `summary` returns commit count, first/last commit id, source count, and totals of the commit stats. `source-search --name <regex>` matches aggregate sources by `sourceId` and rendered components by name with per-instance render and self-source counts.
 
@@ -327,6 +357,8 @@ Start with these fields:
 - `networkRequests[]` — requests that finished during the capture, oldest first (`avalanche-network` row fields without the links)
 - `meta.network` — `{supported, enabled, windowStart, requests, dropped, ignoredOwn}`: whether the browser delivers resource entries, whether capture is on, when the capture window opened (`performance.now()`, at install or clear), how many requests are kept, how many of the oldest were dropped past the 500-request limit, and how many of Chippy's own requests were excluded
 - `screenByCommit[N]` — screen area commit `N` changed: `viewport`, `area`, `removedArea`, `share`, `rects` (`[left, top, right, bottom]`), `regions` (top five by area, labelled by test id or component), `nodes`, `truncated`, `ms`; present only for commits that changed a box
+- `domByCommit[N]` — DOM changes commit `N` made: `changes` (the `avalanche-dom-diff` change shape, in tree order, with no order between them), `truncated`, `ms`; present only for commits that changed the DOM
+- `meta.domDiff` — `{maxEntries, entries, commits, evicted}`: the change budget, how many changes and commits are kept, and which oldest commits were dropped (`evicted` is null when none were)
 - suspense events carry `boundary` (a stable id per boundary within the capture) and `location` (the parent and owner chain described under `avalanche-timeline`)
 - `meta.version` — report format; 8 adds `networkRequests` and `meta.network`
 

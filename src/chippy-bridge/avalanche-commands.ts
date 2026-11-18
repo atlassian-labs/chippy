@@ -13,6 +13,7 @@ import { hookStepsAt } from '../avalanche/avalanche-hooks';
 import { warmComponentTypes, type NameRecoveryStats } from './component-origin';
 import { networkByCommit, networkView, type CommitNetwork } from '../avalanche/network-signals';
 import { buildTimeline } from '../avalanche/timeline';
+import { buildDomDiffView } from '../avalanche/dom-diff-view';
 
 // ─── Type definitions ────────────────────────────────────────────────────
 
@@ -47,11 +48,11 @@ export type AvalancheCommand = {
   maxItems?: number;
   top?: number;
   by?: string;
-  /** `network`: case-insensitive regex over request URLs. */
+  /** `network`: case-insensitive regex over request URLs. `dom-diff`: regex over each change's op, node, components, markup, and props. */
   match?: string;
   /** `network`: initiator types to keep, such as fetch or xmlhttprequest. */
   initiators?: string[];
-  /** `timeline`: first and last commit ids of the window. */
+  /** `timeline`, `dom-diff`: first and last commit ids of the window. */
   fromCommit?: number;
   toCommit?: number;
   /** `timeline`: requests shorter than this are left out. */
@@ -310,7 +311,7 @@ export function evalAvalanche(
           ? command!.include!
           : ['stats', 'sources', 'timing', 'metrics', 'hooks'];
         // `atl` is the deprecated alias of `metrics`, kept for one release.
-        const allowedInclude = ['stats', 'sources', 'timing', 'metrics', 'atl', 'hooks', 'unmounts', 'actions', 'rendered', 'network'];
+        const allowedInclude = ['stats', 'sources', 'timing', 'metrics', 'atl', 'hooks', 'unmounts', 'actions', 'rendered', 'network', 'dom'];
         const invalidInclude = include.filter((key) => !allowedInclude.includes(key));
         if (invalidInclude.length) {
           return {
@@ -387,6 +388,15 @@ export function evalAvalanche(
           const evicted = (ser.meta as { renderedEvidence?: { evicted?: { throughCommit?: number } | null } } | undefined)
             ?.renderedEvidence?.evicted;
           if (!rendered.length && evicted && Number(evicted.throughCommit) >= commitId) out.renderedEvicted = true;
+        }
+        if (include.includes('dom')) {
+          // One change set: the commit's DOM changes have no order among themselves.
+          const dom = (ser.domByCommit?.[commitId] || ser.domByCommit?.[String(commitId)] || null) as
+            | { changes: unknown[]; truncated?: true }
+            | null;
+          out.dom = dom ? dom.changes.slice(0, maxItems) : [];
+          out.domTotal = dom ? dom.changes.length : 0;
+          if (dom?.truncated) out.domTruncated = true;
         }
         if (include.includes('network')) {
           out.network = compactNetwork(networkByCommit(ser, command?.window).get(commitId), maxItems);
@@ -518,6 +528,21 @@ export function evalAvalanche(
         const { ok: _ok, lanes, ...rest } = timeline;
         return { ok: true, available: true, action, payload: command?.format === 'full' ? { ...rest, lanes } : rest };
       }
+      case 'dom-diff': {
+        const r = getReport(api);
+        if (!r || 'error' in r) {
+          return { ok: false, available: true, action, error: (r && 'error' in r ? r.error : 'report() unavailable') };
+        }
+        const view = buildDomDiffView(r.serial as Parameters<typeof buildDomDiffView>[0], {
+          fromCommit: command?.fromCommit,
+          toCommit: command?.toCommit,
+          match: command?.match,
+          top: command?.top,
+          maxItems: command?.maxItems,
+        });
+        if ('error' in view) return { ok: false, available: true, action, error: view.error };
+        return { ok: true, available: true, action, payload: view };
+      }
       // Removed: start, stop, metrics, help — not present on the current public surface.
       default:
         return { ok: false, available: true, action, error: 'Unknown avalanche action: ' + action };
@@ -533,7 +558,7 @@ export function evalAvalanche(
 export const AVALANCHE_NAME_BUDGET_MS = 3000;
 
 /** Actions whose results carry no component source ids, or that change state. */
-const NAME_FREE_ACTIONS = new Set(['install', 'uninstall', 'reset', 'clear', 'status', 'debug-hook', 'network', 'timeline']);
+const NAME_FREE_ACTIONS = new Set(['install', 'uninstall', 'reset', 'clear', 'status', 'debug-hook', 'network', 'timeline', 'dom-diff']);
 const SOURCE_ID = /^[^\s#@]+#\d+@-?\d+$/;
 const MAX_SOURCE_IDS = 2000;
 
