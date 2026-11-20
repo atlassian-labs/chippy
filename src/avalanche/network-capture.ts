@@ -60,6 +60,8 @@ export interface NetworkCaptureStatus {
   dropped: number;
   /** Requests Chippy made itself (module and source-map fetches), excluded. */
   ignoredOwn: number;
+  /** performance.now() when the capture was paused, or null while it records. */
+  pausedAt?: number | null;
 }
 
 type ResourceEntry = {
@@ -99,6 +101,7 @@ export function createNetworkCapture(options: NetworkCaptureOptions = {}) {
   let dropped = 0;
   let ignoredOwn = 0;
   let windowStart = performance.now();
+  let pausedAt: number | null = null;
   let observer: Observer | null = null;
 
   function observerConstructor(): ObserverConstructor | null {
@@ -116,6 +119,8 @@ export function createNetworkCapture(options: NetworkCaptureOptions = {}) {
       : entry.startTime + (entry.duration ?? 0);
     // Entries buffered before the window opened belong to an earlier capture.
     if (endTime < windowStart) return;
+    // A paused capture keeps requests that were already in flight.
+    if (pausedAt !== null && entry.startTime >= pausedAt) return;
     if (isChippyAssetUrl(entry.name)) return;
     if (entry.initiatorType === 'fetch' && isOwnRequest(entry.name)) {
       ignoredOwn += 1;
@@ -172,8 +177,21 @@ export function createNetworkCapture(options: NetworkCaptureOptions = {}) {
       observer = null;
     },
 
+    /** Stop taking new requests; requests already in flight still finish into the capture. */
+    pause(): void {
+      if (pausedAt !== null) return;
+      flush();
+      pausedAt = performance.now();
+    },
+
+    resume(): void {
+      flush();
+      pausedAt = null;
+    },
+
     reset(): void {
       flush();
+      pausedAt = null;
       requests.length = 0;
       nextId = 1;
       dropped = 0;
@@ -189,6 +207,7 @@ export function createNetworkCapture(options: NetworkCaptureOptions = {}) {
         requests: requests.length,
         dropped,
         ignoredOwn,
+        pausedAt: pausedAt === null ? null : round(pausedAt),
       };
     },
   };

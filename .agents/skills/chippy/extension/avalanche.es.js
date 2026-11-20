@@ -1670,7 +1670,8 @@ function buildReport(state2, thrashMode, topN, sortBy, options = {}, detectorCon
     renderTicks,
     ...(detectorConfig == null ? void 0 : detectorConfig.renderedEvidence) && { renderedEvidence: detectorConfig.renderedEvidence },
     ...(detectorConfig == null ? void 0 : detectorConfig.domDiff) && { domDiff: detectorConfig.domDiff },
-    network: (detectorConfig == null ? void 0 : detectorConfig.network) ?? { supported: false, enabled: false, windowStart: 0, requests: 0, dropped: 0, ignoredOwn: 0 },
+    ...(detectorConfig == null ? void 0 : detectorConfig.capture) && { capture: detectorConfig.capture },
+    network: (detectorConfig == null ? void 0 : detectorConfig.network) ?? { supported: false, enabled: false, windowStart: 0, requests: 0, dropped: 0, ignoredOwn: 0, pausedAt: null },
     timing: {
       totalDetectorOverhead,
       avgDetectorOverhead,
@@ -2370,6 +2371,7 @@ function createInteractionCapture(options = {}) {
   };
   let nextActionId = 1;
   let installed2 = false;
+  let paused = false;
   function eventNames() {
     const base = interactionCapture === "off" ? [] : interactionCapture === "explicit" ? EXPLICIT_INTERACTION_EVENTS : interactionCapture === "noisy" ? EXPLICIT_INTERACTION_EVENTS.concat(NOISY_INTERACTION_EVENTS) : ALL_INTERACTION_EVENTS;
     return Array.from(new Set(base.concat(interactionEvents).map((name) => String(name).trim()).filter(Boolean)));
@@ -2425,6 +2427,7 @@ function createInteractionCapture(options = {}) {
     };
   }
   function capture(event) {
+    if (paused) return;
     const path = typeof event.composedPath === "function" ? event.composedPath() : [];
     if (path.some(isChippyUi$1)) return;
     const pathTarget = path[0] ?? null;
@@ -2449,12 +2452,20 @@ function createInteractionCapture(options = {}) {
       for (const name of names) document.addEventListener(name, capture, true);
       installed2 = true;
     },
+    /** Ignore page input until resume() or reset(). */
+    pause() {
+      paused = true;
+    },
+    resume() {
+      paused = false;
+    },
     uninstall() {
       if (!installed2 || typeof document === "undefined") return;
       for (const name of eventNames()) document.removeEventListener(name, capture, true);
       installed2 = false;
     },
     reset() {
+      paused = false;
       state2.actions.length = 0;
       for (const key of Object.keys(state2.byCommit)) {
         delete state2.byCommit[Number(key)];
@@ -2498,6 +2509,7 @@ function createNetworkCapture(options = {}) {
   let dropped = 0;
   let ignoredOwn = 0;
   let windowStart = performance.now();
+  let pausedAt = null;
   let observer = null;
   function observerConstructor() {
     const ctor = globalThis.PerformanceObserver;
@@ -2510,6 +2522,7 @@ function createNetworkCapture(options = {}) {
     if (!entry || typeof entry.name !== "string" || typeof entry.startTime !== "number") return;
     const endTime = typeof entry.responseEnd === "number" && entry.responseEnd > 0 ? entry.responseEnd : entry.startTime + (entry.duration ?? 0);
     if (endTime < windowStart) return;
+    if (pausedAt !== null && entry.startTime >= pausedAt) return;
     if (isChippyAssetUrl(entry.name)) return;
     if (entry.initiatorType === "fetch" && isOwnRequest(entry.name)) {
       ignoredOwn += 1;
@@ -2564,8 +2577,19 @@ function createNetworkCapture(options = {}) {
       }
       observer = null;
     },
+    /** Stop taking new requests; requests already in flight still finish into the capture. */
+    pause() {
+      if (pausedAt !== null) return;
+      flush();
+      pausedAt = performance.now();
+    },
+    resume() {
+      flush();
+      pausedAt = null;
+    },
     reset() {
       flush();
+      pausedAt = null;
       requests.length = 0;
       nextId = 1;
       dropped = 0;
@@ -2579,7 +2603,8 @@ function createNetworkCapture(options = {}) {
         windowStart: round$5(windowStart),
         requests: requests.length,
         dropped,
-        ignoredOwn
+        ignoredOwn,
+        pausedAt: pausedAt === null ? null : round$5(pausedAt)
       };
     }
   };
@@ -4455,7 +4480,24 @@ function createAvalancheDetector(options = {}) {
     }
     return perCommit.committedComponentCount;
   }
+  let pausedAt = null;
+  function skipPausedCommit() {
+    renderTicks.takeCommitTicks();
+    state2.lastMetricsSnapshot = captureMetricsSnapshot();
+    state2.lastCommitEndTime = performance.now();
+    pendingDevtoolsUnmounts = { components: 0, subtrees: 0 };
+    pendingDevtoolsUnmountSamples = [];
+  }
+  function captureStatus() {
+    return { paused: pausedAt !== null, pausedAt: pausedAt === null ? null : Math.round(pausedAt * 10) / 10 };
+  }
+  function resumeCapture() {
+    pausedAt = null;
+    interactionCapture.resume();
+    networkCapture.resume();
+  }
   function resetState() {
+    resumeCapture();
     state2.commits = 0;
     state2.sources.clear();
     state2.amplifiers.clear();
@@ -4665,6 +4707,7 @@ function createAvalancheDetector(options = {}) {
      * are already in place).
      */
     install() {
+      resumeCapture();
       interactionCapture.install();
       networkCapture.install();
       hookRunner.ensureStarted();
@@ -4690,6 +4733,10 @@ function createAvalancheDetector(options = {}) {
         }
         const root = args[1];
         if (!root) return;
+        if (pausedAt !== null) {
+          skipPausedCommit();
+          return;
+        }
         if (commitSurface.adapterObserved && metricsAdapter) {
           if (!metricsAdapter.isAttached()) {
             metricsAdapter.reattach();
@@ -4721,7 +4768,7 @@ function createAvalancheDetector(options = {}) {
           }
         }
         const fiber = args[1];
-        if (!fiber) return;
+        if (!fiber || pausedAt !== null) return;
         const counts = countUnmountedComponentSubtree(fiber);
         pendingDevtoolsUnmounts.components += counts.components;
         pendingDevtoolsUnmounts.subtrees += counts.subtrees;
@@ -4785,6 +4832,10 @@ function createAvalancheDetector(options = {}) {
           const previousCapture = commitSurface.observeAdapter(root);
           if (integrationMode !== adapterMode) {
             integrationMode = adapterMode;
+          }
+          if (pausedAt !== null) {
+            skipPausedCommit();
+            return;
           }
           if (previousCapture) {
             const metricsAfter = captureMetricsSnapshot();
@@ -4850,6 +4901,24 @@ function createAvalancheDetector(options = {}) {
       devtoolsUnmountPrev = void 0;
       devtoolsHookCreatedByUs = false;
       integrationMode = "none";
+      pausedAt = null;
+    },
+    /**
+     * Stop adding to the capture while staying attached, so every reader sees
+     * the capture as it stood at this moment. Requests already in flight still
+     * finish into it. reset() or resume() starts recording again.
+     */
+    pause() {
+      if (pausedAt !== null) return;
+      pausedAt = performance.now();
+      interactionCapture.pause();
+      networkCapture.pause();
+    },
+    /** Record again after pause(), keeping what the capture already holds. */
+    resume() {
+      if (pausedAt === null) return;
+      resumeCapture();
+      skipPausedCommit();
     },
     /**
      * Clear all accumulated profiling state. Useful for starting fresh measurements.
@@ -4893,7 +4962,8 @@ function createAvalancheDetector(options = {}) {
         renderTicks: renderTicks.status(),
         network: networkCapture.status(),
         renderedEvidence: renderedEvidence.status(),
-        ...domDiff.enabled && { domDiff: domDiff.status() }
+        ...domDiff.enabled && { domDiff: domDiff.status() },
+        capture: captureStatus()
       });
       const hooks = hookRunner.collect();
       if (hooks) report.hooks = hooks;
@@ -5012,7 +5082,7 @@ function createAvalancheDetector(options = {}) {
     /** Commit and network request counts, without building a report. */
     counts() {
       networkCapture.flush();
-      return { commits: state2.commits, networkRequests: networkCapture.requests.length, renderedEvidence: renderedEvidence.status() };
+      return { commits: state2.commits, networkRequests: networkCapture.requests.length, renderedEvidence: renderedEvidence.status(), capture: captureStatus() };
     }
   };
 }
@@ -10832,6 +10902,16 @@ const api = {
     if (detector) detector.reset();
     return { ok: true };
   },
+  pause() {
+    if (!detector) return { ok: false, error: "not installed" };
+    detector.pause();
+    return { ok: true };
+  },
+  resume() {
+    if (!detector) return { ok: false, error: "not installed" };
+    detector.resume();
+    return { ok: true };
+  },
   report(topN, sortBy, options) {
     if (!detector) return { ok: false, error: "not installed" };
     return detector.report(topN, sortBy, options);
@@ -10869,9 +10949,11 @@ const api = {
     let commitCount = 0;
     let networkRequests = 0;
     let renderedEvidence = null;
+    let paused = false;
+    let pausedAt = null;
     try {
       const counts = detector ? detector.counts() : null;
-      if (counts) ({ commits: commitCount, networkRequests, renderedEvidence } = counts);
+      if (counts) ({ commits: commitCount, networkRequests, renderedEvidence, capture: { paused, pausedAt } } = counts);
     } catch (_) {
     }
     const integrationMode = detector ? ((_b2 = detector.getIntegrationMode) == null ? void 0 : _b2.call(detector)) ?? "none" : "none";
@@ -10882,7 +10964,7 @@ const api = {
       hooks = summarizeHookResults(detector == null ? void 0 : detector.hookResults());
     } catch (_) {
     }
-    return { installed, hasMetricsGlobal, commitCount, integrationMode, metricsAdapter, networkRequests, renderedEvidence, packs: packs2, hooks };
+    return { installed, paused, pausedAt, hasMetricsGlobal, commitCount, integrationMode, metricsAdapter, networkRequests, renderedEvidence, packs: packs2, hooks };
   },
   registerCommitMetricsAdapter,
   enablePlugins,

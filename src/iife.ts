@@ -228,6 +228,9 @@ type AvalancheApi = {
   install: (options?: Parameters<typeof createAvalancheDetector>[0]) => { ok: true; detectionLevel: string } | { ok: false; error: string };
   uninstall: () => { ok: true };
   reset: () => { ok: true };
+  /** Stop adding to the capture while staying attached; reset() or resume() records again. */
+  pause: () => { ok: true } | { ok: false; error: string };
+  resume: () => { ok: true } | { ok: false; error: string };
   report: (topN?: number, sortBy?: 'effect' | 'callback' | 'memo' | 'total', options?: Record<string, unknown>) => unknown;
   exportLast: (n?: number) => unknown;
   componentTypesFor: (sourceIds: Iterable<string>) => unknown[];
@@ -235,6 +238,10 @@ type AvalancheApi = {
   _debugRawHookEvents: (componentName: string) => unknown;
   status: () => {
     installed: boolean;
+    /** True after pause(): the capture holds only what came before `pausedAt`. */
+    paused: boolean;
+    /** performance.now() when the capture was paused, or null while it records. */
+    pausedAt: number | null;
     hasMetricsGlobal: boolean;
     commitCount: number;
     integrationMode: IntegrationMode;
@@ -372,6 +379,16 @@ const api: AvalancheApi = {
     if (detector) detector.reset();
     return { ok: true };
   },
+  pause() {
+    if (!detector) return { ok: false, error: 'not installed' };
+    detector.pause();
+    return { ok: true };
+  },
+  resume() {
+    if (!detector) return { ok: false, error: 'not installed' };
+    detector.resume();
+    return { ok: true };
+  },
   report(topN, sortBy, options) {
     if (!detector) return { ok: false, error: 'not installed' };
     return detector.report(topN, sortBy as any, options as any);
@@ -405,10 +422,12 @@ const api: AvalancheApi = {
     let commitCount = 0;
     let networkRequests = 0;
     let renderedEvidence: RenderedEvidenceStatus | null = null;
+    let paused = false;
+    let pausedAt: number | null = null;
     try {
       // Counting must not build and walk a full report.
       const counts = detector ? detector.counts() : null;
-      if (counts) ({ commits: commitCount, networkRequests, renderedEvidence } = counts);
+      if (counts) ({ commits: commitCount, networkRequests, renderedEvidence, capture: { paused, pausedAt } } = counts);
     } catch (_) {}
     const integrationMode = detector
       ? (detector as any).getIntegrationMode?.() ?? 'none'
@@ -420,7 +439,7 @@ const api: AvalancheApi = {
     const packs = listPacks().map(({ id, label, instructions, extensions, compileErrors, initErrors }) => ({ id, label, instructions, extensions, compileErrors, initErrors }));
     let hooks: Record<string, AvalancheHookSummary> | null = null;
     try { hooks = summarizeHookResults(detector?.hookResults()); } catch (_) {}
-    return { installed, hasMetricsGlobal, commitCount, integrationMode, metricsAdapter, networkRequests, renderedEvidence, packs, hooks };
+    return { installed, paused, pausedAt, hasMetricsGlobal, commitCount, integrationMode, metricsAdapter, networkRequests, renderedEvidence, packs, hooks };
   },
   registerCommitMetricsAdapter,
   enablePlugins,

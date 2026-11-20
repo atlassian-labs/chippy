@@ -56,6 +56,7 @@ export function createInteractionCapture(options: InteractionCaptureOptions = {}
   };
   let nextActionId = 1;
   let installed = false;
+  let paused = false;
 
   function eventNames(): string[] {
     const base =
@@ -122,6 +123,7 @@ export function createInteractionCapture(options: InteractionCaptureOptions = {}
   }
 
   function capture(event: Event): void {
+    if (paused) return;
     const path = typeof event.composedPath === 'function' ? event.composedPath() : [];
     // Clicks on Chippy's own panel (Record, Stop, probes) are not page input.
     if (path.some(isChippyUi)) return;
@@ -153,6 +155,10 @@ export function createInteractionCapture(options: InteractionCaptureOptions = {}
       installed = true;
     },
 
+    /** Ignore page input until resume() or reset(). */
+    pause(): void { paused = true; },
+    resume(): void { paused = false; },
+
     uninstall(): void {
       if (!installed || typeof document === 'undefined') return;
       for (const name of eventNames()) document.removeEventListener(name, capture, true);
@@ -160,6 +166,7 @@ export function createInteractionCapture(options: InteractionCaptureOptions = {}
     },
 
     reset(): void {
+      paused = false;
       state.actions.length = 0;
       for (const key of Object.keys(state.byCommit)) {
         // eslint-disable-next-line @typescript-eslint/no-dynamic-delete

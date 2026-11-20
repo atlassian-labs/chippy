@@ -2047,7 +2047,11 @@
   // agent reads or saves it with the usual avalanche-* commands. The Avalanche
   // pill reloads the page with Avalanche installed before React's first
   // commit, as reload-with-avalanche does.
-  let recording = { state: 'idle', startedAt: null, stoppedAt: null, error: null };
+  //
+  // The extension injects this script again after in-page navigations, and
+  // the new run replaces this closure. The recording lives on the page's
+  // chippy object so the new run continues it; a new document starts idle.
+  let recording = chippy.__panelRecording || { state: 'idle', startedAt: null, stoppedAt: null, error: null };
 
   function notifyRecording() {
     try { global.dispatchEvent(new CustomEvent('chippy-recording-state', { detail: getRecordingState() })); } catch (e) {}
@@ -2055,6 +2059,7 @@
 
   function setRecording(next) {
     recording = { ...recording, ...next };
+    chippy.__panelRecording = recording;
     notifyRecording();
   }
 
@@ -2092,6 +2097,9 @@
 
   function stopRecording() {
     if (recording.state !== 'recording') return getRecordingState();
+    // Pausing ends the capture at Stop, so every later read covers only the
+    // recording. Record (reset) starts the capture again.
+    getAvalancheApi()?.pause?.();
     setRecording({ state: 'stopped', stoppedAt: Date.now() });
     sendActivity('avalanche-recording-stopped', { startedAt: recording.startedAt, stoppedAt: recording.stoppedAt });
     return getRecordingState();

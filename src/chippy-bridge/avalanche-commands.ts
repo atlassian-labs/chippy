@@ -19,6 +19,10 @@ import { buildDomDiffView } from '../avalanche/dom-diff-view';
 
 export type AvalancheApiStatus = {
   installed: boolean;
+  /** True when the capture is paused (panel Stop). Absent on bundles before pause. */
+  paused?: boolean;
+  /** performance.now() when the capture was paused, or null while it records. */
+  pausedAt?: number | null;
   hasMetricsGlobal: boolean;
   commitCount: number;
   /** `'adapter:<id>'`, `'devtools'`, or `'none'`. Bundles before the adapter seam report `'atl'`. */

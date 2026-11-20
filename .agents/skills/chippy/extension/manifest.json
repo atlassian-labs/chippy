@@ -3,6 +3,7 @@
   "name": "Chippy Probe Bridge",
   "version": "0.5.0",
   "description": "Inspects connected React pages to trace components, boundaries, hooks, props, and render behavior.",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAsGrZY4DZBIe8m9EocXjVK423OFMOVFe3Op2W1zoCSdABkzcdRwz+i8L//9CfRRtKbzsnZvQMbYiS8FX0APb14lPyFwjb2uovhQxwHlha9kASX1O/SYviSE6OKi39K+cpmccClb1crF8YVqQ9gMkQwbv+sX0oxKtWzNFQ/QIj3TU54UEzkkcTxdiyyuULYLIxvLbVKqgGr86jal6tvUblfhgIIKFm5lYbY9+1LQEmDdvgCd2g8qTFD7cvP2QKuy5QTk27qJk3o6xA74M3jsszJt2zNDAk84OlRyBb+zLxnwo28K2YkMl6EvcMLxtkXopWQ2jssMjj9ewSrZLzApS5ZQIDAQAB",
   "permissions": [
     "storage",
     "scripting",

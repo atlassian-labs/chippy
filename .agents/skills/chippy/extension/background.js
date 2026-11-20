@@ -47,6 +47,13 @@ const LATE_BUNDLE_SCRIPTS = [
 // EARLY_STARTUP_SCRIPTS; re-injecting avalanche code here causes duplicate
 // globals and races bootstrap ordering.
 
+// avalanche.iife.js carries every fiber read, probe resolution, and replay, not
+// only the commit recorder. Early startup loads it on navigation, but enabling
+// an origin on a tab that is already open runs only the late bundle, so the
+// late path loads the runtime when the page has none. The DevTools hook shim
+// and early bootstrap stay out of that path: both only matter before React runs.
+const AVALANCHE_RUNTIME = 'avalanche.iife.js';
+
 // Every injection targets one frame. Frame 0 is the top document; an iframe
 // gets Chippy only in its own frame, as a separate connected page.
 function frameTarget(tabId, frameId) {
@@ -219,6 +226,28 @@ async function injectEarlyStartup(tabId, startupConfig, frameId = 0) {
   return { ok: true, detail: `${EARLY_STARTUP_SCRIPTS.length} early scripts injected` };
 }
 
+// Loads the Avalanche runtime into a page that early startup did not reach.
+// A page that already has it keeps its copy: loading it twice would replace
+// the installed detector and its capture.
+async function ensureAvalancheRuntime(tabId, frameId = 0) {
+  try {
+    const results = await chrome.scripting.executeScript({
+      target: frameTarget(tabId, frameId),
+      world: 'MAIN',
+      func: () => Boolean(globalThis.__AVALANCHE__),
+    });
+    if (results?.[0]?.result === true) return { ok: true, loaded: false };
+    await chrome.scripting.executeScript({
+      target: frameTarget(tabId, frameId),
+      files: [AVALANCHE_RUNTIME],
+      world: 'MAIN',
+    });
+    return { ok: true, loaded: true };
+  } catch (e) {
+    return { ok: false, step: `inject:${AVALANCHE_RUNTIME}`, error: e.message };
+  }
+}
+
 // Write Chippy config into the page world and inject non-startup bundle scripts.
 async function ensureBundleScripts(tabId, helperBaseUrl, options = {}, frameId = 0) {
   const foreignOwner = await detectLiveForeignOwner(tabId, frameId);
@@ -270,6 +299,9 @@ async function ensureBundleScripts(tabId, helperBaseUrl, options = {}, frameId =
   if (claimed) {
     return { ok: true, yielded: true, detail: `extension yielded to ${claimed.who || claimed.kind}` };
   }
+
+  const runtime = await ensureAvalancheRuntime(tabId, frameId);
+  if (!runtime.ok) return runtime;
 
   for (const file of LATE_BUNDLE_SCRIPTS) {
     try {
