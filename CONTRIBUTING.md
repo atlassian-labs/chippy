@@ -27,6 +27,13 @@ Storybook runs at `http://127.0.0.1:6007/`. Start the helper separately with
 The lab disables Storybook usage telemetry, targets ES2022 browsers, and uses
 standard React DOM.
 
+## Branches
+
+Branch from `dev` and open pull requests against `dev`. `main` is what users
+install with `npx skills add`, so it also carries the generated bundles; it moves
+only when a maintainer runs the Release workflow and merges its pull request. See
+[Releasing](docs/releasing.md#branches).
+
 ## Find the change owner
 
 | Path | Owns |

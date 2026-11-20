@@ -2,8 +2,11 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, dev]
   pull_request:
+  # The Release workflow dispatches CI on its release branch, because pushes made
+  # with GITHUB_TOKEN do not trigger workflows.
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -18,12 +21,15 @@ jobs:
           node-version: 22
       - run: corepack enable
       - run: yarn install --immutable
+      # Tests load the shipped bundles, which dev does not commit.
+      - run: yarn shipped:build
       - run: yarn test --project unit
       - run: yarn typecheck
 
   shipped-artifacts:
-    # The skill installs without a build, so the committed bundles must match
-    # a fresh build of src/.
+    # The skill installs from main without a build, so where the bundles are
+    # committed (main and release branches) they must match a fresh build of
+    # src/. On dev, which does not commit them, this checks that they build.
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -44,6 +50,7 @@ jobs:
           node-version: 22
       - run: corepack enable
       - run: yarn install --immutable
+      - run: yarn shipped:build
       - run: yarn playwright install --with-deps chromium
       - run: yarn test --project browser
 
