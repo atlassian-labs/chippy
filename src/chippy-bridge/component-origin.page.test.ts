@@ -170,6 +170,20 @@ describe('production names through the page realm', () => {
     expect(reset.nameRecovery).toBeUndefined();
   });
 
+  it('recovers names for rendered entries recorded as Anonymous before an export', async () => {
+    const { AnonymousMemo: memoized } = bundle.exports;
+    expect(getComponentName({ type: memoized } as never)).toBe('Anonymous');
+    // The detector renames rendered entries from their types when it reports.
+    const api = {
+      report: () => ({ renderedByCommit: { 1: [{ sourceId: 'T7#1@2', name: getComponentName({ type: memoized } as never) }] } }),
+      componentTypesFor: () => [],
+      unnamedRenderedTypes: () => [memoized],
+    };
+    const exported = await evalAvalancheWithNames({ action: 'export' }, api as never, null);
+    expect(exported.nameRecovery).toMatchObject({ types: 1 });
+    expect((exported.payload as any).renderedByCommit[1][0].name).toBe('AnonymousMemo');
+  });
+
   it('collects report source ids from keys and values', () => {
     expect(sourceIdsIn({ a: ['cp#1@3', 'not an id'], 'eu#2@-1': { nested: 'x#1@0' } }).sort())
       .toEqual(['cp#1@3', 'eu#2@-1', 'x#1@0']);

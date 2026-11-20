@@ -77,6 +77,7 @@ import { createScreenCapture } from './screen-changes';
 import { createDomDiffCapture } from './dom-diff';
 import { describeSuspenseLocation } from './suspense-location';
 import { createRenderTickTracker } from './render-ticks';
+import { createRenderedNames } from './rendered-names';
 import { createPropSummarizer } from './prop-summary';
 import { createRenderedEvidenceStore, DEFAULT_MAX_RENDERED_ENTRIES, type RenderedEvidenceStatus } from './rendered-evidence-store';
 import {
@@ -162,6 +163,8 @@ export function createAvalancheDetector(options: DetectorOptions = {}) {
     private typeToId = new WeakMap<object | Function, number>();
     private instanceCounters = new Map<string, number>(); // "typeId@depth" -> instance count
     private nextTypeId = 1;
+    // typeId -> type, set once per type, so a report can name entries recorded before a name existed.
+    private idToType = new Map<number, ComponentType>();
 
     getSourceId(fiber: Fiber, type: ComponentType, depth: number): string {
       // Check if we already have an ID for this fiber
@@ -189,6 +192,7 @@ export function createAvalancheDetector(options: DetectorOptions = {}) {
         typeId = this.nextTypeId++;
         if (weakKey) {
           this.typeToId.set(weakKey, typeId);
+          this.idToType.set(typeId, type);
         }
       }
 
@@ -207,14 +211,30 @@ export function createAvalancheDetector(options: DetectorOptions = {}) {
       return sourceId;
     }
 
+    /** The component type behind an internal `T<typeId>#n@depth` id, or null. */
+    typeOf(sourceId: string): ComponentType | null {
+      if (sourceId.charCodeAt(0) !== 84 /* T */) return null;
+      const typeId = Number(sourceId.slice(1, sourceId.indexOf('#')));
+      return this.idToType.get(typeId) ?? null;
+    }
+
     clear() {
+      // Fibers that outlive the reset get fresh ids too. An id kept from before
+      // would name a type id that is reissued, so it would point at another type.
+      this.idMap = new WeakMap();
       this.instanceCounters.clear();
       this.typeToId = new WeakMap();
+      this.idToType.clear();
       this.nextTypeId = 1;
     }
   }
 
   const sourceIdManager = new StableSourceIdManager();
+  const renderedNames = createRenderedNames<ComponentType>({
+    typeOf: (sourceId) => sourceIdManager.typeOf(sourceId),
+    // eslint-disable-next-line @typescript-eslint/consistent-type-assertions
+    nameOf: (type) => getComponentName({ type } as Fiber),
+  });
   const debugRender = createDebugRender();
   const interactionCapture = createInteractionCapture(options);
   const networkCapture = createNetworkCapture(options);
@@ -855,6 +875,7 @@ export function createAvalancheDetector(options: DetectorOptions = {}) {
             name: getComponentName(fiber),
             depth,
           };
+          renderedNames.note(initialRenderEvidence);
           if (parentSourceId) initialRenderEvidence.parentSourceId = parentSourceId;
           if (fiber.alternate) {
             const propChanges = diffProps(fiber.alternate.memoizedProps, fiber.memoizedProps);
@@ -1377,6 +1398,7 @@ export function createAvalancheDetector(options: DetectorOptions = {}) {
     state.lastCommitEndTime = performance.now();
     renderTicks.reset();
     sourceIdManager.clear();
+    renderedNames.reset();
   }
 
   type DevtoolsHook = {
@@ -1894,7 +1916,20 @@ export function createAvalancheDetector(options: DetectorOptions = {}) {
       };
       collect(state.sources.entries());
       collect(state.amplifierSources.entries());
+      // Rendered evidence and owner links keep the internal `T<typeId>` ids.
+      for (const sourceId of wanted) {
+        const type = sourceIdManager.typeOf(sourceId);
+        if (type !== null) types.add(type);
+      }
       return Array.from(types);
+    },
+
+    /**
+     * Component types of rendered entries recorded as `Anonymous`, for
+     * recovering their names before an export. See `rendered-names.ts`.
+     */
+    unnamedRenderedTypes(): ComponentType[] {
+      return renderedNames.unnamedTypes();
     },
 
     /**
@@ -1906,6 +1941,7 @@ export function createAvalancheDetector(options: DetectorOptions = {}) {
      */
     report(topN: number = 10, sortBy: SortBy = 'effect', reportOptions?: ReportOptions): Report {
       networkCapture.flush();
+      renderedNames.refresh(state.renderedByCommit);
       const report = buildReport(state, thrashMode, topN, sortBy, reportOptions, {
         effectThrashMode,
         captureFibers,

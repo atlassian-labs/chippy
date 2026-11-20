@@ -35,4 +35,12 @@ describe('avalanche-analyze save', () => {
     expect(peek(packed)).toEqual(peek(plain));
     expect(peek(packed).payload.renderedTotal).toBe(1);
   });
+
+  it('reports the production name recovery of the export', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'chippy-save-'));
+    const nameRecovery = { types: 4, named: 3, skipped: 1 };
+    const withNames = JSON.stringify({ ok: true, result: { ...JSON.parse(response), nameRecovery } });
+    expect(JSON.parse(analyze(['save', '0', join(dir, 'named.json')], withNames))).toMatchObject({ commits: 2, nameRecovery });
+    expect(JSON.parse(analyze(['save', '0', join(dir, 'plain.json')], response)).nameRecovery).toBeUndefined();
+  });
 });

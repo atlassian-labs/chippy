@@ -686,10 +686,37 @@ function possibleComponentNames(type) {
 function resolveComponentOrigin(type) {
   return pageComponentOrigins().resolve(type);
 }
-function ownName(value) {
+const FORWARD_REF = Symbol.for("react.forward_ref");
+const MEMO = Symbol.for("react.memo");
+const MAX_WRAPPERS = 4;
+function wrappedComponentOf(type) {
+  if (!type || typeof type !== "object") return null;
+  const wrapper = type;
+  if (wrapper.$$typeof === FORWARD_REF) return wrapper.render ?? null;
+  if (wrapper.$$typeof === MEMO) return wrapper.type ?? null;
+  return null;
+}
+function ownString(value, key) {
   if (!value || typeof value !== "object" && typeof value !== "function") return null;
-  const named = value;
-  if (typeof named.displayName === "string" && named.displayName !== "") return named.displayName;
+  const named = value[key];
+  return typeof named === "string" && named !== "" ? named : null;
+}
+function ownName(value) {
+  let current = value;
+  for (let depth = 0; current && depth <= MAX_WRAPPERS; depth += 1) {
+    const explicit = ownString(current, "displayName");
+    if (explicit) return explicit;
+    current = wrappedComponentOf(current);
+  }
+  return null;
+}
+function runtimeName$1(value) {
+  let current = value;
+  for (let depth = 0; current && depth <= MAX_WRAPPERS; depth += 1) {
+    const name = ownString(current, "name");
+    if (name) return name;
+    current = wrappedComponentOf(current);
+  }
   return null;
 }
 function readComponentName(type) {
@@ -700,8 +727,7 @@ function readComponentName(type) {
   if (explicit) return explicit;
   const recovered = recoveredComponentName(type);
   if (recovered) return recovered;
-  const name = type.name;
-  return typeof name === "string" && name !== "" ? name : null;
+  return runtimeName$1(type);
 }
 function minifiedComponentName(type) {
   const origin = pageResolver$1 == null ? void 0 : pageResolver$1.peek(type);
@@ -1070,6 +1096,48 @@ function resolveFiberSource$1(fiber, resolver = pageResolver()) {
   pendingFiberSources.set(fiber, pending);
   return pending;
 }
+const UNNAMED_COMPONENT = "Anonymous";
+function createRenderedNames(deps) {
+  let unnamed = /* @__PURE__ */ new Set();
+  function note(entry) {
+    if (entry.name === UNNAMED_COMPONENT) unnamed.add(entry.sourceId);
+  }
+  function unnamedTypes() {
+    const types = /* @__PURE__ */ new Set();
+    for (const sourceId of unnamed) {
+      const type = deps.typeOf(sourceId);
+      if (type !== null) types.add(type);
+    }
+    return Array.from(types);
+  }
+  function refresh(byCommit) {
+    if (unnamed.size === 0) return 0;
+    const renamed = /* @__PURE__ */ new Map();
+    for (const sourceId of unnamed) {
+      const type = deps.typeOf(sourceId);
+      if (type === null) continue;
+      const name = deps.nameOf(type);
+      if (name !== UNNAMED_COMPONENT) renamed.set(sourceId, name);
+    }
+    if (renamed.size === 0) return 0;
+    let changed = 0;
+    for (const entries of Object.values(byCommit)) {
+      for (const entry of entries) {
+        const name = renamed.get(entry.sourceId);
+        if (name !== void 0 && entry.name === UNNAMED_COMPONENT) {
+          entry.name = name;
+          changed += 1;
+        }
+      }
+    }
+    for (const sourceId of renamed.keys()) unnamed.delete(sourceId);
+    return changed;
+  }
+  function reset() {
+    unnamed = /* @__PURE__ */ new Set();
+  }
+  return { note, unnamedTypes, refresh, reset };
+}
 const PerformedWork = 1;
 const Placement = 2;
 const Hydrating = 4096;
@@ -1114,7 +1182,7 @@ function getComponentName(fiber) {
   const named = readComponentName(fiber.type) || readComponentName(fiber.elementType);
   if (named) return named;
   const source = getFiberSourceCandidate(fiber);
-  return source && `<${source.fileName}:${source.lineNumber}>` || "Anonymous";
+  return source && `<${source.fileName}:${source.lineNumber}>` || UNNAMED_COMPONENT;
 }
 function isStateHook(hook) {
   const queue = hook.queue;
@@ -3795,6 +3863,7 @@ function createAvalancheDetector(options = {}) {
       __publicField$1(this, "typeToId", /* @__PURE__ */ new WeakMap());
       __publicField$1(this, "instanceCounters", /* @__PURE__ */ new Map());
       __publicField$1(this, "nextTypeId", 1);
+      __publicField$1(this, "idToType", /* @__PURE__ */ new Map());
     }
     getSourceId(fiber, type, depth) {
       let sourceId = this.idMap.get(fiber);
@@ -3813,6 +3882,7 @@ function createAvalancheDetector(options = {}) {
         typeId = this.nextTypeId++;
         if (weakKey) {
           this.typeToId.set(weakKey, typeId);
+          this.idToType.set(typeId, type);
         }
       }
       const baseKey = `${typeId}@${depth}`;
@@ -3825,13 +3895,26 @@ function createAvalancheDetector(options = {}) {
       }
       return sourceId;
     }
+    /** The component type behind an internal `T<typeId>#n@depth` id, or null. */
+    typeOf(sourceId) {
+      if (sourceId.charCodeAt(0) !== 84) return null;
+      const typeId = Number(sourceId.slice(1, sourceId.indexOf("#")));
+      return this.idToType.get(typeId) ?? null;
+    }
     clear() {
+      this.idMap = /* @__PURE__ */ new WeakMap();
       this.instanceCounters.clear();
       this.typeToId = /* @__PURE__ */ new WeakMap();
+      this.idToType.clear();
       this.nextTypeId = 1;
     }
   }
   const sourceIdManager = new StableSourceIdManager();
+  const renderedNames = createRenderedNames({
+    typeOf: (sourceId) => sourceIdManager.typeOf(sourceId),
+    // eslint-disable-next-line @typescript-eslint/consistent-type-assertions
+    nameOf: (type) => getComponentName({ type })
+  });
   const debugRender = createDebugRender();
   const interactionCapture = createInteractionCapture(options);
   const networkCapture = createNetworkCapture(options);
@@ -4172,6 +4255,7 @@ function createAvalancheDetector(options = {}) {
             name: getComponentName(fiber),
             depth
           };
+          renderedNames.note(initialRenderEvidence);
           if (parentSourceId) initialRenderEvidence.parentSourceId = parentSourceId;
           if (fiber.alternate) {
             const propChanges2 = diffProps(fiber.alternate.memoizedProps, fiber.memoizedProps);
@@ -4536,6 +4620,7 @@ function createAvalancheDetector(options = {}) {
     state2.lastCommitEndTime = performance.now();
     renderTicks.reset();
     sourceIdManager.clear();
+    renderedNames.reset();
   }
   const commitSurface = createCommitSurfaceOwnership();
   const renderTicks = createRenderTickTracker();
@@ -4942,7 +5027,18 @@ function createAvalancheDetector(options = {}) {
       };
       collect(state2.sources.entries());
       collect(state2.amplifierSources.entries());
+      for (const sourceId of wanted) {
+        const type = sourceIdManager.typeOf(sourceId);
+        if (type !== null) types.add(type);
+      }
       return Array.from(types);
+    },
+    /**
+     * Component types of rendered entries recorded as `Anonymous`, for
+     * recovering their names before an export. See `rendered-names.ts`.
+     */
+    unnamedRenderedTypes() {
+      return renderedNames.unnamedTypes();
     },
     /**
      * Generate a report of top update sources and thrashing components.
@@ -4953,6 +5049,7 @@ function createAvalancheDetector(options = {}) {
      */
     report(topN = 10, sortBy = "effect", reportOptions) {
       networkCapture.flush();
+      renderedNames.refresh(state2.renderedByCommit);
       const report = buildReport(state2, thrashMode, topN, sortBy, reportOptions, {
         effectThrashMode,
         captureFibers,
@@ -8172,8 +8269,16 @@ function evalAvalanche(command, api2, mod) {
   }
 }
 const AVALANCHE_NAME_BUDGET_MS = 3e3;
+const AVALANCHE_EXPORT_NAME_BUDGET_MS = 2e4;
+function nameBudgetFor(command) {
+  const action = String((command == null ? void 0 : command.action) || "status");
+  const timeoutMs = Number(command == null ? void 0 : command.timeoutMs);
+  if (!WHOLE_CAPTURE_ACTIONS.has(action) || !Number.isFinite(timeoutMs)) return AVALANCHE_NAME_BUDGET_MS;
+  return Math.min(AVALANCHE_EXPORT_NAME_BUDGET_MS, Math.max(AVALANCHE_NAME_BUDGET_MS, timeoutMs / 2));
+}
 const NAME_FREE_ACTIONS = /* @__PURE__ */ new Set(["install", "uninstall", "reset", "clear", "status", "debug-hook", "network", "timeline", "dom-diff"]);
 const SOURCE_ID = /^[^\s#@]+#\d+@-?\d+$/;
+const WHOLE_CAPTURE_ACTIONS = /* @__PURE__ */ new Set(["export", "export-last"]);
 const MAX_SOURCE_IDS = 2e3;
 function sourceIdsIn(value, limit = MAX_SOURCE_IDS) {
   const found = /* @__PURE__ */ new Set();
@@ -8198,15 +8303,17 @@ function sourceIdsIn(value, limit = MAX_SOURCE_IDS) {
   visit(value, 0);
   return Array.from(found);
 }
-async function evalAvalancheWithNames(command, api2, mod, budgetMs = AVALANCHE_NAME_BUDGET_MS) {
+async function evalAvalancheWithNames(command, api2, mod, budgetMs = nameBudgetFor(command)) {
   const first = evalAvalanche(command, api2, mod);
   const action = String((command == null ? void 0 : command.action) || "status");
   if (!first.ok || NAME_FREE_ACTIONS.has(action) || typeof (api2 == null ? void 0 : api2.componentTypesFor) !== "function") return first;
   const ids = sourceIdsIn(first);
-  if (ids.length === 0) return first;
+  const wholeCapture = WHOLE_CAPTURE_ACTIONS.has(action);
+  if (ids.length === 0 && !wholeCapture) return first;
   let types;
   try {
-    types = api2.componentTypesFor(ids);
+    types = ids.length > 0 ? api2.componentTypesFor(ids) : [];
+    if (wholeCapture && typeof api2.unnamedRenderedTypes === "function") types = types.concat(api2.unnamedRenderedTypes());
   } catch {
     return first;
   }
@@ -10926,6 +11033,9 @@ const api = {
   },
   componentTypesFor(sourceIds) {
     return detector ? detector.componentTypesFor(sourceIds) : [];
+  },
+  unnamedRenderedTypes() {
+    return detector ? detector.unnamedRenderedTypes() : [];
   },
   debugHook(sourceId, hookIndex, windowSize) {
     if (!detector) return { ok: false, error: "not installed" };

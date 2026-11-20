@@ -331,6 +331,8 @@ For locality: dev builds use `ownerStackKind: "owners"`; production/minified bui
 
 On a production build, source ids use minified names until Chippy recovers authored names from the page's source maps. Each Avalanche command recovers names only for the components whose source ids appear in its result, then returns the result with those ids renamed and a `nameRecovery` summary (see [Production component names](command-output-formats.md#production-component-names)). Components that minified to the same name share a source id, so recovery resolves all of them, and the counts from before recovery may combine several components.
 
+`renderedByCommit` names a component when it commits, so a component with no runtime name (an arrow function inside `forwardRef` or `memo`) is recorded as `Anonymous`. An export (`export`, `export-last`, `avalanche-save`) first recovers names for those components and renames their entries. A command spends up to 3 seconds on recovery; an export may spend up to half of its request timeout, at most 20 seconds. When `nameRecovery.skipped` is above zero the budget ran out: export again to name more, because resolved names are kept. Entries still `Anonymous` after that have no name in the source map either, for example components created by a factory function.
+
 ## Observability design principle
 
 When a capture cannot answer the question, improve observability deliberately:

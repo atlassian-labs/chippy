@@ -234,6 +234,7 @@ type AvalancheApi = {
   report: (topN?: number, sortBy?: 'effect' | 'callback' | 'memo' | 'total', options?: Record<string, unknown>) => unknown;
   exportLast: (n?: number) => unknown;
   componentTypesFor: (sourceIds: Iterable<string>) => unknown[];
+  unnamedRenderedTypes: () => unknown[];
   debugHook: (sourceId: string, hookIndex: number, windowSize?: number) => unknown;
   _debugRawHookEvents: (componentName: string) => unknown;
   status: () => {
@@ -403,6 +404,9 @@ const api: AvalancheApi = {
   },
   componentTypesFor(sourceIds: Iterable<string>) {
     return detector ? detector.componentTypesFor(sourceIds) : [];
+  },
+  unnamedRenderedTypes() {
+    return detector ? detector.unnamedRenderedTypes() : [];
   },
   debugHook(sourceId, hookIndex, windowSize) {
     if (!detector) return { ok: false, error: 'not installed' };

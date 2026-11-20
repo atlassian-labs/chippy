@@ -106,6 +106,11 @@ describe('buildAvalancheCommand — wire forwarding contract', () => {
     expect(buildAvalancheCommand({ actionId: 5 }, 'r').actionId).toBe(5);
   });
 
+  it('forwards timeoutMs so the page can size name recovery', () => {
+    expect(buildAvalancheCommand({ action: 'export', timeoutMs: 60000 }, 'r').timeoutMs).toBe(60000);
+    expect(buildAvalancheCommand({}, 'r').timeoutMs).toBeUndefined();
+  });
+
   it('forwards include array', () => {
     const cmd = buildAvalancheCommand({ include: ['stats', 'actions'] }, 'r');
     expect(cmd.include).toEqual(['stats', 'actions']);
