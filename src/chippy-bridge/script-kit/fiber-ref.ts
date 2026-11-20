@@ -54,13 +54,23 @@ export function classifyFiber(fiber: LiveFiber): FiberKind {
   const tag = fiberTag(fiber);
   if (tag === TAG.suspense || describeSuspenseBoundary(fiber)) return 'suspense';
   if (COMPOSITE_TAGS.has(tag) || tag === -1) {
-    if (describeErrorBoundary(fiber)) return 'error';
+    if (isErrorBoundary(fiber, tag)) return 'error';
     if (tag !== -1) return 'component';
   }
   if (HOST_TAGS.has(tag)) return 'host';
   if (tag === TAG.hostText) return 'text';
   if (tag === TAG.hostPortal) return 'portal';
   return 'other';
+}
+
+/**
+ * Only a class with `getDerivedStateFromError` or `componentDidCatch` catches
+ * errors. A component named `*ErrorBoundary` is often a function wrapper around
+ * one, so the name counts only when the fiber has no tag to tell.
+ */
+function isErrorBoundary(fiber: LiveFiber, tag: number): boolean {
+  const info = describeErrorBoundary(fiber);
+  return !!info && (info.detectedBy === 'lifecycle' || tag === -1);
 }
 
 export function fiberName(fiber: LiveFiber): string | null {
@@ -124,9 +134,14 @@ export interface RefRegistry {
 /** Remembered ids survive across runs so a fiber keeps one id per page session. */
 const rememberedIds = new WeakMap<object, string>();
 
+/**
+ * Every ref's fiber, across runs. A ref kept in `chippy.session` or painted by
+ * an earlier run's overlay must still resolve in a later run's registry.
+ */
+const refFibers = new WeakMap<FiberRef, LiveFiber>();
+
 export function createRefRegistry(deps: { rememberFiber: (fiber: Fiber) => string | number; ledger: Ledger }): RefRegistry {
   const refs = new WeakMap<object, FiberRef>();
-  const fibers = new WeakMap<FiberRef, LiveFiber>();
 
   function rememberedId(fiber: LiveFiber): string {
     const known = rememberedIds.get(fiber) || (fiber.alternate ? rememberedIds.get(fiber.alternate) : undefined);
@@ -138,7 +153,9 @@ export function createRefRegistry(deps: { rememberFiber: (fiber: Fiber) => strin
   }
 
   function live(ref: FiberRef): LiveFiber {
-    return currentOf(fibers.get(ref)!);
+    const fiber = refFibers.get(ref);
+    if (!fiber) throw new TypeError('expected a FiberRef from chippy, got ' + describeValue(ref));
+    return currentOf(fiber);
   }
 
   function ref(fiber: LiveFiber): FiberRef {
@@ -166,7 +183,7 @@ export function createRefRegistry(deps: { rememberFiber: (fiber: Fiber) => strin
       toJSON() { return { fiberId: made.id, name: made.name, kind: made.kind, source: made.source }; },
       toString() { return `${made.name || made.kind} (${made.id})`; },
     };
-    fibers.set(made, fiber);
+    refFibers.set(made, fiber);
     refs.set(fiber, made);
     if (fiber.alternate) refs.set(fiber.alternate, made);
     return made;
@@ -175,7 +192,7 @@ export function createRefRegistry(deps: { rememberFiber: (fiber: Fiber) => strin
   return {
     ref,
     refOrNull(fiber) { return fiber ? ref(fiber) : null; },
-    isRef(value): value is FiberRef { return !!value && typeof value === 'object' && fibers.has(value as FiberRef); },
+    isRef(value): value is FiberRef { return !!value && typeof value === 'object' && refFibers.has(value as FiberRef); },
     fiberOf: live,
   };
 }
@@ -191,4 +208,9 @@ function isHidden(fiber: LiveFiber): boolean {
     node = node.return || null;
   }
   return false;
+}
+
+function describeValue(value: unknown): string {
+  if (value === null || typeof value !== 'object') return String(value);
+  return Array.isArray(value) ? 'an array' : 'an object with keys ' + (Object.keys(value).slice(0, 5).join(', ') || '(none)');
 }

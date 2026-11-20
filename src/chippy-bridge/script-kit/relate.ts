@@ -56,7 +56,8 @@ export function createRelate(deps: {
       if (!onlyComponents || SHOWN_IN_PARENTS.has(parent.kind)) {
         out.push(parent);
         if (out.length >= max && !stop) {
-          ledger.add('parents', 'truncated', `stopped at max ${max} parents`);
+          // A max the script passed is the answer it asked for, not a cut.
+          if (options.max === undefined) ledger.add('parents', 'truncated', `stopped at max ${max} parents`);
           break;
         }
       }

@@ -8516,13 +8516,17 @@ this.__AVALANCHE__ = (function() {
     const tag = fiberTag$1(fiber);
     if (tag === TAG.suspense || describeSuspenseBoundary(fiber)) return "suspense";
     if (COMPOSITE_TAGS$1.has(tag) || tag === -1) {
-      if (describeErrorBoundary(fiber)) return "error";
+      if (isErrorBoundary(fiber, tag)) return "error";
       if (tag !== -1) return "component";
     }
     if (HOST_TAGS.has(tag)) return "host";
     if (tag === TAG.hostText) return "text";
     if (tag === TAG.hostPortal) return "portal";
     return "other";
+  }
+  function isErrorBoundary(fiber, tag) {
+    const info = describeErrorBoundary(fiber);
+    return !!info && (info.detectedBy === "lifecycle" || tag === -1);
   }
   function fiberName$1(fiber) {
     const tag = fiberTag$1(fiber);
@@ -8543,9 +8547,9 @@ this.__AVALANCHE__ = (function() {
     return fiber;
   }
   const rememberedIds = /* @__PURE__ */ new WeakMap();
+  const refFibers = /* @__PURE__ */ new WeakMap();
   function createRefRegistry(deps) {
     const refs = /* @__PURE__ */ new WeakMap();
-    const fibers = /* @__PURE__ */ new WeakMap();
     function rememberedId(fiber) {
       const known = rememberedIds.get(fiber) || (fiber.alternate ? rememberedIds.get(fiber.alternate) : void 0);
       if (known) return known;
@@ -8555,7 +8559,9 @@ this.__AVALANCHE__ = (function() {
       return id;
     }
     function live(ref2) {
-      return currentOf(fibers.get(ref2));
+      const fiber = refFibers.get(ref2);
+      if (!fiber) throw new TypeError("expected a FiberRef from chippy, got " + describeValue(ref2));
+      return currentOf(fiber);
     }
     function ref(fiber) {
       const existing = refs.get(fiber) || (fiber.alternate ? refs.get(fiber.alternate) : void 0);
@@ -8603,7 +8609,7 @@ this.__AVALANCHE__ = (function() {
           return `${made.name || made.kind} (${made.id})`;
         }
       };
-      fibers.set(made, fiber);
+      refFibers.set(made, fiber);
       refs.set(fiber, made);
       if (fiber.alternate) refs.set(fiber.alternate, made);
       return made;
@@ -8614,7 +8620,7 @@ this.__AVALANCHE__ = (function() {
         return fiber ? ref(fiber) : null;
       },
       isRef(value) {
-        return !!value && typeof value === "object" && fibers.has(value);
+        return !!value && typeof value === "object" && refFibers.has(value);
       },
       fiberOf: live
     };
@@ -8630,6 +8636,10 @@ this.__AVALANCHE__ = (function() {
       node = node.return || null;
     }
     return false;
+  }
+  function describeValue(value) {
+    if (value === null || typeof value !== "object") return String(value);
+    return Array.isArray(value) ? "an array" : "an object with keys " + (Object.keys(value).slice(0, 5).join(", ") || "(none)");
   }
   const SUSPENSE_TAG = 13;
   const OFFSCREEN_TAGS = /* @__PURE__ */ new Set([22, 23]);
@@ -8900,13 +8910,14 @@ this.__AVALANCHE__ = (function() {
       const viewport = intersectRect(box, geometry.viewport());
       let visibleArea = 0;
       if (viewport) {
-        const visible = createAreaGrid(viewport);
+        const visible = createAreaGrid(viewport, whole.cell);
         for (const r of boxes) visible.add(r);
         visibleArea = visible.area();
       }
+      const total = Math.round(whole.area());
       return {
-        area: Math.round(whole.area()),
-        visibleArea: Math.round(visibleArea),
+        area: total,
+        visibleArea: Math.min(total, Math.round(visibleArea)),
         box: roundRect(box),
         nodes,
         cellSize: whole.cell
@@ -9112,7 +9123,7 @@ this.__AVALANCHE__ = (function() {
     const fragment = doc.createDocumentFragment();
     for (const boxes of sets.values()) {
       for (const box of boxes) {
-        const rect = activeDeps.boxOf(box.ref);
+        const rect = safeBox(activeDeps, box.ref);
         if (!rect) continue;
         const inset = box.depth * INSET_PX;
         const el = doc.createElement("div");
@@ -9132,6 +9143,20 @@ this.__AVALANCHE__ = (function() {
       }
     }
     layer.replaceChildren(fragment);
+  }
+  function safeBox(deps, ref) {
+    try {
+      return deps.boxOf(ref);
+    } catch {
+      return null;
+    }
+  }
+  function safeAncestor(deps, ancestor, of) {
+    try {
+      return deps.isAncestor(ancestor, of);
+    } catch {
+      return false;
+    }
   }
   function paintOverlay(layers, options, deps) {
     const doc = deps.document || document;
@@ -9158,7 +9183,7 @@ this.__AVALANCHE__ = (function() {
       });
     }
     const all = [...boxes, ...Array.from(sets.entries()).filter(([key]) => key !== id).flatMap(([, list]) => list)];
-    for (const box of boxes) box.depth = all.filter((other) => other.ref !== box.ref && deps.isAncestor(other.ref, box.ref)).length;
+    for (const box of boxes) box.depth = all.filter((other) => other.ref !== box.ref && safeAncestor(deps, other.ref, box.ref)).length;
     sets.set(id, boxes);
     activeDeps = deps;
     mount(doc);
@@ -9206,7 +9231,7 @@ this.__AVALANCHE__ = (function() {
         if (!onlyComponents || SHOWN_IN_PARENTS.has(parent.kind)) {
           out.push(parent);
           if (out.length >= max && !stop) {
-            ledger.add("parents", "truncated", `stopped at max ${max} parents`);
+            if (options.max === void 0) ledger.add("parents", "truncated", `stopped at max ${max} parents`);
             break;
           }
         }

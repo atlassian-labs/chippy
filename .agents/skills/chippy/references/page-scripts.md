@@ -57,12 +57,13 @@ the same `chippy` toolkit.
 ```ts
 type Matcher = string | RegExp;
 type Kind = 'component' | 'error' | 'suspense' | 'host' | 'text' | 'portal' | 'other';
-type Rect = { x: number; y: number; width: number; height: number };
+type Rect = { left: number; top: number; right: number; bottom: number };
 
 interface FiberRef {
   id: string;                 // "fiber:N", stable for the page session
   name: string | null;
-  kind: Kind;                 // an error boundary is 'error'; find({ kind: 'component' }) still matches it
+  kind: Kind;                 // 'error' for a class with getDerivedStateFromError or componentDidCatch, whatever its name;
+                              // find({ kind: 'component' }) still matches it
   tag: number;
   key: string | null;
   source: { fileName: string | null; lineNumber: number | null; columnNumber: number | null } | null;
@@ -71,7 +72,8 @@ interface FiberRef {
   raw: object;                // the live fiber; reading it is recorded as a limit
   resolveSource(): Promise<FiberRef['source']>;
 }
-// Refs are canonical: the same fiber always gives the same ref, so === works.
+// Within a run, the same fiber always gives the same ref, so === works. A ref kept
+// in chippy.session still works in a later run; compare refs from different runs by id.
 
 interface FindQuery {
   name?: Matcher;             // a string matches exactly
@@ -87,7 +89,7 @@ interface FindQuery {
 
 interface Area {
   area: number;               // square CSS pixels, overlaps counted once
-  visibleArea: number;        // the part inside the viewport
+  visibleArea: number;        // the part inside the viewport, never more than area
   box: Rect | null;           // viewport coordinates
   nodes: number;              // outermost DOM nodes measured
   cellSize: number;           // areas are exact to about one cell
@@ -122,6 +124,7 @@ declare const chippy: {
 
   // relate (the fiber itself is always excluded)
   parents(ref: FiberRef, options?: { until?: FiberRef | ((ref: FiberRef) => boolean); inclusive?: boolean; components?: boolean; max?: number }): FiberRef[];
+  // nearest first; max: 1 is the closest parent. Only the built-in ceiling, not your max, is recorded as truncated.
   boundaries(ref: FiberRef, options?: { kinds?: Array<'suspense' | 'error'> }): FiberRef[]; // nearest first
   nearest(ref: FiberRef, kind: 'suspense' | 'error'): FiberRef | null;
   components(ref: FiberRef, query?: Omit<FindQuery, 'within'>): FiberRef[];

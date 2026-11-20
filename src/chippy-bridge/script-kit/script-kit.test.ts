@@ -59,6 +59,10 @@ function replayHooks(fiber: Fiber): ReplayResult {
 }
 
 function kitFor(root: FakeRoot, allowed: Array<'replay'> = []) {
+  return kitForGeometry(root, fakeGeometry(), allowed);
+}
+
+function kitForGeometry(root: FakeRoot, geometry: ReturnType<typeof fakeGeometry>, allowed: Array<'replay'> = []) {
   let seq = 0;
   const remembered = new Map<string, Fiber>();
   const log: unknown[] = [];
@@ -70,7 +74,7 @@ function kitFor(root: FakeRoot, allowed: Array<'replay'> = []) {
     replayComponentHooks: replayHooks,
     allowed,
     log,
-    geometry: fakeGeometry(),
+    geometry,
   });
   return { ...kit, log };
 }
@@ -118,6 +122,14 @@ describe('find', () => {
       ['suspense', 'Suspense', 'showing-content'],
       ['suspense', 'Suspense', 'showing-fallback'],
     ]);
+  });
+
+  it('does not count a function component named *ErrorBoundary as a boundary', () => {
+    const root = buildRoot([comp('NavErrorBoundary', [cls(PageErrorBoundary, [comp('Leaf', [div([0, 0, 10, 10])])])])]);
+    const { chippy } = kitFor(root);
+    expect(chippy.find({ kind: 'error' }).map((r) => r.name)).toEqual(['PageErrorBoundary']);
+    expect(chippy.first({ name: 'NavErrorBoundary' })?.kind).toBe('component');
+    expect(chippy.nearest(chippy.first({ name: 'Leaf' })!, 'error')?.name).toBe('PageErrorBoundary');
   });
 
   it('marks content behind a shown fallback hidden and can skip it', () => {
@@ -169,6 +181,13 @@ describe('relations', () => {
     expect(chippy.parents(item, { until: boundary, inclusive: true }).map((r) => r.name)).toEqual(['Feed', 'Suspense']);
   });
 
+  it('treats an explicit max as the answer, not a truncation', () => {
+    const { chippy, ledger } = kitFor(page());
+    const item = chippy.first({ name: 'FeedItem' })!;
+    expect(chippy.parents(item, { max: 1 }).map((r) => r.name)).toEqual(['Feed']);
+    expect(ledger.entries()).toEqual([]);
+  });
+
   it('reports an until that is not an ancestor', () => {
     const { chippy, ledger } = kitFor(page());
     const item = chippy.first({ name: 'FeedItem' })!;
@@ -216,6 +235,16 @@ describe('geometry', () => {
     expect(chippy.area(tall)).toMatchObject({ area: 40000, visibleArea: 20000 });
     expect(chippy.bounds(tall)).toEqual({ left: 0, top: 600, right: 100, bottom: 1000 });
   });
+
+  it('never reports more visible area than area when the grids align differently', () => {
+    // The box starts 1px above and left of the viewport, so the whole grid and
+    // the viewport grid have different cell origins.
+    const root = buildRoot([comp('Page', [div([-1, -1, 1706, 601]), div([304, 703, 1706, 1257])])]);
+    const { chippy } = kitForGeometry(root, fakeGeometry({ left: 0, top: 0, right: 1706, bottom: 1257 }));
+    const result = chippy.area(chippy.first({ name: 'Page' }));
+    expect(result.cellSize).toBeGreaterThan(1);
+    expect(result.visibleArea).toBeLessThanOrEqual(result.area);
+  });
 });
 
 describe('hooks', () => {
@@ -255,6 +284,26 @@ describe('overlay', () => {
     expect(chippy.overlay.list()).toEqual([{ id: 'b', boxes: 3 }]);
     expect(chippy.overlay.clear('b')).toEqual({ ok: true, cleared: 3 });
     expect(document.querySelector('[data-chippy-overlay]')).toBeNull();
+  });
+
+  it('keeps painting boxes from an earlier run when a later run paints', () => {
+    const root = page();
+    const first = kitFor(root).chippy;
+    first.overlay.paint({ items: first.find({ kind: 'suspense' }) }, { id: 'suspense' });
+    const second = kitFor(root).chippy;
+    expect(second.overlay.paint({ items: second.find({ kind: 'error' }) }, { id: 'error' })).toMatchObject({ boxes: 1 });
+    const host = document.querySelector('[data-chippy-overlay]')!;
+    expect(host.shadowRoot!.querySelectorAll('.b')).toHaveLength(3);
+    expect(second.overlay.list()).toEqual([{ id: 'suspense', boxes: 2 }, { id: 'error', boxes: 1 }]);
+  });
+
+  it('resolves a ref kept from an earlier run', () => {
+    const root = page();
+    const kept = kitFor(root).chippy.first({ name: 'Feed' })!;
+    const later = kitFor(root).chippy;
+    expect(later.area(kept).area).toBe(550 * 600);
+    expect(later.isAncestor(later.first({ name: 'App' })!, kept)).toBe(true);
+    expect(() => later.area({ id: 'fiber:1' } as never)).toThrow(/expected a FiberRef/);
   });
 
   it('skips items without laid-out DOM', () => {

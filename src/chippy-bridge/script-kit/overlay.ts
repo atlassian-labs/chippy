@@ -117,7 +117,7 @@ function render(): void {
   const fragment = doc.createDocumentFragment();
   for (const boxes of sets.values()) {
     for (const box of boxes) {
-      const rect = activeDeps.boxOf(box.ref);
+      const rect = safeBox(activeDeps, box.ref);
       if (!rect) continue;
       const inset = box.depth * INSET_PX;
       const el = doc.createElement('div');
@@ -141,6 +141,23 @@ function render(): void {
   layer.replaceChildren(fragment);
 }
 
+/** A box that cannot be measured any more (its fiber is gone) is skipped, not fatal. */
+function safeBox(deps: OverlayDeps, ref: FiberRef): Rect | null {
+  try {
+    return deps.boxOf(ref);
+  } catch {
+    return null;
+  }
+}
+
+function safeAncestor(deps: OverlayDeps, ancestor: FiberRef, of: FiberRef): boolean {
+  try {
+    return deps.isAncestor(ancestor, of);
+  } catch {
+    return false;
+  }
+}
+
 export function paintOverlay(layers: OverlayLayer | OverlayLayer[], options: { id?: string }, deps: OverlayDeps): PaintResult {
   const doc = deps.document || document;
   const id = String(options.id || 'default');
@@ -160,7 +177,7 @@ export function paintOverlay(layers: OverlayLayer | OverlayLayer[], options: { i
     });
   }
   const all = [...boxes, ...Array.from(sets.entries()).filter(([key]) => key !== id).flatMap(([, list]) => list)];
-  for (const box of boxes) box.depth = all.filter((other) => other.ref !== box.ref && deps.isAncestor(other.ref, box.ref)).length;
+  for (const box of boxes) box.depth = all.filter((other) => other.ref !== box.ref && safeAncestor(deps, other.ref, box.ref)).length;
   sets.set(id, boxes);
   activeDeps = deps;
   mount(doc);

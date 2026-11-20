@@ -83,13 +83,16 @@ export function createGeometry(deps: { registry: RefRegistry; geometry?: AreaGeo
     const viewport = intersectRect(box, geometry.viewport());
     let visibleArea = 0;
     if (viewport) {
-      const visible = createAreaGrid(viewport);
+      // Same cell size as the whole grid; the grids align differently, so
+      // the visible part is also capped at the whole.
+      const visible = createAreaGrid(viewport, whole.cell);
       for (const r of boxes) visible.add(r);
       visibleArea = visible.area();
     }
+    const total = Math.round(whole.area());
     return {
-      area: Math.round(whole.area()),
-      visibleArea: Math.round(visibleArea),
+      area: total,
+      visibleArea: Math.min(total, Math.round(visibleArea)),
       box: roundRect(box),
       nodes,
       cellSize: whole.cell,
