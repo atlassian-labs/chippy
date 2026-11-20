@@ -62,7 +62,7 @@ describe('commit metrics adapter registry', () => {
   });
 
   it('reads the adapter id from an integration mode', () => {
-    expect(adapterIdFromMode('adapter:atl')).toBe('atl');
+    expect(adapterIdFromMode('adapter:test-host')).toBe('test-host');
     expect(adapterIdFromMode('devtools')).toBeNull();
     expect(adapterIdFromMode('none')).toBeNull();
     expect(adapterIdFromMode(undefined)).toBeNull();

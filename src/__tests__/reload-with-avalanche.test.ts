@@ -27,7 +27,7 @@ import { STORYBOOK_ORIGIN, STORYBOOK_PORT, assertChippyLabIdentity } from '../te
 // This test documents the gap clearly: in Mode A you CANNOT capture the very
 // first mount commits with reload-with-avalanche unless something runs before
 // React. We measure exactly which commits make it into the capture vs which
-// commits the page actually performed (counted via __ATL_REACT_METRICS).
+// commits the page actually performed.
 
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { chromium, type Browser, type Page } from 'playwright';
@@ -270,8 +270,6 @@ describe('reload-with-avalanche capture quality', () => {
         avalancheStatus: w.__AVALANCHE__?.status?.(),
         hasReactHook: !!w.__REACT_DEVTOOLS_GLOBAL_HOOK__,
         reactHookKeys: w.__REACT_DEVTOOLS_GLOBAL_HOOK__ ? Object.keys(w.__REACT_DEVTOOLS_GLOBAL_HOOK__).slice(0, 20) : null,
-        hasMetrics: !!w.__ATL_REACT_METRICS,
-        metricsKeys: w.__ATL_REACT_METRICS ? Object.keys(w.__ATL_REACT_METRICS) : null,
         renderersSize: w.__REACT_DEVTOOLS_GLOBAL_HOOK__?.renderers?.size,
       };
     });
@@ -363,8 +361,8 @@ describe('reload-with-avalanche capture quality', () => {
     expect(dom.firstLiKind).toBe('replacement');
     expect(uc).toBeGreaterThanOrEqual(6);
     expect(us).toBeGreaterThanOrEqual(1);
-    // The lab runs stock react-dom, which never drives __ATL_REACT_METRICS, so
-    // capture stays on the DevTools hook.
+    // The lab runs stock react-dom with no metrics adapter, so capture stays on
+    // the DevTools hook.
     expect(meta.integrationMode).toBe('devtools');
 
     await page.close();

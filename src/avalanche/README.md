@@ -15,7 +15,7 @@ surrounding modules unless measurement proves it belongs in that path.
 | Module | Responsibility |
 | --- | --- |
 | `detector.tsx` | Installs against React DevTools or the registered commit metrics adapter, captures commits, and keeps bounded profiler state. |
-| `commit-metrics-adapter.ts` | Defines the `CommitMetricsAdapter` seam and its one-slot registry. A host-specific integration (for example `src/plugins/atl/`) registers an adapter; the core has no product knowledge. |
+| `commit-metrics-adapter.ts` | Defines the `CommitMetricsAdapter` seam and its one-slot registry. A plugin registers an adapter; the core has no product knowledge. |
 | `commit-surface-ownership.ts` | Transfers capture ownership after an adapter callback, matching callbacks to the same committed root/fiber to avoid duplicates. |
 | `internals.tsx` | Version-coupled React fiber tags, flags, and comparison helpers used only by the detector. |
 | `reporter.tsx` | Turns captured state into ranked sources, commit evidence, and report views. |
@@ -31,9 +31,9 @@ surrounding modules unless measurement proves it belongs in that path.
 The detector uses the standard React DevTools hook until a commit callback
 from the registered metrics adapter proves that the adapter is live; the mode
 then reads `adapter:<id>`. A seeded metrics object alone must not disable
-DevTools capture. Pass `metricsAdapter: null` to opt out of adapters. The ATL
-adapter for Atlassian's patched react-dom lives in `src/plugins/atl/` and is
-registered by the bundle's composition root (`src/iife.ts`). Neither path makes
+DevTools capture. Pass `metricsAdapter: null` to opt out of adapters. The bundle
+ships no adapter; a plugin registered through `src/plugins/` supplies one, and
+`test-support/` holds a neutral adapter for tests. Neither path makes
 React internals a stable API: callers must report unavailable evidence rather
 than infer it.
 

@@ -363,7 +363,7 @@
 
   // ─── Boundary highlight (on-page location of a collateral boundary) ─────────
 
-  // Boundary fibers (Suspense, error boundaries, OwnerMark) are often composite
+  // Boundary fibers (Suspense, error boundaries, provider marks) are often composite
   // fibers with no direct DOM node. Find the nearest host DOM element: first walk
   // DOWN the child/sibling subtree to the first hostable element (the boundary's
   // rendered content), then fall back to walking UP the return chain.

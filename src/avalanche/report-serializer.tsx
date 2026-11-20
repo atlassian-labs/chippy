@@ -73,8 +73,6 @@ export type CommitStatsDTO = [
  */
 export type CommitMetricsDeltaDTO = CommitMetricsDelta;
 
-/** @deprecated Use CommitMetricsDeltaDTO. Kept for one release. */
-export type ATLCommitDeltaDTO = CommitMetricsDeltaDTO;
 
 /**
  * Commit timing data - measures React commit duration and detector overhead.
@@ -123,8 +121,8 @@ export interface ReportMetaDTO {
     commitsWithData: number;
     coverage: string;
   };
-  /** Commit-hook integration model; older reports used `'atl'` for `'adapter:atl'`. */
-  integrationMode?: IntegrationMode | 'atl';
+  /** Commit-hook integration model. */
+  integrationMode?: IntegrationMode;
   /** Id of the commit metrics adapter that drove the report, or null. */
   metricsAdapter?: string | null;
   /** Per-field availability for commitStats indices and metricsByCommit. */
@@ -291,8 +289,6 @@ export interface ReportDTO {
   interactionsByCommit?: Record<number, CommitInteractionActionDTO[]>;
   renderedByCommit?: Record<number, RenderedComponentEvidenceDTO[]>;
   metricsByCommit?: Record<number, CommitMetricsDeltaDTO>;
-  /** @deprecated Alias of `metricsByCommit`, kept for one release. */
-  atlByCommit?: Record<number, CommitMetricsDeltaDTO>;
   commitTimings?: Record<number, CommitTimingDTO>;
   /** Requests that finished during the capture. Absent before report v8. */
   networkRequests?: NetworkRequestDTO[];
@@ -346,8 +342,6 @@ export function serializeReport(report: {
   interactionsByCommit?: Record<number, CommitInteractionActionDTO[]>;
   renderedByCommit?: Record<number, RenderedComponentEvidenceDTO[]>;
   metricsByCommit?: Record<number, CommitMetricsDeltaDTO>;
-  /** @deprecated Alias of `metricsByCommit`, kept for one release. */
-  atlByCommit?: Record<number, CommitMetricsDeltaDTO>;
   commitTimings?: Record<number, CommitTimingDTO>;
   networkRequests?: NetworkRequestDTO[];
   screenByCommit?: Record<number, ScreenChange>;
@@ -406,10 +400,7 @@ export function serializeReport(report: {
     ...(sourcesByCommit && { sourcesByCommit }),
     ...(report.interactionsByCommit && { interactionsByCommit: report.interactionsByCommit }),
     ...(report.renderedByCommit && { renderedByCommit: report.renderedByCommit }),
-    ...((report.metricsByCommit || report.atlByCommit) && {
-      metricsByCommit: report.metricsByCommit || report.atlByCommit,
-      atlByCommit: report.metricsByCommit || report.atlByCommit,
-    }),
+    ...(report.metricsByCommit && { metricsByCommit: report.metricsByCommit }),
     ...(report.commitTimings && { commitTimings: report.commitTimings }),
     ...(report.networkRequests && { networkRequests: report.networkRequests.map((request) => ({ ...request })) }),
     ...(report.screenByCommit && { screenByCommit: report.screenByCommit }),

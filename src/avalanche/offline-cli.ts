@@ -26,7 +26,7 @@ Commands:
 
 commit-list sort keys: collateral sources restarts performedWork effects memos
   callbacks contextUpdates unmountedComponents unmountedSubtrees ticks network
-commit-peek include values: stats,sources,timing,metrics,hooks,actions,rendered,network,dom (atl: deprecated alias of metrics)
+commit-peek include values: stats,sources,timing,metrics,hooks,actions,rendered,network,dom
 `;
 
 function fail(message: string): never {

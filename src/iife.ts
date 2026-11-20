@@ -58,7 +58,7 @@ import {
   getContextProviders,
   registerContextProvider,
 } from './layout-lab/marker-context';
-import { enableDefaultPlugins, enablePlugins, listPlugins, registerBuiltinPlugins, registerPlugin, selectPlugins } from './plugins';
+import { enableDefaultPlugins, enablePlugins, listPlugins, registerPlugin, selectPlugins } from './plugins';
 import { type PackLoadResult, type PackStatus, listPacks, registerPack, registerPacks, unregisterPack } from './plugins/pack';
 import {
   PROBE_INTENTS,
@@ -113,7 +113,7 @@ import {
 import type { DescribeComponentDeps } from './chippy-bridge/describe-component';
 
 type StartupConfig = {
-  /** Plugin ids to enable before React evaluates, e.g. `['jira', 'atl']`. */
+  /** Plugin ids to enable before React evaluates, e.g. `['my-plugin']`. */
   plugins?: string[];
   /** Chippy packs (JSON) the extension stored; registered and enabled at load. */
   packs?: unknown[];
@@ -164,18 +164,16 @@ const runtime = globalThis as GlobalWithChippyRuntime;
 // registration and once from the background's navigation injection.
 const publishedApi = runtime.__AVALANCHE__;
 
-// Product-specific recognizers (Jira ownership markers, ATL commit metrics)
-// are plugins. None is enabled unless the page opts in or a packed build names
-// it as a default; enabling here, before early bootstrap calls
-// runPrePageHooks(), lets an adapter's pre-page setup run.
-registerBuiltinPlugins();
+// Product-specific recognizers are plugins that ship outside this bundle
+// (packed builds and packs). None is enabled unless the page opts in or a
+// packed build names it as a default; enabling here, before early bootstrap
+// calls runPrePageHooks(), lets an adapter's pre-page setup run.
 {
   const fromConfig = runtime.__CHIPPY_STARTUP_CONFIG?.plugins;
   const fromGlobal = runtime.__CHIPPY_PLUGINS;
   if (Array.isArray(fromConfig) || Array.isArray(fromGlobal)) {
     selectPlugins([...(fromConfig ?? []), ...(fromGlobal ?? [])]);
   }
-  // Packs register after the built-ins, so a pack with a built-in id replaces it.
   const packsFromConfig = runtime.__CHIPPY_STARTUP_CONFIG?.packs;
   const packsFromGlobal = runtime.__CHIPPY_PACKS;
   if (Array.isArray(packsFromConfig) || Array.isArray(packsFromGlobal)) {
@@ -257,7 +255,7 @@ type AvalancheApi = {
     hooks: Record<string, AvalancheHookSummary> | null;
   };
   registerCommitMetricsAdapter: typeof registerCommitMetricsAdapter;
-  /** Enable plugins by id (built-in: `'jira'`, `'atl'`); returns the running ids. */
+  /** Enable plugins by id; returns the running ids. */
   enablePlugins: typeof enablePlugins;
   /** Register a plugin; `chippy pack` appends these calls to the bundle. */
   registerPlugin: typeof registerPlugin;

@@ -1,5 +1,5 @@
 // TODO: This is a deliberately lossy UI signature. Commits that differ
-// only in omitted timing, rendered, ATL, or other diagnostic fields collapse
+// only in omitted timing, rendered, metrics, or other diagnostic fields collapse
 // into one "repeat" count; either expose that scope in the UI or expand the key
 // before treating grouped rows as equivalent behavior.
 const PATTERN_STAT_KEYS = [

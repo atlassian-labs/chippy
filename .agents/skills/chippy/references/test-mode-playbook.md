@@ -160,7 +160,7 @@ For another navigation or reload, repeat client selection, install, clear, and t
 ### Snippet loop
 ```bash
 ./scripts/chippy.sh eval-snippets
-./scripts/chippy.sh eval-page "$CLIENT_ID" find-context-providers --name Jira
+./scripts/chippy.sh eval-page "$CLIENT_ID" find-context-providers --name Theme
 ```
 
 ### Save once, analyze many times

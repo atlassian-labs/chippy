@@ -18,7 +18,7 @@ shell over that public surface, so implementation belongs here rather than in
 | [avalanche/](avalanche/README.md) | Commit capture, performance evidence, report projection, optional Atlassian metrics integration | Browser commands or product fixes |
 | [chippy-bridge/](chippy-bridge/README.md) | Transport-safe bridge capabilities and command-shaped output | WebSocket transport or extension UI |
 | [debug-render/](debug-render/README.md) | Dispatcher capture and structural hook replay | React scheduling or causal performance attribution |
-| [layout-lab/](layout-lab/README.md) | Read-only DOM-to-fiber resolution, generic boundaries, optional Jira enrichment | Probe UI and page transport |
+| [layout-lab/](layout-lab/README.md) | Read-only DOM-to-fiber resolution, generic boundaries, provider enrichment | Probe UI and page transport |
 | `stability/`, `components/`, `layout/` | Storybook fixtures used to demonstrate or validate capabilities | The reusable runtime capabilities themselves |
 
 ## Runtime flow

@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it } from 'vitest';
 import { StoreReader } from './DebugHookSUT.jsx';
-import { atlCommitMetricsAdapter } from '../plugins/atl/commit-metrics-adapter';
+import { TEST_METRICS_SLOT, createSlotCommitMetricsAdapter } from './test-support/slot-commit-metrics-adapter';
 import { createAvalancheDetector } from './detector';
 import { evalAvalanche } from '../chippy-bridge/avalanche-commands';
 import { ChildDeletion, PerformedWork, type Fiber } from './internals';
@@ -46,7 +46,7 @@ afterEach(() => {
     h.onCommitFiberRoot = () => {};
     h.onCommitFiberUnmount = () => {};
   }
-  delete (globalThis as any).__ATL_REACT_METRICS;
+  delete (globalThis as any)[TEST_METRICS_SLOT];
 });
 
 describe('createAvalancheDetector with RTL', () => {
@@ -77,11 +77,11 @@ describe('createAvalancheDetector with RTL', () => {
     detector.uninstall();
   });
 
-  it('captures all commits when ATL fires before devtools on a reused root', () => {
+  it('captures all commits when the adapter fires before devtools on a reused root', () => {
     const g = globalThis as any;
-    g.__ATL_REACT_METRICS = { componentRenderWithHooksCount: 0, finishClassComponentCount: 0 };
+    g[TEST_METRICS_SLOT] = { rendered: 0 };
     const hook = installDevtoolsShim();
-    const detector = createAvalancheDetector({ historySize: 20, metricsAdapter: atlCommitMetricsAdapter });
+    const detector = createAvalancheDetector({ historySize: 20, metricsAdapter: createSlotCommitMetricsAdapter() });
     detector.install();
     // React in this jsdom process evaluated before the shim existed. Explicitly
     // drive both host callbacks; browser tests prove real renderer integration.
@@ -92,7 +92,7 @@ describe('createAvalancheDetector with RTL', () => {
     } as unknown as Fiber };
     try {
       for (let i = 0; i < 5; i++) {
-        g.__ATL_REACT_METRICS.onCommitFiberRoot(1, root);
+        g[TEST_METRICS_SLOT].onCommitFiberRoot(1, root);
         hook.onCommitFiberRoot(1, root);
       }
       expect(detector.report(20, 'effect').meta.commits).toBe(5);

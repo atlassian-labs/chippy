@@ -14,6 +14,18 @@ must stay compatible with the extension version in the store.
 
 ## Unreleased
 
+### Removed
+
+- The built-in `jira` and `atl` plugins, and all product knowledge with them.
+  Chippy ships no plugins; ship product rules as a pack or a `chippy pack` build
+  that lives with the product. The context provider and commit metrics adapter
+  seams are unchanged. Breaking: `@atlassian/chippy/avalanche` no longer exports
+  `atlCommitMetricsAdapter` or `createATLCommitMetricsAdapter`; reports no longer
+  carry the `atlByCommit` alias; `avalanche-commit-peek` no longer accepts the
+  `atl` include alias (use `metrics`); the `hook-metrics`, `hook-metrics-sample`,
+  and `hook-tracker` snippets and the `jira-taxonomy` and `hook-metrics`
+  references are gone. Extension 0.5.1.
+
 ### Added
 
 - Page scripts: `eval-page <clientId> -` runs a throwaway script from stdin
@@ -61,8 +73,6 @@ must stay compatible with the extension version in the store.
   LCP, FCP, and TTFB. It names the component behind each layout-shift source,
   interaction target, and LCP element, and lists the Avalanche commits near
   each entry.
-- Jira and ATL support are plugins, off by default. Enable them in the Chippy
-  panel's settings or with `__AVALANCHE__.enablePlugins()`. Extension 0.4.24.
 - The npm package ships the skill at `skills/chippy/`, the Agent Skills layout
   that skill installers look for, instead of `lib/mcp-skill/`. The `chippy-mcp`
   bin moves with it.

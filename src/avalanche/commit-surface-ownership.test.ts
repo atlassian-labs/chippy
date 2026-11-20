@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { createCommitSurfaceOwnership } from './commit-surface-ownership';
 
 describe('commit surface ownership', () => {
-  it('keeps DevTools capture active until an ATL callback arrives', () => {
+  it('keeps DevTools capture active until an adapter callback arrives', () => {
     const ownership = createCommitSurfaceOwnership<number>();
     const root = { current: {} };
     ownership.recordDevtools(root, 1);
@@ -10,7 +10,7 @@ describe('commit surface ownership', () => {
     expect(ownership.observeAdapter(root)).toBe(1);
     expect(ownership.adapterObserved).toBe(true);
   });
-  it('allows ATL to capture when its callback arrives first', () => {
+  it('allows the adapter to capture when its callback arrives first', () => {
     const ownership = createCommitSurfaceOwnership<number>();
     expect(ownership.observeAdapter({ current: {} })).toBeNull();
     expect(ownership.adapterObserved).toBe(true);

@@ -232,7 +232,7 @@ export interface ReportMeta {
    * Which commit-hook integration model produced this report. Determines what
    * is reliably present in `commitStats[N]` and `metricsByCommit[N]`.
    *
-   * 'adapter:<id>' — A commit metrics adapter (for example `adapter:atl`) drove
+   * 'adapter:<id>' — A commit metrics adapter (`adapter:<id>`) drove
    *              the commit callback with host render counters. ALL fields below
    *              are populated and `metricsByCommit` is present.
    * 'devtools' — Reconstructed entirely from the React DevTools commit hook
@@ -243,8 +243,6 @@ export interface ReportMeta {
    *              "unknown / not measurable in this mode") and `metricsByCommit`
    *              is empty. This is normal on stock react-dom.
    * 'none'     — Detector wasn't installed when this report was generated.
-   *
-   * Reports before the adapter seam used `'atl'` for `'adapter:atl'`.
    */
   integrationMode: IntegrationMode;
   /** Id of the commit metrics adapter that drove this report, or null. */
@@ -275,8 +273,6 @@ export interface ReportMeta {
     contextUpdates: boolean;
     /** Adapter counters in metricsByCommit — only in 'adapter:<id>' mode */
     metricsByCommit: boolean;
-    /** @deprecated Alias of `metricsByCommit`, kept for one release. */
-    atlByCommit: boolean;
     /** `commitTimings[N].ticks` — render slices observed from the renderer */
     ticks: boolean;
   };
@@ -467,13 +463,9 @@ export interface Report {
   commitTimings: Record<number, CommitTiming>;
   /**
    * Per-commit counter deltas from the commit metrics adapter - low-level React
-   * work per commit. With the ATL adapter:
-   * metricsByCommit[N].componentRenderWithHooksCount + finishClassComponentCount
-   * should equal commitStats[N].collateral + commitStats[N].sources
+   * work per commit. Counter names are defined by the adapter.
    */
   metricsByCommit?: Record<number, CommitMetricsDelta>;
-  /** @deprecated Alias of `metricsByCommit`, kept for one release. */
-  atlByCommit?: Record<number, CommitMetricsDelta>;
   /** @deprecated Use amplifierSources instead for full source linkage */
   amplifiers?: Amplifier[];
   /**
@@ -1100,7 +1092,6 @@ export function buildReport(
       callbacks: true,
       contextUpdates: true,
       metricsByCommit: metricsAvailable,
-      atlByCommit: metricsAvailable,
       ticks: renderTicks.available,
     },
     renderTicks,
@@ -1130,7 +1121,7 @@ export function buildReport(
     networkRequests: state.networkRequests.slice(),
     ...(state.screenByCommit && Object.keys(state.screenByCommit).length > 0 && { screenByCommit: { ...state.screenByCommit } }),
     ...(state.domByCommit && Object.keys(state.domByCommit).length > 0 && { domByCommit: { ...state.domByCommit } }),
-    ...(hasMetricsData && { metricsByCommit: state.metricsByCommit, atlByCommit: state.metricsByCommit }),
+    ...(hasMetricsData && { metricsByCommit: state.metricsByCommit }),
     toSerializable() {
       return serializeReport(this);
     },

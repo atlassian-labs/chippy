@@ -103,7 +103,7 @@ export type ChippyPack = {
   components?: PackComponentRule[];
   /** How the application names its boundaries and components. */
   labels?: PackLabelRule[];
-  /** Named Avalanche extensions, for example `{ "atl": { "onInit": "...", "onStep": "..." } }`. */
+  /** Named Avalanche extensions, for example `{ "counters": { "onInit": "...", "onStep": "..." } }`. */
   avalancheExtensions?: Record<string, PackScripts>;
 };
 

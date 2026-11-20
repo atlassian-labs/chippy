@@ -24,7 +24,7 @@ beforeAll(async () => {
   workspace = writePackWorkspace(mkdtempSync(join(tmpdir(), 'chippy-pack-pw-')));
   ({ skillDir } = await packChippy(normalizePackConfig({
     plugins: [{ id: 'gate', label: 'Feature gates', entry: './src/gate.ts' }],
-    defaultPlugins: ['gate', 'jira'],
+    defaultPlugins: ['gate'],
     extension: { name: 'Chippy (Gates)', version: '0.4.24.1' },
     outDir: './out',
   }, workspace), { source: SKILL, zips: false }));
@@ -65,14 +65,14 @@ describe('chippy pack build', () => {
   it('registers the packed plugin and enables the build defaults', async () => {
     const page = await openWithPackedRuntime();
     try {
-      expect(await pluginState(page)).toEqual({ enabled: ['gate', 'jira'], providers: ['gate', 'jira'] });
+      expect(await pluginState(page)).toEqual({ enabled: ['gate'], providers: ['gate'] });
     } finally { await page.close(); }
   });
 
   it('keeps the page\'s own plugin selection over the build defaults', async () => {
-    const page = await openWithPackedRuntime({ plugins: ['gate'] });
+    const page = await openWithPackedRuntime({ plugins: [] });
     try {
-      expect(await pluginState(page)).toEqual({ enabled: ['gate'], providers: ['gate'] });
+      expect(await pluginState(page)).toEqual({ enabled: [], providers: [] });
     } finally { await page.close(); }
   });
 
@@ -93,7 +93,7 @@ describe('chippy pack build', () => {
       const page = await context.newPage();
       await page.goto(origin);
       await page.waitForFunction(() => typeof (window as any).__AVALANCHE__?.listPlugins === 'function');
-      expect(await pluginState(page)).toEqual({ enabled: ['gate', 'jira'], providers: ['gate', 'jira'] });
+      expect(await pluginState(page)).toEqual({ enabled: ['gate'], providers: ['gate'] });
     } finally {
       await context?.close();
       rmSync(profile, { recursive: true, force: true });

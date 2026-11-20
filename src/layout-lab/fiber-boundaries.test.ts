@@ -7,7 +7,7 @@ import {
 } from './fiber-boundaries';
 
 describe('fiber-boundaries (generic, fiber-native)', () => {
-  it('detects a non-Jira error boundary by getDerivedStateFromError lifecycle', () => {
+  it('detects an unnamed error boundary by getDerivedStateFromError lifecycle', () => {
     class MyErrorBoundary {
       static getDerivedStateFromError() {
         return {};

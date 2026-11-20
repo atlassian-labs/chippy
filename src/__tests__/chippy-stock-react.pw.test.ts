@@ -1,5 +1,5 @@
 // This suite serves stock React directly, without helper or Storybook.
-// Host-provided ATL callback compatibility is covered by detector unit tests.
+// Commit metrics adapter callbacks are covered by detector unit tests.
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { chromium, type Browser, type Page } from 'playwright';
 import { readFileSync } from 'node:fs';
@@ -43,8 +43,6 @@ describe('Chippy React compatibility', () => {
         const source = report.sources.find((item: any) => item.sourceId.startsWith('StockCounter#'));
         return {
           status: av.status(), commits: report.meta.commits,
-          // The ATL plugin is opt-in, so nothing seeds its metrics slot.
-          atlSlot: '__ATL_REACT_METRICS' in window,
           source: source || null,
           hook: source ? av.debugHook(source.sourceId, 0) : null,
           renderTicks: report.meta.renderTicks,
@@ -53,7 +51,6 @@ describe('Chippy React compatibility', () => {
       });
       expect(result.status.integrationMode).toBe('devtools');
       expect(result.commits).toBe(4);
-      expect(result.atlSlot).toBe(false);
       expect(result.status.metricsAdapter).toBeNull();
       expect(result.source).not.toBeNull();
       expect(result.hook).toMatchObject({ ok: true, primitive: 'State' });

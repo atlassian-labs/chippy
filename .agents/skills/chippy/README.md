@@ -22,7 +22,7 @@ For an unfamiliar task or failure signature, `./scripts/chippy.sh recipes <query
 ## React support
 
 No React or React DOM package patch is required. Commit capture uses the React
-DevTools hook; an optional commit metrics adapter (the built-in one is ATL) adds
+DevTools hook; an optional commit metrics adapter, supplied by a plugin, adds
 host-specific metrics after an actual adapter callback proves it is active. A metrics global alone does not prove support.
 The hook must exist when React evaluates for renderer registration, commit capture,
 and dispatcher-backed replay. Production builds can omit source, owner, replay,
@@ -97,7 +97,7 @@ Chippy deliberately keeps different facts separate:
 - **DOM facts:** the exact element, text, attributes, styles, and nearest test-id boundary.
 - **React facts:** the fiber, component, owners, parents, props, hooks, and source metadata for the current snapshot.
 - **Declarative boundary facts:** every Error/Suspense ancestor around a target, or the whole page reduced to a boundary-only containment forest, including current Suspense content/fallback state.
-- **Jira context:** optional probe enrichment for recognized ownership markers and `JSErrorBoundary` metadata; it appears in both the in-page and Storybook probe details once the Jira plugin is enabled (it is off by default), and does not replace source evidence.
+- **Provider context:** optional probe enrichment that an enabled plugin or pack supplies, such as ownership markers or error-boundary metadata; it appears in both the in-page and Storybook probe details and does not replace source evidence.
 - **Source facts:** what the reported file and code can do.
 - **Render facts:** which commits, sources, restarts, effects, context updates, and collateral occurred in the measured window.
 - **Action facts:** what the user or automation did immediately before a measured commit.

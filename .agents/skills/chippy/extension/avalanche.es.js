@@ -4,12 +4,12 @@ const VALUE_OF = new Int8Array(128).fill(-1);
 for (let index = 0; index < DIGITS.length; index += 1) {
   VALUE_OF[DIGITS.charCodeAt(index)] = index;
 }
-function decodeVlq(field2) {
+function decodeVlq(field) {
   const values = [];
   let value = 0;
   let shift = 0;
-  for (let index = 0; index < field2.length; index += 1) {
-    const code = field2.charCodeAt(index);
+  for (let index = 0; index < field.length; index += 1) {
+    const code = field.charCodeAt(index);
     const digit = code < 128 ? VALUE_OF[code] : -1;
     if (digit < 0) return values;
     const more = (digit & 32) !== 0;
@@ -35,8 +35,8 @@ function decodeMappings(mappings, sourceCount) {
   for (const encodedLine of mappings.split(";")) {
     const segments = [];
     let generatedColumn = 0;
-    for (const field2 of encodedLine === "" ? [] : encodedLine.split(",")) {
-      const values = decodeVlq(field2);
+    for (const field of encodedLine === "" ? [] : encodedLine.split(",")) {
+      const values = decodeVlq(field);
       if (values.length < 4) {
         if (values.length > 0) {
           generatedColumn += values[0];
@@ -1505,10 +1505,7 @@ function serializeReport(report) {
     ...sourcesByCommit && { sourcesByCommit },
     ...report.interactionsByCommit && { interactionsByCommit: report.interactionsByCommit },
     ...report.renderedByCommit && { renderedByCommit: report.renderedByCommit },
-    ...(report.metricsByCommit || report.atlByCommit) && {
-      metricsByCommit: report.metricsByCommit || report.atlByCommit,
-      atlByCommit: report.metricsByCommit || report.atlByCommit
-    },
+    ...report.metricsByCommit && { metricsByCommit: report.metricsByCommit },
     ...report.commitTimings && { commitTimings: report.commitTimings },
     ...report.networkRequests && { networkRequests: report.networkRequests.map((request) => ({ ...request })) },
     ...report.screenByCommit && { screenByCommit: report.screenByCommit },
@@ -1732,7 +1729,6 @@ function buildReport(state2, thrashMode, topN, sortBy, options = {}, detectorCon
       callbacks: true,
       contextUpdates: true,
       metricsByCommit: metricsAvailable,
-      atlByCommit: metricsAvailable,
       ticks: renderTicks.available
     },
     renderTicks,
@@ -1760,7 +1756,7 @@ function buildReport(state2, thrashMode, topN, sortBy, options = {}, detectorCon
     networkRequests: state2.networkRequests.slice(),
     ...state2.screenByCommit && Object.keys(state2.screenByCommit).length > 0 && { screenByCommit: { ...state2.screenByCommit } },
     ...state2.domByCommit && Object.keys(state2.domByCommit).length > 0 && { domByCommit: { ...state2.domByCommit } },
-    ...hasMetricsData && { metricsByCommit: state2.metricsByCommit, atlByCommit: state2.metricsByCommit },
+    ...hasMetricsData && { metricsByCommit: state2.metricsByCommit },
     toSerializable() {
       return serializeReport(this);
     }
@@ -3336,7 +3332,7 @@ function diffCommit(root, limit = MAX_DOM_CHANGES_PER_COMMIT) {
 function createDomDiffCapture(options = {}, now = () => performance.now()) {
   const enabled = options.domDiff !== false && typeof document !== "undefined";
   const byCommit = {};
-  const store = createCommitBudgetStore(byCommit, options.maxDomChanges ?? DEFAULT_MAX_DOM_CHANGES, (diff2) => diff2.changes.length, DEFAULT_MAX_DOM_CHANGES);
+  const store = createCommitBudgetStore(byCommit, options.maxDomChanges ?? DEFAULT_MAX_DOM_CHANGES, (diff) => diff.changes.length, DEFAULT_MAX_DOM_CHANGES);
   function record(commitId, root) {
     if (!enabled) return;
     const started = now();
@@ -5815,7 +5811,7 @@ function describeContext(fiber) {
     }
     Object.assign(display.titles, contribution.titles || {});
     for (const [kind, fields] of Object.entries(contribution.fields || {})) {
-      display.fields[kind] = [...display.fields[kind] || [], ...fields.filter((field2) => field2.value != null && field2.value !== "")];
+      display.fields[kind] = [...display.fields[kind] || [], ...fields.filter((field) => field.value != null && field.value !== "")];
     }
     if (contribution.showError) display.showError = true;
     for (const [key, value] of Object.entries(contribution.extra || {})) {
@@ -5857,295 +5853,62 @@ function findBoundaryFibers(fiber) {
   }
   return result;
 }
-const DEFAULT_METRICS_SLOT = "__ATL_REACT_METRICS";
-const METRICS_COUNTER_KEYS = [
-  "mountWorkCount",
-  "updateWorkCount",
-  "commitWorkCount",
-  "interruptedWorkCount",
-  "priorityInterruptedWorkCount",
-  "externalStoreRestartCount",
-  "renderRootSyncCount",
-  "renderRootConcurrentCount",
-  "componentWorkCount",
-  "componentMountWorkCount",
-  "componentUpdateWorkCount",
-  "componentRenderWithHooksCount",
-  "finishClassComponentCount",
-  "domWorkCount",
-  "totalTickCount",
-  "totalCommitCount",
-  "contextUpdateCount",
-  "legacyContextUpdateCount"
-];
-const ACCESSOR_KEYS = [...METRICS_COUNTER_KEYS, "totalRestarts", "totalPerformedWork"];
-function createZeroMetrics() {
-  const metrics = {};
-  for (const key of METRICS_COUNTER_KEYS) metrics[key] = 0;
-  metrics.setStateCount = 0;
-  return metrics;
+const registered = /* @__PURE__ */ new Map();
+const requested = /* @__PURE__ */ new Set();
+const active = /* @__PURE__ */ new Map();
+let explicitSelection = false;
+function activate(plugin) {
+  const hookSets = plugin.avalancheHooks ? [].concat(plugin.avalancheHooks) : [];
+  const unregister = [
+    plugin.contextProvider && registerContextProvider(plugin.contextProvider),
+    plugin.commitMetricsAdapter && registerCommitMetricsAdapter(plugin.commitMetricsAdapter),
+    ...hookSets.map(registerAvalancheHooks)
+  ].filter((fn) => typeof fn === "function");
+  active.set(plugin.id, () => {
+    for (const fn of unregister.reverse()) fn();
+  });
 }
-function isAllZero(value) {
-  if (!value || typeof value !== "object") return true;
-  const record = value;
-  for (const key of ACCESSOR_KEYS) if ((record[key] || 0) !== 0) return false;
-  return true;
-}
-function isSlotHostLocked(target, slotName = DEFAULT_METRICS_SLOT) {
-  const existing = Object.getOwnPropertyDescriptor(target, slotName);
-  return !!existing && (existing.configurable === false || typeof existing.get === "function");
-}
-function protectMetricsSlot(target, metrics, slotName = DEFAULT_METRICS_SLOT) {
-  try {
-    const existing = Object.getOwnPropertyDescriptor(target, slotName);
-    if (existing && existing.configurable === false) return;
-    Object.defineProperty(target, slotName, { configurable: true, enumerable: true, writable: true, value: metrics });
-  } catch {
-    try {
-      target[slotName] = metrics;
-    } catch {
-    }
-  }
-}
-function seedMetricsSlot(target, slotName = DEFAULT_METRICS_SLOT) {
-  const metrics = createZeroMetrics();
-  try {
-    target[slotName] = metrics;
-  } catch {
-  }
-  protectMetricsSlot(target, metrics, slotName);
-  return metrics;
-}
-function installMetricsAccessor(target, slotName = DEFAULT_METRICS_SLOT) {
-  try {
-    const existing = Object.getOwnPropertyDescriptor(target, slotName);
-    if (existing && existing.configurable === false) return false;
-    let live = existing && typeof existing.get === "function" ? target[slotName] : existing == null ? void 0 : existing.value;
-    if (!live || typeof live !== "object") {
-      live = { onCommitFiberRoot: null };
-      for (const key of ACCESSOR_KEYS) live[key] = 0;
-    }
-    Object.defineProperty(target, slotName, {
-      configurable: true,
-      enumerable: true,
-      get() {
-        return live;
-      },
-      set(next) {
-        if (next === void 0 || next === null || isAllZero(next)) return;
-        live = next;
-      }
-    });
-    return true;
-  } catch {
-    return false;
-  }
-}
-const ATL_DISPATCHER_FRAME = "atlDispatcherHook";
-const num = (snapshot, key) => snapshot[key] ?? 0;
-const diff = (before, after, key) => num(after, key) - num(before, key);
-function calculateATLDelta(before, after) {
-  return {
-    // Basic work counters
-    mountWorkCount: diff(before, after, "mountWorkCount"),
-    updateWorkCount: diff(before, after, "updateWorkCount"),
-    commitWorkCount: diff(before, after, "commitWorkCount"),
-    performedWorkCount: diff(before, after, "totalPerformedWork"),
-    // Interruption/restart counters
-    interruptedWorkCount: diff(before, after, "interruptedWorkCount"),
-    externalStoreRestartCount: diff(before, after, "externalStoreRestartCount"),
-    priorityInterruptedWorkCount: diff(before, after, "priorityInterruptedWorkCount"),
-    renderRootSyncCount: diff(before, after, "renderRootSyncCount"),
-    renderRootConcurrentCount: diff(before, after, "renderRootConcurrentCount"),
-    // Scheduler
-    ticksCount: diff(before, after, "totalTickCount"),
-    // Component work counters
-    componentWorkCount: diff(before, after, "componentWorkCount"),
-    componentMountWorkCount: diff(before, after, "componentMountWorkCount"),
-    componentUpdateWorkCount: diff(before, after, "componentUpdateWorkCount"),
-    componentRenderWithHooksCount: diff(before, after, "componentRenderWithHooksCount"),
-    finishClassComponentCount: diff(before, after, "finishClassComponentCount"),
-    // DOM work
-    domWorkCount: diff(before, after, "domWorkCount"),
-    // Context updates
-    contextUpdateCount: diff(before, after, "contextUpdateCount"),
-    legacyContextUpdateCount: diff(before, after, "legacyContextUpdateCount"),
-    // Hook-metric delta (react-dom patch; optional). Omit when neither snapshot
-    // carries a numeric setStateCount so we never emit a bogus 0 on unpatched hosts.
-    // TODO: Require finite values on both sides or model a counter reset
-    // explicitly. Treating a missing/wiped side as zero can emit a negative delta,
-    // and typeof NaN === 'number' lets a poisoned counter enter the report.
-    ...typeof after.setStateCount === "number" || typeof before.setStateCount === "number" ? { setStateCount: diff(before, after, "setStateCount") } : {}
-  };
-}
-function createATLCommitMetricsAdapter(options = {}) {
-  const slotName = options.slotName ?? DEFAULT_METRICS_SLOT;
-  const target = () => options.target ?? globalThis;
-  const slot = () => {
-    const value = target()[slotName];
-    return value && typeof value === "object" ? value : null;
-  };
-  let ourHandler;
-  return {
-    id: "atl",
-    frameFilters: [ATL_DISPATCHER_FRAME],
-    prePage() {
-      installMetricsAccessor(target(), slotName);
-    },
-    prepare() {
-      try {
-        if (!isSlotHostLocked(target(), slotName)) seedMetricsSlot(target(), slotName);
-      } catch {
-      }
-    },
-    isAvailable: () => !!slot(),
-    snapshot() {
-      const live = slot();
-      return live ? { ...live } : null;
-    },
-    measure(before, after, committedComponents, commitId) {
-      const delta = calculateATLDelta(before, after);
-      delta.performedWorkCount = committedComponents;
-      const rendered = (delta.componentRenderWithHooksCount ?? 0) + (delta.finishClassComponentCount ?? 0);
-      const restarts = Math.max(0, rendered - committedComponents);
-      if (committedComponents > rendered && rendered > 0) {
-        console.warn(
-          `[Avalanche] Commit ${commitId}: committedComponents (${committedComponents}) > atlTotal (${rendered}). This indicates a counting bug. Using 0 restarts.`
-        );
-      }
-      const live = slot();
-      if (live) {
-        live.totalRestarts = (live.totalRestarts ?? 0) + restarts;
-        live.totalPerformedWork = (live.totalPerformedWork ?? 0) + committedComponents;
-      }
-      return { delta, restarts };
-    },
-    attach(onCommit) {
-      const live = slot();
-      if (!live) return false;
-      const handler = (_rendererID, root) => onCommit(root);
-      live.onCommitFiberRoot = handler;
-      ourHandler = handler;
-      return true;
-    },
-    isAttached() {
-      const live = slot();
-      return !!live && !!ourHandler && live.onCommitFiberRoot === ourHandler;
-    },
-    reattach() {
-      const fresh = seedMetricsSlot(target(), slotName);
-      if (ourHandler) fresh.onCommitFiberRoot = ourHandler;
-    },
-    detach() {
-      const live = slot();
-      if (live && ourHandler && live.onCommitFiberRoot === ourHandler) live.onCommitFiberRoot = void 0;
-      ourHandler = void 0;
-    }
-  };
-}
-const atlCommitMetricsAdapter = createATLCommitMetricsAdapter();
-function displayNameOf$1(fiber) {
-  return getDisplayName(fiber.type) || getDisplayName(fiber.elementType) || null;
-}
-function compileRule(rule) {
-  const names = new Set(rule.match.names ?? []);
-  const pattern = rule.match.pattern ? new RegExp(rule.match.pattern) : null;
-  return { rule, matches: (name) => names.has(name) || !!(pattern == null ? void 0 : pattern.test(name)) };
-}
-function scalar(value) {
-  if (typeof value === "string") return value.trim() ? value : null;
-  if (typeof value === "number" || typeof value === "boolean") return String(value);
-  return null;
-}
-function readRef(ref, hit) {
+function deactivate(id) {
   var _a2;
-  for (const one of Array.isArray(ref) ? ref : [ref]) {
-    let value = null;
-    if (one === "name") value = hit.name;
-    else if (one.startsWith("props.")) value = scalar((_a2 = hit.fiber.memoizedProps) == null ? void 0 : _a2[one.slice(6)]);
-    else if (one.startsWith("parts.") && hit.rule.nameParts) {
-      const { separator, keys } = hit.rule.nameParts;
-      const index = keys.indexOf(one.slice(6));
-      value = index >= 0 ? scalar(hit.name.split(separator)[index]) : null;
-    }
-    if (value) return value;
-  }
-  return null;
+  (_a2 = active.get(id)) == null ? void 0 : _a2();
+  active.delete(id);
 }
-function readData(hit) {
-  const out = { componentName: hit.name };
-  for (const [key, ref] of Object.entries(hit.rule.data ?? {})) out[key] = readRef(ref, hit);
-  return out;
+function validId(id) {
+  return typeof id === "string" && id.length > 0;
 }
-function readFields(hit) {
-  const out = [];
-  for (const field2 of hit.rule.fields ?? []) {
-    const value = readRef(field2.value, hit);
-    if (value) out.push({ label: field2.label, value });
-  }
-  return out;
-}
-function compileComponents(pack) {
-  const rules = (pack.components ?? []).map(compileRule);
-  const labeler = compileLabels(pack.labels);
-  if (rules.length === 0 && !labeler) return null;
-  const kinds = /* @__PURE__ */ new Map();
-  for (const { rule } of rules) {
-    if (rule.kind === "error" || kinds.has(rule.kind)) continue;
-    kinds.set(rule.kind, { kind: rule.kind, label: rule.label ?? rule.kind, ...rule.accent && { accent: rule.accent } });
-  }
-  function nearest(fibers) {
-    const hits = rules.map(() => null);
-    let open = rules.length;
-    for (let distance = 0; distance < fibers.length && open > 0; distance += 1) {
-      const name = displayNameOf$1(fibers[distance]);
-      if (!name) continue;
-      rules.forEach((compiled, index) => {
-        if (hits[index] || !compiled.matches(name)) return;
-        hits[index] = { rule: compiled.rule, fiber: fibers[distance], name, distance };
-        open -= 1;
-      });
-    }
-    return hits.filter((hit) => !!hit);
-  }
-  function matchBoundary(fiber) {
-    const name = displayNameOf$1(fiber);
-    if (!name) return null;
-    const hit = rules.find(({ rule, matches: matches2 }) => rule.kind !== "error" && matches2(name));
-    return hit ? hit.rule.kind : null;
-  }
-  return {
-    id: pack.id,
-    kinds: [...kinds.values()],
-    describe(fibers) {
-      const hits = nearest(fibers);
-      const contribution = { boundaries: {}, titles: {}, fields: {} };
-      for (const kind of kinds.keys()) contribution.boundaries[kind] = null;
-      let showError = false;
-      for (const hit of hits) {
-        const { kind } = hit.rule;
-        showError || (showError = !!hit.rule.showError);
-        const claimed = kind === "error" ? contribution.errorEnrichment !== void 0 : !!contribution.boundaries[kind];
-        if (claimed) continue;
-        if (kind === "error") {
-          if (hit.rule.data) contribution.errorEnrichment = readData(hit);
-        } else {
-          contribution.boundaries[kind] = { distance: hit.distance, ...readData(hit) };
-        }
-        const title = hit.rule.title ? readRef(hit.rule.title, hit) : null;
-        if (title && !contribution.titles[kind]) contribution.titles[kind] = title;
-        const fields = readFields(hit);
-        if (fields.length && !contribution.fields[kind]) contribution.fields[kind] = fields;
-      }
-      if (hits.length === 0) return { boundaries: contribution.boundaries };
-      return { ...contribution, ...showError && { showError } };
-    },
-    matchBoundary,
-    ...labeler && {
-      // A component of one of this pack's kinds is labelled by that kind's rules.
-      label: (fiber, kind) => labeler(fiber, kind === "component" ? matchBoundary(fiber) ?? kind : kind)
-    }
+function registerPlugin(plugin) {
+  if (!plugin || !validId(plugin.id)) throw new TypeError("registerPlugin expects a plugin with a non-empty id");
+  deactivate(plugin.id);
+  registered.set(plugin.id, plugin);
+  if (requested.has(plugin.id)) activate(plugin);
+  return () => {
+    if (registered.get(plugin.id) !== plugin) return;
+    deactivate(plugin.id);
+    registered.delete(plugin.id);
   };
+}
+function enablePlugins(ids) {
+  for (const id of Array.isArray(ids) ? ids : []) {
+    if (!validId(id) || requested.has(id)) continue;
+    requested.add(id);
+    const plugin = registered.get(id);
+    if (plugin && !active.has(id)) activate(plugin);
+  }
+  return [...active.keys()];
+}
+function selectPlugins(ids) {
+  explicitSelection = true;
+  return enablePlugins(ids);
+}
+function enableDefaultPlugins(ids) {
+  return explicitSelection ? [...active.keys()] : enablePlugins(ids);
+}
+function listPlugins() {
+  return [...registered.values()].map((plugin) => ({
+    id: plugin.id,
+    label: plugin.label ?? plugin.id,
+    enabled: active.has(plugin.id)
+  }));
 }
 const SUSPENSE_TAG$1 = 13;
 const DEFAULT_WITHIN = 3;
@@ -6223,240 +5986,107 @@ function compileLabels(rules) {
     return null;
   };
 }
-const OWNER_MARK_PARTS = { separator: "___", keys: ["marker", "type", "name", "package", "variant"] };
-const JIRA_LABEL_RULES = [
-  {
-    for: "suspense",
-    value: "props.interactionName",
-    note: "Jira passes the UFO interaction name to the Suspense element itself; it names the region that waits."
-  },
-  {
-    for: "suspense",
-    from: "parents",
-    match: { names: ["SuspenseWrapper", "SuspensePlaceholder"] },
-    value: "props.name",
-    note: "A lazy section renders SuspensePlaceholder > SuspenseWrapper > Suspense; the `name` prop on either wrapper names the section."
-  },
-  {
-    for: "suspense",
-    from: "parents",
-    match: { pattern: "^OwnerMark___placeholder___" },
-    within: 4,
-    nameParts: OWNER_MARK_PARTS,
-    value: "parts.name",
-    note: "OwnerMark___placeholder___<name>___<package>___<variant> sits just above SuspenseWrapper when the wrapper props are gone."
-  },
-  {
-    for: "suspense",
-    from: "parents",
-    match: { names: ["Suspense"] },
-    within: 1,
-    value: "props.interactionName",
-    note: "A Suspense rendered directly inside a named one waits for the same region."
-  },
-  {
-    for: "error",
-    value: ["props.id", "props.location", "props.name"],
-    note: "JSErrorBoundary and the ErrorBoundary class it renders take `id` (with `packageName` and `teamName`); navigation boundaries take `location`."
-  },
-  {
-    for: "error",
-    from: "children",
-    match: { pattern: "^OwnerMark___error-boundary___" },
-    within: 2,
-    nameParts: OWNER_MARK_PARTS,
-    value: "parts.name",
-    note: "OwnerMark___error-boundary___<id>___<package>___<variant> renders just inside the boundary class."
-  },
-  {
-    for: "error",
-    from: "parents",
-    match: { pattern: "ErrorBoundary$" },
-    within: 2,
-    value: ["props.location", "props.id", "props.name", "props.interactionId"],
-    note: "A minified boundary class has no props of its own; the function wrapper around it holds the name: `location` or `interactionId` on NavErrorBoundary > InnerErrorBoundary, `name` on GenericErrorBoundary. The wrapper is not a boundary: it has no error lifecycle. Navigation boundaries rendered without these props have no name."
-  },
-  {
-    for: "owner",
-    match: { names: ["OwnerMark", "OwnershipMark"], pattern: "^(OwnerMark|OwnershipMark)___" },
-    nameParts: OWNER_MARK_PARTS,
-    value: ["parts.name", "props.name"],
-    note: "An ownership marker is named by the <name> segment of its display name, or by its `name` prop."
-  }
-];
-const OWNER_MARK_NAMES = /* @__PURE__ */ new Set(["OwnerMark", "OwnershipMark"]);
-function readScalar(props, ...keys) {
-  for (const key of keys) {
-    const value = props == null ? void 0 : props[key];
-    if (typeof value === "string" && value.trim()) return value;
-    if (typeof value === "number" || typeof value === "boolean") return String(value);
-  }
-  return null;
-}
 function displayNameOf(fiber) {
   return getDisplayName(fiber.type) || getDisplayName(fiber.elementType) || null;
 }
-function parseOwnerMarkDisplayName(displayName) {
-  if (!displayName) return null;
-  const parts = displayName.split("___");
-  if (!OWNER_MARK_NAMES.has(parts[0])) return null;
-  if (parts.length === 1) return null;
-  return {
-    markerName: displayName,
-    type: parts[1] || null,
-    name: parts[2] || null,
-    packageName: parts[3] || null,
-    teamName: null,
-    variant: parts[4] || null,
-    source: "display-name"
-  };
+function compileRule(rule) {
+  const names = new Set(rule.match.names ?? []);
+  const pattern = rule.match.pattern ? new RegExp(rule.match.pattern) : null;
+  return { rule, matches: (name) => names.has(name) || !!(pattern == null ? void 0 : pattern.test(name)) };
 }
-function describeOwnership(fiber) {
-  const displayName = displayNameOf(fiber);
-  const encoded = parseOwnerMarkDisplayName(displayName);
-  if (encoded) {
-    return {
-      ...encoded,
-      packageName: encoded.packageName || readScalar(fiber.memoizedProps, "packageName", "package"),
-      teamName: readScalar(fiber.memoizedProps, "teamName", "team")
-    };
-  }
-  if (!displayName || !OWNER_MARK_NAMES.has(displayName)) return null;
-  return {
-    markerName: displayName,
-    type: readScalar(fiber.memoizedProps, "type", "boundaryType"),
-    name: readScalar(fiber.memoizedProps, "name", "id"),
-    packageName: readScalar(fiber.memoizedProps, "packageName", "package"),
-    teamName: readScalar(fiber.memoizedProps, "teamName", "team"),
-    variant: readScalar(fiber.memoizedProps, "variant"),
-    source: "props"
-  };
+function scalar(value) {
+  if (typeof value === "string") return value.trim() ? value : null;
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  return null;
 }
-function jiraErrorBoundary(fiber) {
-  const componentName = displayNameOf(fiber);
-  if (componentName !== "JSErrorBoundary") return null;
-  return {
-    componentName,
-    id: readScalar(fiber.memoizedProps, "id"),
-    packageName: readScalar(fiber.memoizedProps, "packageName"),
-    fallback: readScalar(fiber.memoizedProps, "fallback"),
-    teamName: readScalar(fiber.memoizedProps, "teamName")
-  };
-}
-function field(label, value) {
-  return value ? [{ label, value }] : [];
-}
-function describeJiraContribution(fibers) {
-  let ownership = null;
-  let ownerDistance = -1;
-  let errorBoundary = null;
-  let errorComponent = false;
-  for (let distance = 0; distance < fibers.length; distance += 1) {
-    const entry = fibers[distance];
-    if (!ownership) {
-      const found = describeOwnership(entry);
-      if (found) {
-        ownership = found;
-        ownerDistance = distance;
-      }
-    }
-    if (!errorBoundary) errorBoundary = jiraErrorBoundary(entry);
-    const displayName = displayNameOf(entry);
-    if (displayName === "ErrorComponent" || (displayName == null ? void 0 : displayName.endsWith("ErrorComponent"))) errorComponent = true;
-    if (ownership && errorBoundary && errorComponent) break;
-  }
-  if (!ownership && !errorBoundary && !errorComponent) return null;
-  return {
-    boundaries: { owner: ownership ? { ...ownership, distance: ownerDistance } : null },
-    errorEnrichment: errorBoundary,
-    titles: {
-      ...ownership ? { owner: ownership.name || ownership.markerName } : {},
-      ...errorBoundary ? {} : errorComponent ? { error: "ErrorComponent" } : {}
-    },
-    // Keep only the fields that matter operationally: team and id (the
-    // Sentry key). package/fallback stay on the boundary payload.
-    fields: errorBoundary ? { error: [...field("team", errorBoundary.teamName), ...field("id", errorBoundary.id)] } : {},
-    showError: errorComponent,
-    // Legacy Jira-shaped fields, preserved for existing consumers.
-    extra: { ownership, errorComponent, errorBoundary }
-  };
-}
-const jiraContextProvider = {
-  id: "jira",
-  kinds: [{ kind: "owner", label: "owner", accent: "#0c66e4" }],
-  describe: describeJiraContribution,
-  matchBoundary: (fiber) => describeOwnership(fiber) ? "owner" : null,
-  label: compileJiraLabels()
-};
-function compileJiraLabels() {
-  const labeler = compileLabels(JIRA_LABEL_RULES);
-  return (fiber, kind) => labeler(fiber, kind === "component" && describeOwnership(fiber) ? "owner" : kind);
-}
-const BUILTIN_PLUGINS = [
-  { id: "jira", label: "Jira ownership markers", contextProvider: jiraContextProvider },
-  { id: "atl", label: "ATL commit metrics", commitMetricsAdapter: atlCommitMetricsAdapter }
-];
-const registered = /* @__PURE__ */ new Map();
-const requested = /* @__PURE__ */ new Set();
-const active = /* @__PURE__ */ new Map();
-let explicitSelection = false;
-function activate(plugin) {
-  const hookSets = plugin.avalancheHooks ? [].concat(plugin.avalancheHooks) : [];
-  const unregister = [
-    plugin.contextProvider && registerContextProvider(plugin.contextProvider),
-    plugin.commitMetricsAdapter && registerCommitMetricsAdapter(plugin.commitMetricsAdapter),
-    ...hookSets.map(registerAvalancheHooks)
-  ].filter((fn) => typeof fn === "function");
-  active.set(plugin.id, () => {
-    for (const fn of unregister.reverse()) fn();
-  });
-}
-function deactivate(id) {
+function readRef(ref, hit) {
   var _a2;
-  (_a2 = active.get(id)) == null ? void 0 : _a2();
-  active.delete(id);
-}
-function validId(id) {
-  return typeof id === "string" && id.length > 0;
-}
-function registerPlugin(plugin) {
-  if (!plugin || !validId(plugin.id)) throw new TypeError("registerPlugin expects a plugin with a non-empty id");
-  deactivate(plugin.id);
-  registered.set(plugin.id, plugin);
-  if (requested.has(plugin.id)) activate(plugin);
-  return () => {
-    if (registered.get(plugin.id) !== plugin) return;
-    deactivate(plugin.id);
-    registered.delete(plugin.id);
-  };
-}
-function enablePlugins(ids) {
-  for (const id of Array.isArray(ids) ? ids : []) {
-    if (!validId(id) || requested.has(id)) continue;
-    requested.add(id);
-    const plugin = registered.get(id);
-    if (plugin && !active.has(id)) activate(plugin);
+  for (const one of Array.isArray(ref) ? ref : [ref]) {
+    let value = null;
+    if (one === "name") value = hit.name;
+    else if (one.startsWith("props.")) value = scalar((_a2 = hit.fiber.memoizedProps) == null ? void 0 : _a2[one.slice(6)]);
+    else if (one.startsWith("parts.") && hit.rule.nameParts) {
+      const { separator, keys } = hit.rule.nameParts;
+      const index = keys.indexOf(one.slice(6));
+      value = index >= 0 ? scalar(hit.name.split(separator)[index]) : null;
+    }
+    if (value) return value;
   }
-  return [...active.keys()];
+  return null;
 }
-function selectPlugins(ids) {
-  explicitSelection = true;
-  return enablePlugins(ids);
+function readData(hit) {
+  const out = { componentName: hit.name };
+  for (const [key, ref] of Object.entries(hit.rule.data ?? {})) out[key] = readRef(ref, hit);
+  return out;
 }
-function enableDefaultPlugins(ids) {
-  return explicitSelection ? [...active.keys()] : enablePlugins(ids);
+function readFields(hit) {
+  const out = [];
+  for (const field of hit.rule.fields ?? []) {
+    const value = readRef(field.value, hit);
+    if (value) out.push({ label: field.label, value });
+  }
+  return out;
 }
-function listPlugins() {
-  return [...registered.values()].map((plugin) => ({
-    id: plugin.id,
-    label: plugin.label ?? plugin.id,
-    enabled: active.has(plugin.id)
-  }));
-}
-function registerBuiltinPlugins() {
-  const unregister = BUILTIN_PLUGINS.map(registerPlugin);
-  return () => {
-    for (const fn of unregister.reverse()) fn();
+function compileComponents(pack) {
+  const rules = (pack.components ?? []).map(compileRule);
+  const labeler = compileLabels(pack.labels);
+  if (rules.length === 0 && !labeler) return null;
+  const kinds = /* @__PURE__ */ new Map();
+  for (const { rule } of rules) {
+    if (rule.kind === "error" || kinds.has(rule.kind)) continue;
+    kinds.set(rule.kind, { kind: rule.kind, label: rule.label ?? rule.kind, ...rule.accent && { accent: rule.accent } });
+  }
+  function nearest(fibers) {
+    const hits = rules.map(() => null);
+    let open = rules.length;
+    for (let distance = 0; distance < fibers.length && open > 0; distance += 1) {
+      const name = displayNameOf(fibers[distance]);
+      if (!name) continue;
+      rules.forEach((compiled, index) => {
+        if (hits[index] || !compiled.matches(name)) return;
+        hits[index] = { rule: compiled.rule, fiber: fibers[distance], name, distance };
+        open -= 1;
+      });
+    }
+    return hits.filter((hit) => !!hit);
+  }
+  function matchBoundary(fiber) {
+    const name = displayNameOf(fiber);
+    if (!name) return null;
+    const hit = rules.find(({ rule, matches: matches2 }) => rule.kind !== "error" && matches2(name));
+    return hit ? hit.rule.kind : null;
+  }
+  return {
+    id: pack.id,
+    kinds: [...kinds.values()],
+    describe(fibers) {
+      const hits = nearest(fibers);
+      const contribution = { boundaries: {}, titles: {}, fields: {} };
+      for (const kind of kinds.keys()) contribution.boundaries[kind] = null;
+      let showError = false;
+      for (const hit of hits) {
+        const { kind } = hit.rule;
+        showError || (showError = !!hit.rule.showError);
+        const claimed = kind === "error" ? contribution.errorEnrichment !== void 0 : !!contribution.boundaries[kind];
+        if (claimed) continue;
+        if (kind === "error") {
+          if (hit.rule.data) contribution.errorEnrichment = readData(hit);
+        } else {
+          contribution.boundaries[kind] = { distance: hit.distance, ...readData(hit) };
+        }
+        const title = hit.rule.title ? readRef(hit.rule.title, hit) : null;
+        if (title && !contribution.titles[kind]) contribution.titles[kind] = title;
+        const fields = readFields(hit);
+        if (fields.length && !contribution.fields[kind]) contribution.fields[kind] = fields;
+      }
+      if (hits.length === 0) return { boundaries: contribution.boundaries };
+      return { ...contribution, ...showError && { showError } };
+    },
+    matchBoundary,
+    ...labeler && {
+      // A component of one of this pack's kinds is labelled by that kind's rules.
+      label: (fiber, kind) => labeler(fiber, kind === "component" ? matchBoundary(fiber) ?? kind : kind)
+    }
   };
 }
 function compile(body, name, errors) {
@@ -6569,10 +6199,10 @@ function checkRule(rule, path) {
   if (rule.title !== void 0) checkRef(rule.title, `${path}.title`);
   if (rule.fields !== void 0) {
     if (!Array.isArray(rule.fields)) fail(`${path}.fields`, "must be a list");
-    rule.fields.forEach((field2, index) => {
-      if (!isObject(field2)) fail(`${path}.fields[${index}]`, "must be an object");
-      checkString(field2.label, `${path}.fields[${index}].label`);
-      checkRef(field2.value, `${path}.fields[${index}].value`);
+    rule.fields.forEach((field, index) => {
+      if (!isObject(field)) fail(`${path}.fields[${index}]`, "must be an object");
+      checkString(field.label, `${path}.fields[${index}].label`);
+      checkRef(field.value, `${path}.fields[${index}].value`);
     });
   }
   if (rule.data !== void 0) {
@@ -7843,9 +7473,9 @@ function buildDomDiffView(report, options = {}) {
   const ids = Object.keys(byCommit).map(Number).filter((id) => Number.isFinite(id) && id >= from && id <= to).sort((a, b) => a - b);
   const matched = [];
   for (const commitId of ids) {
-    const diff2 = byCommit[String(commitId)];
-    const changes = pattern ? diff2.changes.filter((change) => pattern.test(searchable(change))) : diff2.changes;
-    if (changes.length) matched.push({ commitId, diff: diff2, changes });
+    const diff = byCommit[String(commitId)];
+    const changes = pattern ? diff.changes.filter((change) => pattern.test(searchable(change))) : diff.changes;
+    if (changes.length) matched.push({ commitId, diff, changes });
   }
   const listed = matched.slice(0, top);
   const startOf = (id) => {
@@ -7854,7 +7484,7 @@ function buildDomDiffView(report, options = {}) {
     return typeof start === "number" && Number.isFinite(start) ? start : null;
   };
   const origin = listed.length ? startOf(listed[0].commitId) : null;
-  const commits = listed.map(({ commitId, diff: diff2, changes }) => {
+  const commits = listed.map(({ commitId, diff, changes }) => {
     const startTime = startOf(commitId);
     return {
       commitId,
@@ -7862,7 +7492,7 @@ function buildDomDiffView(report, options = {}) {
       startTime,
       total: changes.length,
       changes: changes.slice(0, maxItems),
-      ...diff2.truncated && { truncated: true }
+      ...diff.truncated && { truncated: true }
     };
   });
   const evicted = ((_b2 = (_a2 = report.meta) == null ? void 0 : _a2.domDiff) == null ? void 0 : _b2.evicted) ?? null;
@@ -8047,7 +7677,7 @@ function evalAvalanche(command, api2, mod) {
           return { ok: false, available: true, action, error: "commit-peek requires numeric commitId" };
         }
         const include = Array.isArray(command == null ? void 0 : command.include) && command.include.length ? command.include : ["stats", "sources", "timing", "metrics", "hooks"];
-        const allowedInclude = ["stats", "sources", "timing", "metrics", "atl", "hooks", "unmounts", "actions", "rendered", "network", "dom"];
+        const allowedInclude = ["stats", "sources", "timing", "metrics", "hooks", "unmounts", "actions", "rendered", "network", "dom"];
         const invalidInclude = include.filter((key) => !allowedInclude.includes(key));
         if (invalidInclude.length) {
           return {
@@ -8067,7 +7697,7 @@ function evalAvalanche(command, api2, mod) {
         const tuple = ((_e2 = ser.commitStats) == null ? void 0 : _e2[commitId]) || ((_f = ser.commitStats) == null ? void 0 : _f[String(commitId)]) || null;
         const sourceIds = ((_g = ser.sourcesByCommit) == null ? void 0 : _g[commitId]) || ((_h = ser.sourcesByCommit) == null ? void 0 : _h[String(commitId)]) || [];
         const timing = ((_i = ser.commitTimings) == null ? void 0 : _i[commitId]) || ((_j = ser.commitTimings) == null ? void 0 : _j[String(commitId)]) || null;
-        const metricsMap = ser.metricsByCommit || ser.atlByCommit;
+        const metricsMap = ser.metricsByCommit;
         const metrics = (metricsMap == null ? void 0 : metricsMap[commitId]) || (metricsMap == null ? void 0 : metricsMap[String(commitId)]) || null;
         const actions = ((_k = ser.interactionsByCommit) == null ? void 0 : _k[commitId]) || ((_l = ser.interactionsByCommit) == null ? void 0 : _l[String(commitId)]) || [];
         const rendered = ((_m = ser.renderedByCommit) == null ? void 0 : _m[commitId]) || ((_n = ser.renderedByCommit) == null ? void 0 : _n[String(commitId)]) || [];
@@ -8103,7 +7733,6 @@ function evalAvalanche(command, api2, mod) {
         }
         if (include.includes("timing")) out.timing = timing;
         if (include.includes("metrics")) out.metrics = metrics;
-        if (include.includes("atl")) out.atl = metrics;
         if (include.includes("hooks") && ser.hooks) out.hooks = hookSteps;
         if (include.includes("actions")) {
           out.actions = actions.slice(0, maxItems);
@@ -10934,7 +10563,6 @@ function inspectPageDeclarativeBoundaries(max, deps) {
 }
 const runtime = globalThis;
 const publishedApi = runtime.__AVALANCHE__;
-registerBuiltinPlugins();
 {
   const fromConfig = (_a = runtime.__CHIPPY_STARTUP_CONFIG) == null ? void 0 : _a.plugins;
   const fromGlobal = runtime.__CHIPPY_PLUGINS;

@@ -4,29 +4,30 @@ The Chippy core has no product knowledge. It finds Error and Suspense boundaries
 from fiber signals and captures commits through the React DevTools hook. Two
 seams let a plugin add knowledge of a particular application:
 
-| Seam | Adds | Built-in plugin |
-| --- | --- | --- |
-| Context provider | Boundary kinds, error-boundary fields, and probe card titles and fields | Jira: labels the team-ownership boundaries Jira pages render |
-| Commit metrics adapter | Per-commit counters and restart counts from an instrumented react-dom | ATL: reads counters from Atlassian's instrumented react-dom |
+| Seam | Adds |
+| --- | --- |
+| Context provider | Boundary kinds, error-boundary fields, and probe card titles and fields |
+| Commit metrics adapter | Per-commit counters and restart counts from an instrumented react-dom |
 
 A plugin is an object with an `id`, an optional `label`, and a context provider,
-a commit metrics adapter, or both. The bundle registers both built-in plugins but
-enables neither; [`chippy pack`](#packing-a-custom-build) adds more plugins and
-default selections without forking Chippy. The extension, the console import,
-and `@atlassian/chippy/browser` load that bundle; a page opts in in one of three
-ways (both built-in plugins do nothing on other apps):
+a commit metrics adapter, or both. The bundle ships no plugins. Product knowledge
+lives with the product: a [pack](#packs) loads JSON rules at run time, and
+[`chippy pack`](#packing-a-custom-build) builds a skill and extension with extra
+plugins and default selections without forking Chippy. The extension, the
+console import, and `@atlassian/chippy/browser` load that bundle; a page opts in
+to a registered plugin in one of three ways:
 
 | Route | When it applies |
 | --- | --- |
-| Check the plugin in the Chippy panel's settings | From the next page load; it reaches ATL's pre-page setup |
-| Set `window.__CHIPPY_PLUGINS = ['jira', 'atl']` before the bundle loads | Console import and custom builds |
-| Call `__AVALANCHE__.enablePlugins(['jira'])` | Immediately for Jira; for ATL, from the next Avalanche install |
+| Check the plugin in the Chippy panel's settings | From the next page load; it reaches a plugin's pre-page setup |
+| Set `window.__CHIPPY_PLUGINS = ['my-plugin']` before the bundle loads | Console import and custom builds |
+| Call `__AVALANCHE__.enablePlugins(['my-plugin'])` | Immediately for a context provider; for a commit metrics adapter, from the next Avalanche install |
 
 The page's own selection, from the startup config or `__CHIPPY_PLUGINS`, wins
 over a packed build's defaults. `__AVALANCHE__.listPlugins()` lists the registered
 plugins and which ones run. The
 standalone detector in `@atlassian/chippy/avalanche` does not include it; a host
-registers the ATL adapter itself.
+passes its own adapter as `metricsAdapter`.
 
 ## Context providers
 
@@ -188,9 +189,6 @@ it.
 ]
 ```
 
-The built-in Jira plugin carries its rules in the same form
-(`src/plugins/jira/labels.ts`), so a Jira pack that replaces it can copy them.
-
 **Initializing the page.** A pack must not expect the globals it reads to
 exist; `onInit` creates them. It runs once when the pack registers, with
 `ctx = { id }` (the extension's report key), before any recording. A pack loaded from the extension settings
@@ -261,8 +259,8 @@ Then describe the build in `chippy.config.mjs`:
 ```js
 export default {
   plugins: [{ id: 'feature-gate', label: 'Feature gates', entry: './src/feature-gate.ts' }],
-  // Built-in or packed ids that run until the user saves their own selection.
-  defaultPlugins: ['feature-gate', 'jira'],
+  // Packed ids that run until the user saves their own selection.
+  defaultPlugins: ['feature-gate'],
   // Manifest fields. Set `key` to keep a stable extension id across uploads.
   extension: { name: 'Chippy (Example)', version: '0.4.24.1' },
   // Files copied onto the skill; `<name>.append.md` appends to `<name>.md`.
@@ -274,8 +272,7 @@ export default {
 Run `npx @atlassian/chippy pack` (or `pack --config <file>` for another config
 path) with `esbuild` installed in the same project and `zip` on the `PATH`.
 Paths resolve against the config file's directory; `outDir` defaults to
-`chippy-build`. Plugin ids must match `/^[a-z][a-z0-9-]*$/`, be unique, and not
-reuse `jira` or `atl`; the config's `id` and `label` (default: the id) replace
+`chippy-build`. Plugin ids must match `/^[a-z][a-z0-9-]*$/` and be unique; the config's `id` and `label` (default: the id) replace
 the module's own. `extension` also accepts `description`. Unknown keys fail the
 build, and the packer refuses to replace an `outDir/chippy` that is not a Chippy
 skill. The command writes:
@@ -285,6 +282,6 @@ skill. The command writes:
 
 The packer appends the bundled plugins to the runtime bundle, so the extension,
 the helper-served console import, and Playwright sessions all load them, and
-registration happens before the ATL pre-page hook runs. It adds the plugins to
+registration happens before any plugin's pre-page hook runs. It adds the plugins to
 the panel's settings and makes `defaultPlugins` the extension's initial
 selection. To update, bump `@atlassian/chippy` and pack again.

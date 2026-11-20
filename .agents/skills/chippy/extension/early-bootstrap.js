@@ -31,7 +31,7 @@
   };
 
   // Run the registered commit metrics adapter's pre-page hook. It must run
-  // before the page's React evaluates (for example, the ATL adapter installs a
+  // before the page's React evaluates (for example, an adapter installs a
   // configurable metrics-slot accessor). avalanche.iife.js loads before this
   // script, so the registry is populated. A failure here is non-fatal:
   // Avalanche falls back to DevTools integration.

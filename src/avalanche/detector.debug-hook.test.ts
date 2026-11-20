@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { atlCommitMetricsAdapter } from '../plugins/atl/commit-metrics-adapter';
+import { createSlotCommitMetricsAdapter } from './test-support/slot-commit-metrics-adapter';
 import { createAvalancheDetector } from './detector';
 
 describe('createAvalancheDetector.debugHook', () => {
   it('does not treat unrelated leading events as hook index zero for a source', () => {
-    const detector = createAvalancheDetector({ metricsAdapter: atlCommitMetricsAdapter });
+    const detector = createAvalancheDetector({ metricsAdapter: createSlotCommitMetricsAdapter() });
     const detectorAny = detector as any;
 
     detectorAny._debugSetSourceForTest('source-a', { type: { name: 'StoreReader' }, debugHookIndices: [1] });
@@ -12,7 +12,7 @@ describe('createAvalancheDetector.debugHook', () => {
       {
         primitive: 'state',
         frames: [
-          { name: 'atlDispatcherHook', loc: '1:1' },
+          { name: 'hostDispatcherHook', loc: '1:1' },
           { name: 'useOtherThing', loc: '20:2' },
         ],
         stack: 'stack-b',
@@ -22,7 +22,7 @@ describe('createAvalancheDetector.debugHook', () => {
       {
         primitive: 'memo',
         frames: [
-          { name: 'atlDispatcherHook', loc: '1:1' },
+          { name: 'hostDispatcherHook', loc: '1:1' },
           { name: 'useApprovalFormatter', loc: '10:2' },
         ],
         stack: 'stack-a',

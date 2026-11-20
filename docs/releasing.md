@@ -15,8 +15,8 @@ updates local assets; publication is a separate step.
    and Storybook header.
 4. Bump `extension/manifest.json` for every extension release. Chrome Web Store
    rejects a previously published version.
-5. When changing early bootstrap or the ATL metrics accessor, verify against a
-   real ATL-enabled host; jsdom cannot establish host compatibility. The local
+5. When changing early bootstrap or the commit metrics adapter seam, verify
+   against a real host page; jsdom cannot establish host compatibility. The local
    agent-driven procedure is [manual extension verification](chippy-manual-verification.md).
 6. With the `zip` utility installed, build the archives with `yarn chippy:zip` and
    `yarn chippy:extension:zip`. They are written to the repository root, ignored by
@@ -63,8 +63,8 @@ BENGHELP ticket; without it the publish is rejected.
 ## Public repository readiness
 
 Chippy uses the [Apache 2.0 License](../LICENSE). Both archives include the license.
-Chippy does not distribute React patches; optional ATL instrumentation belongs
-to the application being inspected.
+Chippy does not distribute React patches or product plugins; optional
+instrumentation and plugins belong to the application being inspected.
 The public repository is `atlassian-labs/chippy`. Issues go to its GitHub issue
 tracker and vulnerabilities to its GitHub private vulnerability reporting, which
 the repository owner enables in the repository settings. Chippy is an open-source

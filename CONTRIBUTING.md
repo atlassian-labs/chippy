@@ -31,7 +31,7 @@ standard React DOM.
 
 | Path | Owns |
 | --- | --- |
-| `src/avalanche/` | Commit capture, report projection, and optional ATL adapter |
+| `src/avalanche/` | Commit capture, report projection, and the commit metrics adapter seam |
 | `src/debug-render/` | Hook capture and structural replay |
 | `src/layout-lab/` | DOM/fiber resolution and boundary inspection |
 | `src/chippy-bridge/` | Command capabilities and transport-safe results |
@@ -39,7 +39,7 @@ standard React DOM.
 | `.agents/skills/chippy/scripts/` | Local helper and public CLI |
 | `.agents/skills/chippy/references/` | Consumer procedures and contracts |
 | `.storybook/chippy-addon/`, Storybook fixtures in `src/` | Local validation integration and scenarios |
-| `src/plugins/` | Optional Jira and ATL integrations behind the [plugin seams](docs/plugins.md) |
+| `src/plugins/` | Plugin registry and JSON packs behind the [plugin seams](docs/plugins.md); no product plugins |
 | `.agents/skills/playwright-local/` | Lab automation skill for contributors' agents |
 | `.agents/skills/playwright-cli/` | Upstream `@playwright/cli` skill, vendored because `playwright-local` drives the lab through it |
 
@@ -109,20 +109,20 @@ Extension changes require a version bump and a regenerated runtime. Users pick
 them up by running `npx skills update chippy` and reloading the unpacked extension; see
 the [release guide](docs/releasing.md).
 
-The ATL adapter's unit tests cover its callback contract with both callback
-orders; changes to it also need a check against a host with instrumented
-react-dom.
+The commit metrics adapter seam is covered by detector unit tests that use the
+neutral adapter in `src/avalanche/test-support/`, with both callback orders.
 
-## Add a built-in plugin
+## Product plugins
 
-1. Put the plugin in `src/plugins/<name>/` with focused unit tests, following
-   `src/plugins/jira/context-provider.test.ts` or
-   `src/plugins/atl/commit-metrics-adapter.test.ts`.
-2. Add it to `BUILTIN_PLUGINS` in `src/plugins/index.ts`, to the default plugin
-   options in `.agents/skills/chippy/extension/panel-settings.js`, and to
-   `BUILTIN_PLUGINS` in `bin/pack.mjs`.
-3. Rebuild the shipped bundles with `yarn avalanche:sync`.
-4. If the plugin changes what agents see, such as a new boundary kind, document it
+Chippy ships no product plugins. Do not add rules, adapters, or names that belong
+to one product to `src/`. Ship them as a [pack](docs/plugins.md#packs) or a
+[`chippy pack`](docs/plugins.md#packing-a-custom-build) build that lives with the
+product. When a generic seam needs to grow:
+
+1. Change the seam in `src/plugins/` or `src/avalanche/commit-metrics-adapter.ts`
+   with focused unit tests that use neutral fixtures.
+2. Rebuild the shipped bundles with `yarn avalanche:sync`.
+3. If the change alters what agents see, such as a new boundary kind, document it
    in the skill's references.
 
 ## Contributor License Agreement

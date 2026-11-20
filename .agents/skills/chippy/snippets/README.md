@@ -27,14 +27,11 @@ The shell wrapper forwards every `--key value` pair into `ctx.args`, coercing nu
 | `find-legacy-context` | Read-only | Find legacy `childContextTypes` / `contextTypes` producers and consumers. |
 | `count-context-consumers` | Read-only | Count consumers for a Context display-name regex with `--name`. |
 | `find-prop` | Read-only | Find fibers by prop name or value when a probe revealed a clue but the owner chain is broad. |
-| `hook-metrics` | Read-only (ATL plugin) | Read the host `__ATL_REACT_METRICS`, including NaN/undefined-safe `setStateCount`. |
-| `hook-metrics-sample` | Active, bounded (ATL plugin) | Measure a labeled before/after `setStateCount` delta, optionally clicking one test-id. |
-| `hook-tracker` | Stateful instrument (ATL plugin) | Install, query, reset, or remove the `onHookUpdate` recomputation tracker. |
 | `stability-nudge` | Active stimulus | Schedule one controlled component render for the stability-render procedure. |
 | `perf-entries` | Read-only | Read buffered layout shifts, long animation frames, slow interactions, LCP, FCP, TTFB, and User Timing marks and measures; name the component behind each, and list nearby Avalanche commits. |
 | `component-area` | Read-only; `--watch` is a stateful recorder | Measure how many square pixels of a root (a modal, a panel, the viewport) each component or test id covers, how much is still a loading placeholder, and how much shows content; with `--watch`, record when each section appears. |
 
-Read [hook metrics](../references/hook-metrics.md) before using the metrics snippets. Read [stability render](../references/stability-render.md) before using `stability-nudge`.
+Read [stability render](../references/stability-render.md) before using `stability-nudge`.
 
 ### `perf-entries`
 
@@ -126,7 +123,7 @@ When a snippet throws or exceeds its page-script timeout, the envelope has `ok: 
 - Use one stimulus per bounded capture. Clear or recapture before repeating it.
 - Promote version-coupled React internals to a tested bridge capability; keep procedure and target resolution in the snippet.
 
-`hook-tracker` owns `window.__CHIPPY_HOOK_TRACKER` and the host `onHookUpdate` callback until `--action uninstall`. `stability-nudge` delegates the render to the bundled `fiber-schedule-update` capability and owns no hook or prop state.
+`stability-nudge` delegates the render to the bundled `fiber-schedule-update` capability and owns no hook or prop state.
 
 ## Add or revise a snippet
 

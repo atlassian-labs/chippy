@@ -2,24 +2,22 @@
 
 Avalanche works with standard React DOM. Install the DevTools hook before React
 evaluates so the renderer registers and sends commit callbacks. A commit
-metrics adapter can add host-supplied counters; the shipped bundle includes
-the built-in ATL adapter for Atlassian's patched `react-dom`, off unless the
-page opts in through the Chippy panel's settings or `enablePlugins(['atl'])`. Its metrics slot
-may be seeded on an unpatched page: DevTools remains the capture owner until an
+metrics adapter, supplied by a plugin, can add host-supplied counters; the
+shipped bundle includes none. An adapter's metrics slot may be seeded on an unpatched page: DevTools remains the capture owner until an
 adapter commit callback actually fires. Adapter callbacks then provide
 additional counters and own capture without a duplicate DevTools report,
 whether the adapter callback arrives before or after DevTools. An
-empty metrics object cannot establish that a patched host is active.
+empty metrics object cannot establish that an instrumented host is active.
 
 
 Avalanche is a React commit profiler injected alongside Chippy. It records sources, collateral renders, context waves, hook churn, and restart-heavy commits.
 
 Works on any React product. Operates in two modes; the mode is observed at runtime, not declared:
 
-- **`adapter:<id>`** — A registered commit metrics adapter drives commits. With the built-in ATL adapter (`adapter:atl`), patched `react-dom` (Atlassian products) drives `window.__ATL_REACT_METRICS`. Full fidelity: per-commit fiber walk **plus** render-counter delta math (restart counts, adapter counters, `metricsByCommit`). `report.meta.metricsAdapter` names the adapter. Captures from earlier releases report `atl` for `adapter:atl`.
+- **`adapter:<id>`** — A registered commit metrics adapter drives commits from an instrumented `react-dom`. Full fidelity: per-commit fiber walk **plus** render-counter delta math (restart counts, adapter counters, `metricsByCommit`). `report.meta.metricsAdapter` names the adapter.
 - **`devtools`** — Any other React product. The detector chains into `__REACT_DEVTOOLS_GLOBAL_HOOK__.onCommitFiberRoot` (defining the hook if absent, augmenting if present). Per-commit fiber walk is fully reconstructed; render-counter delta math is **unavailable** (no patch to read counters from).
 
-Mode promotes from `devtools` → `adapter:<id>` the first time the adapter's commit callback (for ATL, `__ATL_REACT_METRICS.onCommitFiberRoot`) is actually invoked, never the other direction. Confirmed via `report.meta.integrationMode`.
+Mode promotes from `devtools` → `adapter:<id>` the first time the adapter's commit callback is actually invoked, never the other direction. Confirmed via `report.meta.integrationMode`.
 
 ## What's available per mode
 
@@ -37,11 +35,11 @@ Mode promotes from `devtools` → `adapter:<id>` the first time the adapter's co
 | 7 | `contextUpdates` | ✅ | ✅ |
 | 8 | `unmountedComponents` | ✅ | ✅ |
 | 9 | `unmountedSubtrees` | ✅ | ✅ |
-| — | `metricsByCommit` (deprecated alias `atlByCommit`) | ✅ present | ❌ omitted |
+| — | `metricsByCommit` | ✅ present | ❌ omitted |
 
 To disambiguate "zero restarts measured" from "restarts not measurable in this mode", consult `report.meta.dataAvailability.restarts` (and `.metricsByCommit`). When `false`, treat that field as missing data, not as a real zero.
 
-Implication for analysis: source detection, blast radius, hook ancestry, hot-source attribution, amplifier discovery, context churn — **all work in both modes**. Restart-waste attribution requires an adapter mode such as `adapter:atl`.
+Implication for analysis: source detection, blast radius, hook ancestry, hot-source attribution, amplifier discovery, context churn — **all work in both modes**. Restart-waste attribution requires an `adapter:<id>` mode.
 Does not require: React DevTools UI, Profiler tab, or manual recording.
 
 Cross-link: use [fixing-performance](fixing-performance.md) when deciding whether the fix belongs above the source, at the boundary, or below it.
@@ -138,8 +136,6 @@ stats,sources,timing,metrics,hooks,unmounts,actions,rendered,network,dom
 ```
 
 `dom` returns `dom`, the DOM changes this commit made (the `avalanche-dom-diff` change shape, cut to `maxItems`), and `domTotal`, their untrimmed count. `domTruncated: true` is added when the commit changed more nodes than were recorded. `domTotal` is 0 for a commit that changed nothing in the DOM.
-
-`atl` is a deprecated alias of `metrics`; it returns the same slice under `atl`.
 
 `unmounts` returns bounded branch-start samples for this one commit. It is a zoom-in surface, not a full export: use `commit-list ... unmountedComponents` / `unmountedSubtrees` for counts first, then `commit-peek N ... unmounts` to ask where teardown started and how large each sampled branch was.
 
@@ -350,7 +346,7 @@ Start with these fields:
 - `sources` — aggregated hot sources across window
 - `sourcesByCommit[N]` — sources for commit `N`
 - `commitStats[N]` — fixed tuple for commit `N`
-- `metricsByCommit[N]` — low-level adapter metrics for commit `N` (deprecated alias `atlByCommit`)
+- `metricsByCommit[N]` — low-level adapter metrics for commit `N`
 - `sources[].restartWaste` / `maxRestartWaste` — restart attribution per source across the capture (adapter modes only)
 - `commitTimings[N]` — `startTime`, `endTime`, `timeSinceLastCommit`, `detectorOverhead`, `ticks`, and `render` for commit `N` (`commit-peek ... timing`)
 - `commitTimings[N].paintAt` — when commit `N` reached the screen: the end of the rendering update in the first animation frame after the commit, on the same clock as `startTime`. Commits before one frame share a value. It is absent while that frame is pending and for commits made while the page was hidden. `paintAt - startTime` is how long the change waited for the main thread.
@@ -783,7 +779,7 @@ After a change:
 - Helper-server change: `chippy.sh stop` then `chippy.sh start`.
 - `commitCount: 0` with an installed detector: check `integrationMode` in `avalanche-status`. `none` or no commits after an interaction means the DevTools hook was installed after React DOM loaded; reload through a route that loads Chippy before page scripts, or reproduce a render after `avalanche-install`.
 - Duplicate `__AVALANCHE__ already defined`: same bundle injected twice. Fix startup order before trusting results.
-- On Jira-like pages, metrics may be reset during bootstrap/hydration. Chippy must preserve or restore the live metrics object before judging capture health.
+- On instrumented hosts, the adapter's metrics object may be reset during bootstrap/hydration. The adapter must restore the live metrics object before capture health is judged.
 
 ## Working with subagents — paginated Avalanche analysis
 

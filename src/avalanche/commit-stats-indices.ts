@@ -7,7 +7,7 @@
  * Tuple structure:
  * [0] collateral        — total updates caused by this source (collateral damage)
  * [1] sources           — number of distinct sources that fired in this commit
- * [2] restarts          — render count from ATL render-counter delta (or 0 if not available)
+ * [2] restarts          — render count from the commit metrics adapter's render-counter delta (or 0 if not available)
  * [3] performedWork     — components with PerformedWork flag set
  * [4] effects           — effect count
  * [5] memos             — memo count
