@@ -55,10 +55,17 @@ describe('jira labels', () => {
       ], { props: { id: 'top-nav' } }),
       comp('Bare', [cls(ErrorBoundary, [comp('Inner', [mark('OwnerMark___error-boundary___banner___jiraNavPlatLayout___-')])])]),
       comp('NavErrorBoundary', [comp('InnerErrorBoundary', [cls(i, [div([0, 0, 1, 1])])], { props: { location: 'app-chrome' } })]),
+      comp('GenericErrorBoundary', [cls(i, [comp('Lazy')])], { props: { name: 'create-button-lazy' } }),
+      comp('InnerErrorBoundary', [cls(i, [comp('MoreMenu')])], { props: { interactionId: 'globalMoreMenuLoad' } }),
+      comp('NavErrorBoundary', [comp('InnerErrorBoundary', [cls(i, [comp('NavItem')])])]),
     ]);
     expect(labelFiber(root.byName('JSErrorBoundary').child!, 'error')).toBe('top-nav');
     expect(labelFiber(root.byName('Bare').child!, 'error')).toBe('banner');
     expect(labelFiber(root.byName('InnerErrorBoundary').child!, 'error')).toBe('app-chrome');
+    expect(labelFiber(root.byName('Lazy').return!, 'error')).toBe('create-button-lazy');
+    expect(labelFiber(root.byName('MoreMenu').return!, 'error')).toBe('globalMoreMenuLoad');
+    // A wrapper without props names nothing; the label stays null rather than guessed.
+    expect(labelFiber(root.byName('NavItem').return!, 'error')).toBeNull();
   });
 
   it('name an ownership marker by its name segment', () => {

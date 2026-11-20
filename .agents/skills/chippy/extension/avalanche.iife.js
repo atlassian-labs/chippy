@@ -6108,8 +6108,8 @@ this.__AVALANCHE__ = (function() {
       from: "parents",
       match: { pattern: "ErrorBoundary$" },
       within: 2,
-      value: ["props.location", "props.id"],
-      note: "A minified boundary class has no props of its own; the function wrapper around it (NavErrorBoundary > InnerErrorBoundary) holds `location`. The wrapper is not a boundary: it has no error lifecycle."
+      value: ["props.location", "props.id", "props.name", "props.interactionId"],
+      note: "A minified boundary class has no props of its own; the function wrapper around it holds the name: `location` or `interactionId` on NavErrorBoundary > InnerErrorBoundary, `name` on GenericErrorBoundary. The wrapper is not a boundary: it has no error lifecycle. Navigation boundaries rendered without these props have no name."
     },
     {
       for: "owner",
