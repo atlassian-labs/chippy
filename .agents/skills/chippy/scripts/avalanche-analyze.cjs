@@ -556,6 +556,9 @@ function finite(value) {
   const n = Number(value);
   return value != null && Number.isFinite(n) ? n : null;
 }
+function ms(value) {
+  return Math.round(value) || 0;
+}
 function at(map, id) {
   return map?.[id] ?? map?.[String(id)];
 }
@@ -611,10 +614,10 @@ function buildSummaryView(report, options = {}) {
     return {
       commitId,
       stat: statsById.get(commitId) ?? null,
-      atMs: start !== null && origin !== null ? Math.round(start - origin) : null,
+      atMs: start !== null && origin !== null ? ms(start - origin) : null,
       renderMs: finite(timing?.render?.workMs),
       ticks: finite(timing?.ticks),
-      paintDelayMs: paint !== null && end !== null && paint >= end ? Math.round(paint - end) : null,
+      paintDelayMs: paint !== null && end !== null && paint >= end ? ms(paint - end) : null,
       sourcesTotal: list.length,
       sources: sourceRows(list, maxItems),
       latestAction: Array.isArray(actions) && actions.length ? compactLatestAction(actions[actions.length - 1]) : null,

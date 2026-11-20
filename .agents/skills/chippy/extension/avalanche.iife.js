@@ -4269,9 +4269,9 @@ this.__AVALANCHE__ = (function() {
               let hook = fiber.memoizedState;
               let hookIndex = 0;
               while (hook) {
-                const ms = hook.memoizedState;
-                if (Array.isArray(ms) && ms.length === 2 && Array.isArray(ms[1])) {
-                  const result = ms[0];
+                const ms2 = hook.memoizedState;
+                if (Array.isArray(ms2) && ms2.length === 2 && Array.isArray(ms2[1])) {
+                  const result = ms2[0];
                   if (result != null && (typeof result === "object" || typeof result === "function")) {
                     valueProvenance.set(result, {
                       type,
@@ -5315,14 +5315,14 @@ this.__AVALANCHE__ = (function() {
     }
   }
   function classifyHook(hookNode, index) {
-    const ms = hookNode.memoizedState;
+    const ms2 = hookNode.memoizedState;
     const queue = hookNode.queue;
     const base = { index };
     if (queue && typeof queue.dispatch === "function") {
-      return { ...base, tag: "State", value: safeSerialize(ms, 0, /* @__PURE__ */ new Set()) };
+      return { ...base, tag: "State", value: safeSerialize(ms2, 0, /* @__PURE__ */ new Set()) };
     }
-    if (isEffectNode(ms)) {
-      const m = ms;
+    if (isEffectNode(ms2)) {
+      const m = ms2;
       return {
         ...base,
         tag: "Effect",
@@ -5330,11 +5330,11 @@ this.__AVALANCHE__ = (function() {
         hasCleanup: typeof m.destroy === "function"
       };
     }
-    if (!queue && ms !== null && typeof ms === "object" && Object.prototype.hasOwnProperty.call(ms, "current")) {
-      return { ...base, tag: "Ref", current: safeSerialize(ms.current, 0, /* @__PURE__ */ new Set()) };
+    if (!queue && ms2 !== null && typeof ms2 === "object" && Object.prototype.hasOwnProperty.call(ms2, "current")) {
+      return { ...base, tag: "Ref", current: safeSerialize(ms2.current, 0, /* @__PURE__ */ new Set()) };
     }
-    if (!queue && Array.isArray(ms) && ms.length === 2 && (Array.isArray(ms[1]) || ms[1] === null)) {
-      const arr = ms;
+    if (!queue && Array.isArray(ms2) && ms2.length === 2 && (Array.isArray(ms2[1]) || ms2[1] === null)) {
+      const arr = ms2;
       const depsTag = arr[1] === null ? "null" : "[array:" + arr[1].length + "]";
       return {
         ...base,
@@ -5343,19 +5343,19 @@ this.__AVALANCHE__ = (function() {
         deps: depsTag
       };
     }
-    if (queue || ms === null || typeof ms !== "object" || isUnclaimedObject()) {
-      return { ...base, tag: "Value", value: safeSerialize(ms, 0, /* @__PURE__ */ new Set()) };
+    if (queue || ms2 === null || typeof ms2 !== "object" || isUnclaimedObject()) {
+      return { ...base, tag: "Value", value: safeSerialize(ms2, 0, /* @__PURE__ */ new Set()) };
     }
     return {
       ...base,
       tag: "Unknown",
       hasQueue: !!queue,
-      value: safeSerialize(ms, 0, /* @__PURE__ */ new Set())
+      value: safeSerialize(ms2, 0, /* @__PURE__ */ new Set())
     };
   }
-  function isEffectNode(ms) {
-    if (!ms || typeof ms !== "object") return false;
-    const m = ms;
+  function isEffectNode(ms2) {
+    if (!ms2 || typeof ms2 !== "object") return false;
+    const m = ms2;
     if (typeof m.tag !== "number") return false;
     if (typeof m.create !== "function") return false;
     if (m.next === void 0 || m.next === null) return false;
@@ -7564,6 +7564,9 @@ this.__AVALANCHE__ = (function() {
     const n = Number(value);
     return value != null && Number.isFinite(n) ? n : null;
   }
+  function ms(value) {
+    return Math.round(value) || 0;
+  }
   function at(map, id) {
     return (map == null ? void 0 : map[id]) ?? (map == null ? void 0 : map[String(id)]);
   }
@@ -7624,10 +7627,10 @@ this.__AVALANCHE__ = (function() {
       return {
         commitId,
         stat: statsById.get(commitId) ?? null,
-        atMs: start !== null && origin !== null ? Math.round(start - origin) : null,
+        atMs: start !== null && origin !== null ? ms(start - origin) : null,
         renderMs: finite((_a3 = timing == null ? void 0 : timing.render) == null ? void 0 : _a3.workMs),
         ticks: finite(timing == null ? void 0 : timing.ticks),
-        paintDelayMs: paint !== null && end !== null && paint >= end ? Math.round(paint - end) : null,
+        paintDelayMs: paint !== null && end !== null && paint >= end ? ms(paint - end) : null,
         sourcesTotal: list.length,
         sources: sourceRows(list, maxItems),
         latestAction: Array.isArray(actions) && actions.length ? compactLatestAction(actions[actions.length - 1]) : null,
@@ -8171,17 +8174,17 @@ this.__AVALANCHE__ = (function() {
     while (node && typeof node === "object" && !seen.has(node) && "next" in node) {
       seen.add(node);
       const tag = classifyHook(node, index).tag;
-      const ms = node.memoizedState;
+      const ms2 = node.memoizedState;
       const label = "hook[" + index + ":" + tag + "]";
       if (tag === "Effect") {
-        const deps = ms == null ? void 0 : ms.deps;
+        const deps = ms2 == null ? void 0 : ms2.deps;
         if (Array.isArray(deps)) out.push([label + ".deps", deps]);
       } else if (tag === "Ref") {
-        out.push([label + ".current", ms.current]);
+        out.push([label + ".current", ms2.current]);
       } else if (tag === "Memo") {
-        out.push([label, ms[0]]);
+        out.push([label, ms2[0]]);
       } else {
-        out.push([label, ms]);
+        out.push([label, ms2]);
       }
       node = node.next;
       index += 1;
@@ -9589,12 +9592,12 @@ this.__AVALANCHE__ = (function() {
   const MAX_SCRIPT_TIMEOUT_MS = 12e4;
   const MIN_SCRIPT_TIMEOUT_MS = 50;
   function clampScriptTimeout(value) {
-    const ms = Number(value) || DEFAULT_SCRIPT_TIMEOUT_MS;
-    return Math.min(MAX_SCRIPT_TIMEOUT_MS, Math.max(MIN_SCRIPT_TIMEOUT_MS, ms));
+    const ms2 = Number(value) || DEFAULT_SCRIPT_TIMEOUT_MS;
+    return Math.min(MAX_SCRIPT_TIMEOUT_MS, Math.max(MIN_SCRIPT_TIMEOUT_MS, ms2));
   }
   class ScriptTimeout extends Error {
-    constructor(ms) {
-      super(`script timeout after ${ms}ms; the script may still be running in the page`);
+    constructor(ms2) {
+      super(`script timeout after ${ms2}ms; the script may still be running in the page`);
       this.name = "ScriptTimeout";
     }
   }
@@ -9667,7 +9670,7 @@ this.__AVALANCHE__ = (function() {
   const domWatchDeps = {
     measure: (options) => measureComponentArea(options),
     now: () => performance.now(),
-    setTimeout: (fn, ms) => globalThis.setTimeout(fn, ms),
+    setTimeout: (fn, ms2) => globalThis.setTimeout(fn, ms2),
     clearTimeout: (handle) => globalThis.clearTimeout(handle),
     frame: (fn) => {
       if (typeof requestAnimationFrame === "function" && !(typeof document !== "undefined" && document.hidden)) requestAnimationFrame(() => fn());
@@ -9733,13 +9736,13 @@ this.__AVALANCHE__ = (function() {
     }
     return summarize(state);
   }
-  function startPoll(s, ms) {
+  function startPoll(s, ms2) {
     const tick = () => {
       if (!s.active) return;
       schedule(s);
-      s.poll = s.deps.setTimeout(tick, ms);
+      s.poll = s.deps.setTimeout(tick, ms2);
     };
-    s.poll = s.deps.setTimeout(tick, ms);
+    s.poll = s.deps.setTimeout(tick, ms2);
   }
   function schedule(s) {
     if (!s.active || s.pending) return;

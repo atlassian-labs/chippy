@@ -52,6 +52,14 @@ describe('buildSummaryView', () => {
     expect(commit).toMatchObject({ commitId: 3, atMs: null, renderMs: null, ticks: null, paintDelayMs: null, sourcesTotal: 0, sources: [], latestAction: null });
   });
 
+  it('reports a commit just before the rounded origin at 0 ms, not -0', () => {
+    // The timeline origin is rounded to 0.1 ms: 100.06 becomes 100.1, so the commit sits 0.04 ms before it.
+    const r = report();
+    r.commitTimings[1].startTime = 100.06;
+    const commit = buildSummaryView(r, { top: 3 }).topCommits.find((c) => c.commitId === 1)!;
+    expect(Object.is(commit.atMs, 0)).toBe(true);
+  });
+
   it('falls back to the defaults for invalid limits and handles an empty capture', () => {
     expect(buildSummaryView(report(), { top: 'x', maxItems: -1 }).topCommits).toHaveLength(3);
     const empty = buildSummaryView({ meta: {}, commitStats: {} });

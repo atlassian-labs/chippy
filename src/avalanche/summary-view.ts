@@ -69,6 +69,11 @@ function finite(value: unknown): number | null {
   return value != null && Number.isFinite(n) ? n : null;
 }
 
+// Rounds to whole ms; `|| 0` turns -0 into 0, which JSON would print as 0 anyway.
+function ms(value: number): number {
+  return Math.round(value) || 0;
+}
+
 function at<T>(map: Record<string, T> | undefined, id: number): T | undefined {
   return map?.[id] ?? map?.[String(id)];
 }
@@ -141,10 +146,10 @@ export function buildSummaryView(report: Report, options: SummaryOptions = {}): 
       return {
         commitId,
         stat: statsById.get(commitId) ?? null,
-        atMs: start !== null && origin !== null ? Math.round(start - origin) : null,
+        atMs: start !== null && origin !== null ? ms(start - origin) : null,
         renderMs: finite(timing?.render?.workMs),
         ticks: finite(timing?.ticks),
-        paintDelayMs: paint !== null && end !== null && paint >= end ? Math.round(paint - end) : null,
+        paintDelayMs: paint !== null && end !== null && paint >= end ? ms(paint - end) : null,
         sourcesTotal: list.length,
         sources: sourceRows(list, maxItems),
         latestAction: Array.isArray(actions) && actions.length ? compactLatestAction(actions[actions.length - 1]) : null,
