@@ -182,7 +182,26 @@
       applyPanelStyle(panel);
       document.body.appendChild(panel);
     }
+    trackPanelLayout(panel);
     return panel;
+  }
+
+  // Docked probes are fixed-position overlays aligned to dock slots inside the
+  // panel. The panel is bottom-anchored and scrollable, and parts of it (settings,
+  // packs) mount asynchronously, so slot positions change without a re-render.
+  function trackPanelLayout(panel) {
+    if (panel.__chippyLayoutTracked) return;
+    panel.__chippyLayoutTracked = true;
+    panel.addEventListener('scroll', () => syncDockedMarkers(), { passive: true });
+    if (typeof ResizeObserver === 'function') {
+      new ResizeObserver(() => syncDockedMarkers()).observe(panel);
+    }
+    if (!chippy.__panelWindowResizeTracked) {
+      chippy.__panelWindowResizeTracked = true;
+      global.addEventListener('resize', () => {
+        try { syncDockedMarkers(); } catch {}
+      }, { passive: true });
+    }
   }
 
   function syncDockedMarkers() {
