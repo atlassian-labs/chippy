@@ -77,7 +77,7 @@ avalanche-arm → [user/harness interacts] → avalanche-status → avalanche-ho
 3. `avalanche-status <clientId>` — confirm commits captured.
 4. `avalanche-hot-sources <clientId> 20` — quick triage.
 5. `avalanche-commit-list <clientId> 15 collateral` — rank commits.
-6. `avalanche-commit-peek <clientId> <commitId> stats,sources,atl 6 40` — inspect the peak commit.
+6. `avalanche-commit-peek <clientId> <commitId> stats,sources,metrics 6 40` — inspect the peak commit.
 7. `renderedByCommit`, `isSelfSource`, and `propChanges` are already present in the default `sources` capture; read them with `avalanche-commit-peek ... stats,sources,rendered`. If the route needs `trasherCounts`, run `avalanche-recapture <clientId> full`, reproduce the identical interaction once, then repeat status → commit-list → `avalanche-commit-peek ... stats,sources,rendered`.
 8. Classify: source / hotspot / collateral / mount / context wave.
 9. Trace source via probe-owners or find-fibers.
@@ -177,11 +177,11 @@ avalanche-recapture → reproduce trigger → avalanche-hot-sources → avalanch
 **When:** `contextUpdates` high in commit stats / "context is re-rendering too much".
 
 ```
-avalanche-commit-list contextUpdates → commit-peek stats,sources,atl → find-context-providers → unique provider fiber → direct schedule-update
+avalanche-commit-list contextUpdates → commit-peek stats,sources,metrics → find-context-providers → unique provider fiber → direct schedule-update
 ```
 
 1. `avalanche-commit-list <clientId> 15 contextUpdates` — identify context-heavy commits.
-2. `avalanche-commit-peek <clientId> <commitId> stats,sources,atl` — read contextUpdates field.
+2. `avalanche-commit-peek <clientId> <commitId> stats,sources,metrics` — read contextUpdates field.
 3. `eval-page <clientId> find-context-providers [--name regex]` — find provider fibers.
 4. `eval-page <clientId> count-context-consumers --name <regex>` — blast radius.
 5. Resolve a current provider fiber before entering P-06:
@@ -206,7 +206,7 @@ avalanche-save → avalanche-offline summary → commit-list (multiple sort keys
 2. `avalanche-offline .../run.json summary` — meta, total commits.
 3. `avalanche-offline .../run.json commit-list 30 collateral` + `restarts` + `contextUpdates` — build timeline. Offline accepts the same sort keys as live.
 4. Identify waves by question: setup / main wave / continuation / noise.
-5. Per wave: `avalanche-offline commit-peek` on selected commit ids — reduce to stats+sources+atl.
+5. Per wave: `avalanche-offline commit-peek` on selected commit ids — reduce to stats+sources+metrics.
 6. Delegate each range to a subagent with **one concrete pre-stated question**.
 7. Collect compact findings. Join in main context. Rebuild crime scene: setup → main wave → noise.
 8. Prefer one upstream fix over many local patches if multiple slices share one root.
@@ -237,7 +237,7 @@ find-fibers → describe-component → inspect-fiber-structure → open file
 
 1. Fall back to `data-testid`, `nearestTestId` on marker.
 2. Use `componentStack` entries (the component parent chain) as locality context; walk leaf → root. Owner results carry `ownerStackKind: "parents"` here; do not describe them as owners.
-3. Load `jira-taxonomy.md` for Jira-like wrappers; filter noise before ranking.
+3. Filter wrapper noise (HOCs, connectors, gates, placeholders) before ranking.
 4. Use `probe-parents` for the `fiber.return` parent chain. `probe-owners` falls back to the same parent chain when `_debugOwner` is absent and labels it `ownerStackKind: "parents"`.
 5. Be explicit: "source precision is weaker; component name may be minified."
 
@@ -473,7 +473,6 @@ observe consumed data → define subscription invariant → prove subscribed dat
 3. Prove subscribed data:
    - `avalanche-debug-hook` target primitive `SyncExternalStore`
    - `parents` and `neighborhood` for the selector hook; value evidence from `commit-peek` `sources`
-   - container/source from `jira-taxonomy` if Jira page
 4. Compare width:
    - subscribed object wider than consumed fields → over-broad selector
    - selector returns new object/array equal by value → identity churn

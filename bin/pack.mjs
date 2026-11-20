@@ -11,10 +11,6 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { ownsDirectory } from './skill-dir.mjs';
 
 const PACKAGE_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const BUILTIN_PLUGINS = [
-  { id: 'jira', label: 'Jira ownership markers' },
-  { id: 'atl', label: 'ATL commit metrics' },
-];
 const RUNTIME_BUNDLES = ['extension/avalanche.iife.js', 'extension/avalanche.es.js'];
 const BUILD_CONFIG_CONSUMERS = ['extension/background.js', 'extension/panel-settings.js'];
 const PLUGIN_ID = /^[a-z][a-z0-9-]*$/;
@@ -48,7 +44,6 @@ export function normalizePackConfig(config, baseDir) {
   const plugins = (config.plugins ?? []).map((plugin, index) => {
     if (!plugin || typeof plugin !== 'object') fail(`plugins[${index}] must be { id, entry, label? }`);
     if (!PLUGIN_ID.test(plugin.id ?? '')) fail(`plugins[${index}].id must match ${PLUGIN_ID}`);
-    if (BUILTIN_PLUGINS.some(({ id }) => id === plugin.id)) fail(`plugin id ${plugin.id} is built in`);
     if (typeof plugin.entry !== 'string') fail(`plugins[${index}].entry must be a path`);
     const entry = resolve(baseDir, plugin.entry);
     if (!existsSync(entry)) fail(`plugin entry not found: ${entry}`);
@@ -56,7 +51,7 @@ export function normalizePackConfig(config, baseDir) {
   });
   const ids = new Set(plugins.map(({ id }) => id));
   if (ids.size !== plugins.length) fail('plugin ids must be unique');
-  const known = new Set([...BUILTIN_PLUGINS.map(({ id }) => id), ...ids]);
+  const known = new Set(ids);
   const defaultPlugins = config.defaultPlugins ?? [];
   for (const id of defaultPlugins) if (!known.has(id)) fail(`defaultPlugins names an unknown plugin: ${id}`);
   const extension = config.extension ?? {};
@@ -178,7 +173,7 @@ export async function packChippy(config, { source = join(PACKAGE_ROOT, 'skills',
   });
   if (code) for (const bundle of RUNTIME_BUNDLES) appendToBundle(join(skillDir, bundle), code);
   const buildConfig = {
-    plugins: [...BUILTIN_PLUGINS, ...plugins.map(({ id, label }) => ({ id, label }))],
+    plugins: [...plugins.map(({ id, label }) => ({ id, label }))],
     defaultPlugins,
   };
   for (const file of BUILD_CONFIG_CONSUMERS) prependBuildConfig(join(skillDir, file), buildConfig);

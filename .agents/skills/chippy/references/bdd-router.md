@@ -19,7 +19,7 @@ The router picks the procedure once the domain is named. Each section below oper
 | 3.3 Performance — Load | 🌀 Complex | Experiment (reload-with-avalanche). Load capture is a perturbation; cause is read from emergent wave. |
 | 3.4 Context & Store | 🔍 Complicated → 🌀 Complex | Sensors locate provider; stability-render is the experiment when identity is suspected. |
 | 3.5 Automated / Browser Harness | 🔍 Complicated | Sensors over Playwright. Failures here are often 🔥 (injection order, helper down) — stabilize first. |
-| 3.6 Production and Jira Pages | 🔍 Complicated | Sensors against minified source. Owner-chain analysis with taxonomy filter. |
+| 3.6 Production Pages | 🔍 Complicated | Sensors against minified source. Owner-chain analysis with wrapper filter. |
 | 3.7 Tool Boundaries & Gaps | 🔥 Chaotic → ❓ Disorder | Runtime is broken or capability is missing. Stabilize or report; do not analyze. |
 
 Read the GIVEN column first. Pick the row that best matches the situation. Follow THEN exactly.
@@ -32,7 +32,7 @@ Read the GIVEN column first. Pick the row that best matches the situation. Follo
   - [Performance — Load](#33-performance--load)
   - [Context & Store](#34-context--store)
   - [Automated / Browser Harness](#35-automated--browser-harness)
-  - [Production and Jira Pages](#36-production-and-jira-pages)
+  - [Production Pages](#36-production-pages)
   - [Tool Boundaries & Gaps](#37-tool-boundaries--gaps)
 - [Iteration Patterns & Cycles](#iteration-patterns--cycles)
 
@@ -55,7 +55,7 @@ Read the GIVEN column first. Pick the row that best matches the situation. Follo
 | R-03A | Same feature exists in Storybook/local fixture and living app | "Where should Chippy investigate first?" | P-14 → P-13/P-20 → P-15 | prefer direct story or local harness before living app | Better-named tree chosen first; same branch signal easier to isolate |
 | R-04 | Probe placed, style mismatch | "Why does this look wrong?" | P-14 → P-02 then `get-computed-style` → P-15 | `probe-dom` → `get-computed-style` → matchedStyles | Style rule source identified; renderer vs data source separated |
 | R-05 | No connected page | Any probe/fiber task | Define runtime gap, then branch on helper health | `health`; unavailable → install Chippy if absent, then agent starts/verifies helper; healthy + `pages` empty → follow the integration's reconnect/reload action | `health` succeeds and page appears in `chippy.sh pages` |
-| R-06 | Production page (minified) | Trace source | P-14 → P-11 → P-15 | `probe-owners`, `nearestTestId`, `componentStack` (plus `jira-taxonomy` on Jira pages) | Parent chain walked (`ownerStackKind: "parents"`); source named with caveat |
+| R-06 | Production page (minified) | Trace source | P-14 → P-11 → P-15 | `probe-owners`, `nearestTestId`, `componentStack` | Parent chain walked (`ownerStackKind: "parents"`); source named with caveat |
 | R-07 | Two pages match target | Any | Ask user which page | `pages` output shown, user picks by URL/title | clientId confirmed by user |
 | R-08 | User asks "why" but target/invariant unclear | Deep grasp first | P-14 only | Ask/derive anchor + invariant; no specialized tool until case defined | Case definition exists |
 | R-09 | Evidence identifies only a forwarding wrapper | Continue proof, do not conclude | P-02 → P-15 | `probe-owners` deeper → `probe-prop-value` at next owner → open caller | Creator named, not just forwarder |
@@ -74,7 +74,7 @@ Read the GIVEN column first. Pick the row that best matches the situation. Follo
 | R-13 | Suspected unstable memo or context | "Does this re-render when it shouldn't?" | P-14 → P-06 → P-15 | `avalanche-recapture full` → schedule one target render → settle → status → commit-list → commit-peek `stats,sources,rendered` → classify | `commitCount`, `collateral`, `trasherCounts`, verdict, render invariant |
 | R-14 | Stability-render shows leak, hook role unclear | "Which hook causes this?" | P-07 → P-15 | `avalanche-recapture` → reproduce trigger → `avalanche-debug-hook` | `primitive` confirmed; remediation branch chosen |
 | R-15 | Context updates high in commit list | "Why is context re-rendering everything?" | P-14 → P-08 → P-15 | `commit-list contextUpdates` → `commit-peek` → provider sample → unique `find-fibers` match → direct schedule-update | Provider value identity confirmed stable/unstable |
-| R-15A | Unmounts appear during interaction | "What branch is being torn down?" | P-14 → P-18 → P-15 | `commit-list unmountedSubtrees` → `commit-peek stats,sources,atl` → owner/key/type trace | Branch start named; legitimate teardown vs accidental remount separated; Chippy states where unmount starts |
+| R-15A | Unmounts appear during interaction | "What branch is being torn down?" | P-14 → P-18 → P-15 | `commit-list unmountedSubtrees` → `commit-peek stats,sources,metrics` → owner/key/type trace | Branch start named; legitimate teardown vs accidental remount separated; Chippy states where unmount starts |
 | R-15B | Suspense boundary likely entered or left fallback | "Did Suspense cause this wave?" | P-14 → P-04 → P-15 | `commit-peek stats,sources,metrics` → `avalanche-save` and read `suspenseByCommit[N]` (`commit-peek` has no Suspense slice) + source trace below boundary | Boundary transition named as enter/leave; Chippy says whether to look at boundary or below it; placeholder separated from business source |
 | R-15C | One sibling/cousin/descendant branch is noisy enough to hide target signal in the same tree | "Can we isolate this branch in place?" | P-14 → P-15 → P-16 → P-20 → P-12 | prove mixed branches → authorize temporary prune/shallow edit → same capture → revert plan | Same target signal becomes smaller/clearer without unrelated branch work; ancestors untouched; maneuver declared temporary |
 | R-15D | Only available noise is in an ancestor (cannot be pruned in place) | "Can we move the target to a cleaner harness?" | P-14 → R-03A → P-13 → P-12 | move target into Storybook/local fixture; re-measure same signal there | Target rendered without ancestor noise; same measurement repeated in new harness |
@@ -85,7 +85,7 @@ Read the GIVEN column first. Pick the row that best matches the situation. Follo
 | R-19 | Effect/callback/memo churn appears (suspected, not yet quantified) | Trace dependency chain | P-17 → P-15 | `avalanche-debug-hook` or hook structure → source dep arrays | Semantic dependency named before fix |
 | R-19C | `commit-peek include=rendered` shows non-zero `trasherCounts` on a component | "Which hook is the amplifier?" | P-06 → P-07 → P-15 | `commit-peek include=rendered` → identify `trasherCounts.{effects,callbacks,memos}` → `avalanche-debug-hook` on that hook | Trasher verdict supported by `trasherCounts > 0` across ≥2 commits; offending hook + primitive named |
 | R-19D | `propChanges` shows `ref-changed` callback or object prop on a re-rendered child | "Who passed the unstable identity?" | P-04 full-mode branch → re-resolve child → walk current owners → P-06 on parent | `avalanche-recapture full` → repeat interaction → `commit-peek rendered` → read `ref-changed` prop → re-resolve child → owners → same-anchor parent nudge | Parent identity churn confirmed; amplifier hook in parent named |
-| R-19A | Mount work high during interaction | Prove remount essence | P-18 → P-15 | `commit-peek stats,sources,atl` → owner/key/type trace | Unstable key/type/conditional boundary named or mount declared legitimate |
+| R-19A | Mount work high during interaction | Prove remount essence | P-18 → P-15 | `commit-peek stats,sources,metrics` → owner/key/type trace | Unstable key/type/conditional boundary named or mount declared legitimate |
 | R-19B | User asks to apply perf fix after proof | Fix as separate capability | P-16 → P-12 | Apply gate → edit → same capture | Edit allowed only after proof packet + verification plan |
 
 ---
@@ -131,14 +131,11 @@ Read the GIVEN column first. Pick the row that best matches the situation. Follo
 
 ---
 
-### 3.6 Production and Jira Pages
+### 3.6 Production Pages
 
 | ID | GIVEN | WHEN | THEN: Procedure | THEN: Key Commands | THEN: Verified By |
 |---|---|---|---|---|---|
-| R-50 | Jira page, avalanche source is `Connect(X)` | Classify ownership | Apply jira-taxonomy | Promote `X` or nearest Jira-owned child; filter Connect wrapper | Business component named as source, not wrapper |
-| R-51 | `ComponentWithCondition[]` in source list | Classify | Apply jira-taxonomy | Treat as path metadata; promote nearest self-updater with `whatChanged` | Real source named; gate treated as branch metadata |
-| R-52 | `SuspensePlaceholder` is largest hot source | Classify | Apply jira-taxonomy | Inspect nearest Jira-owned child/self-updater below | Actual update origin named below placeholder |
-| R-53 | `Container(X)` in source list | Classify | Apply jira-taxonomy | Keep as candidate (SweetState boundary); inspect for concrete field changes | Real data boundary confirmed or ruled out |
+| R-50 | Avalanche source is a wrapper (HOC, connector, gate, or placeholder) | Classify ownership | P-15 | Inspect the nearest self-updating child with `whatChanged`; filter the wrapper | Business component named as source, not wrapper |
 
 ---
 
@@ -199,7 +196,7 @@ Fixing is optional and late. The loop can end after **Proof packet** when the us
 2. Capture (arm for runtime, reload-with-avalanche for load)
 3. hot-sources → quick triage (shape + scale)
 4. commit-list → pick suspicious commit
-5. commit-peek → join evidence (stats + sources + atl)
+5. commit-peek → join evidence (stats + sources + metrics)
 6. Probe/fiber → why this component? (owners, props, hooks)
 7. Code → implementation cause (deps, selector, provider value, keys)
 8. If user intent permits and P-15/P-16 pass, edit source

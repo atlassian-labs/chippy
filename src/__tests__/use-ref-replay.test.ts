@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { atlCommitMetricsAdapter } from '../plugins/atl/commit-metrics-adapter';
+import { createSlotCommitMetricsAdapter } from '../avalanche/test-support/slot-commit-metrics-adapter';
 import { createAvalancheDetector } from '../avalanche/detector';
 
 describe('createAvalancheDetector.debugHook replay contracts', () => {
   it('preserves supported hook return contracts for callback, sync-external-store, and id', () => {
-    const detector = createAvalancheDetector({ metricsAdapter: atlCommitMetricsAdapter });
+    const detector = createAvalancheDetector({ metricsAdapter: createSlotCommitMetricsAdapter() });
     const detectorAny = detector as any;
 
     const callbackFn = () => 'ok';
@@ -17,7 +17,7 @@ describe('createAvalancheDetector.debugHook replay contracts', () => {
       {
         primitive: 'callback',
         frames: [
-          { name: 'atlDispatcherHook', loc: '1:1' },
+          { name: 'hostDispatcherHook', loc: '1:1' },
           { name: 'useStableAction', loc: '10:2' },
         ],
         stack: 'stack-callback',
@@ -39,7 +39,7 @@ describe('createAvalancheDetector.debugHook replay contracts', () => {
       {
         primitive: 'syncExternalStore',
         frames: [
-          { name: 'atlDispatcherHook', loc: '1:1' },
+          { name: 'hostDispatcherHook', loc: '1:1' },
           { name: 'useStoreState', loc: '20:2' },
         ],
         stack: 'stack-store',
@@ -61,7 +61,7 @@ describe('createAvalancheDetector.debugHook replay contracts', () => {
       {
         primitive: 'id',
         frames: [
-          { name: 'atlDispatcherHook', loc: '1:1' },
+          { name: 'hostDispatcherHook', loc: '1:1' },
           { name: 'useStableId', loc: '30:2' },
         ],
         stack: 'stack-id',

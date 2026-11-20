@@ -5,36 +5,41 @@ import {
   enableDefaultPlugins,
   enablePlugins,
   listPlugins,
-  registerBuiltinPlugins,
   registerPlugin,
   resetPlugins,
   selectPlugins,
 } from './index';
+import { createSlotCommitMetricsAdapter } from '../avalanche/test-support/slot-commit-metrics-adapter';
 
 afterEach(resetPlugins);
 
 const providerIds = () => getContextProviders().map((p) => p.id);
 const gate: ContextProvider = { id: 'gate', describe: () => null };
+const registerExamplePlugins = () => {
+  registerPlugin({ id: 'gate', label: 'Feature gates', contextProvider: gate });
+  registerPlugin({ id: 'host', label: 'Host metrics', commitMetricsAdapter: createSlotCommitMetricsAdapter() });
+};
 
 describe('plugin registry', () => {
-  it('enables nothing by default', () => {
-    registerBuiltinPlugins();
+  it('ships no plugins and enables nothing by default', () => {
+    expect(listPlugins()).toEqual([]);
+    registerExamplePlugins();
     expect(enablePlugins(undefined)).toEqual([]);
-    expect(providerIds()).not.toContain('jira');
+    expect(providerIds()).not.toContain('gate');
     expect(getCommitMetricsAdapter()).toBeNull();
     expect(listPlugins()).toEqual([
-      { id: 'jira', label: 'Jira ownership markers', enabled: false },
-      { id: 'atl', label: 'ATL commit metrics', enabled: false },
+      { id: 'gate', label: 'Feature gates', enabled: false },
+      { id: 'host', label: 'Host metrics', enabled: false },
     ]);
   });
 
   it('enables the named plugins and ignores non-string ids', () => {
-    registerBuiltinPlugins();
-    expect(enablePlugins(['jira', 'unknown', 1])).toEqual(['jira']);
-    expect(providerIds()).toContain('jira');
+    registerExamplePlugins();
+    expect(enablePlugins(['gate', 'unknown', 1])).toEqual(['gate']);
+    expect(providerIds()).toContain('gate');
     expect(getCommitMetricsAdapter()).toBeNull();
-    expect(enablePlugins(['atl', 'jira'])).toEqual(['jira', 'atl']);
-    expect(getCommitMetricsAdapter()?.id).toBe('atl');
+    expect(enablePlugins(['host', 'gate'])).toEqual(['gate', 'host']);
+    expect(getCommitMetricsAdapter()?.id).toBe('test-host');
   });
 
   it('starts a plugin that registers after its id was enabled', () => {
@@ -58,13 +63,13 @@ describe('plugin registry', () => {
   });
 
   it('applies build defaults only when the page made no selection', () => {
-    registerBuiltinPlugins();
-    expect(enableDefaultPlugins(['jira'])).toEqual(['jira']);
+    registerExamplePlugins();
+    expect(enableDefaultPlugins(['gate'])).toEqual(['gate']);
     resetPlugins();
-    registerBuiltinPlugins();
+    registerExamplePlugins();
     selectPlugins([]);
-    expect(enableDefaultPlugins(['jira'])).toEqual([]);
-    expect(providerIds()).not.toContain('jira');
+    expect(enableDefaultPlugins(['gate'])).toEqual([]);
+    expect(providerIds()).not.toContain('gate');
   });
 
   it('rejects a plugin without an id', () => {

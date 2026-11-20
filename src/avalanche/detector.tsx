@@ -1695,7 +1695,7 @@ export function createAvalancheDetector(options: DetectorOptions = {}) {
         // The adapter is the canonical fast path (it carries the render-counter
         // deltas). Defer only after an adapter callback has proved that the host
         // surface is live. BUT: a host runtime can wipe or replace its surface
-        // mid-session (for example `delete window.__ATL_REACT_METRICS`), which
+        // mid-session (for example by deleting its global slot), which
         // orphans our callback on the old object. Re-seed lazily here: if the
         // callback is no longer wired, re-attach so subsequent commits route
         // through the adapter again.

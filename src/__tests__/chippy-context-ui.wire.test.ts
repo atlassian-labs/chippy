@@ -67,7 +67,6 @@ describe('context-ui wire chain', () => {
   it('advertises the public shell command', () => {
     const help = execFileSync('bash', [SHELL, 'help'], { encoding: 'utf8' });
     expect(help).toContain('context-ui <clientId> <on|off>');
-    expect(help).not.toContain('jira-ui');
   });
 
   it('forwards the generic command object unchanged through the helper', () => {
@@ -81,7 +80,6 @@ describe('context-ui wire chain', () => {
     const source = readFileSync(BRIDGE, 'utf8');
     const commandCase = source.slice(source.indexOf("case 'set-context-ui'"), source.indexOf("case 'set-context-ui'") + 220);
     expect(commandCase).toContain('setContextUiEnabled(command.enabled !== false');
-    expect(source).not.toContain('set-jira-ui');
     expect(source).toContain('contextUiEnabled: true');
     expect(source).toContain('chippy.layoutLab?.updatePanel?.()');
   });

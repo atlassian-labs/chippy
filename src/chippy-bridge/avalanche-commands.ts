@@ -25,8 +25,8 @@ export type AvalancheApiStatus = {
   pausedAt?: number | null;
   hasMetricsGlobal: boolean;
   commitCount: number;
-  /** `'adapter:<id>'`, `'devtools'`, or `'none'`. Bundles before the adapter seam report `'atl'`. */
-  integrationMode: `adapter:${string}` | 'atl' | 'devtools' | 'none';
+  /** `'adapter:<id>'`, `'devtools'`, or `'none'`. */
+  integrationMode: `adapter:${string}` | 'devtools' | 'none';
   /** Active commit metrics adapter id. Absent on bundles before the adapter seam. */
   metricsAdapter?: string | null;
   /** Network requests captured so far. Absent on bundles before network capture. */
@@ -318,8 +318,7 @@ export function evalAvalanche(
         const include = Array.isArray(command?.include) && command!.include!.length
           ? command!.include!
           : ['stats', 'sources', 'timing', 'metrics', 'hooks'];
-        // `atl` is the deprecated alias of `metrics`, kept for one release.
-        const allowedInclude = ['stats', 'sources', 'timing', 'metrics', 'atl', 'hooks', 'unmounts', 'actions', 'rendered', 'network', 'dom'];
+        const allowedInclude = ['stats', 'sources', 'timing', 'metrics', 'hooks', 'unmounts', 'actions', 'rendered', 'network', 'dom'];
         const invalidInclude = include.filter((key) => !allowedInclude.includes(key));
         if (invalidInclude.length) {
           return {
@@ -341,8 +340,7 @@ export function evalAvalanche(
         const tuple = ser.commitStats?.[commitId] || ser.commitStats?.[String(commitId)] || null;
         const sourceIds = (ser.sourcesByCommit?.[commitId] || ser.sourcesByCommit?.[String(commitId)] || []) as unknown[];
         const timing = ser.commitTimings?.[commitId] || ser.commitTimings?.[String(commitId)] || null;
-        // Bundles before the adapter seam serialize only `atlByCommit`.
-        const metricsMap = ser.metricsByCommit || ser.atlByCommit;
+        const metricsMap = ser.metricsByCommit;
         const metrics = metricsMap?.[commitId] || metricsMap?.[String(commitId)] || null;
         const actions = (ser.interactionsByCommit?.[commitId] || ser.interactionsByCommit?.[String(commitId)] || []) as unknown[];
         const rendered = (ser.renderedByCommit?.[commitId] || ser.renderedByCommit?.[String(commitId)] || []) as unknown[];
@@ -382,7 +380,6 @@ export function evalAvalanche(
         }
         if (include.includes('timing')) out.timing = timing;
         if (include.includes('metrics')) out.metrics = metrics;
-        if (include.includes('atl')) out.atl = metrics;
         // Pack extension results for this commit, keyed like report.hooks; absent without packs.
         if (include.includes('hooks') && ser.hooks) out.hooks = hookSteps;
         if (include.includes('actions')) {

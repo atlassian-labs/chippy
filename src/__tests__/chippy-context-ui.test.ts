@@ -3,8 +3,9 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { JSDOM } from 'jsdom';
 import type { Fiber } from '../layout-lab/fiber-walk';
-import { describeContext, registerContextProvider } from '../layout-lab/marker-context';
-import { jiraContextProvider } from '../plugins/jira/context-provider';
+import { describeContext } from '../layout-lab/marker-context';
+import { registerPack, resetPacks } from '../plugins/pack';
+import { resetPlugins } from '../plugins';
 
 const LAYOUT_LAB_SOURCE = readFileSync(
   resolve(__dirname, '../../.agents/skills/chippy/extension/layout-lab.js'),
@@ -18,19 +19,19 @@ const PANEL_DOM_SOURCE = readFileSync(
 type PanelOptions = { config: Record<string, unknown> };
 
 function renderContextPanel({ config }: PanelOptions) {
-  const ownership: Fiber = {
-    type: { displayName: 'OwnerMark___feature___BenefitModal___jiraEocChangeboarding___flag' },
-    memoizedProps: { teamName: 'alexstrasza' },
+  const region: Fiber = {
+    type: { displayName: 'Region___Checkout___@shop/checkout' },
+    memoizedProps: { teamName: 'payments' },
   };
   const boundary: Fiber = {
-    type: { name: 'JSErrorBoundary' },
+    type: { name: 'AppErrorBoundary' },
     memoizedProps: {
-      id: 'eoc.changeboarding.benefit.modal',
-      packageName: 'jiraEocChangeboarding',
+      id: 'checkout.form',
+      packageName: '@shop/checkout',
       fallback: 'flag',
-      teamName: 'alexstrasza',
+      teamName: 'payments',
     },
-    return: ownership,
+    return: region,
   };
   const errorComponent: Fiber = {
     type: { name: 'ErrorComponent' },
@@ -39,7 +40,7 @@ function renderContextPanel({ config }: PanelOptions) {
   };
 
   const dom = new JSDOM('<!doctype html><html><body><main>fixture</main></body></html>', {
-    url: 'https://example.atlassian.net/jira/software',
+    url: 'https://shop.example.com/checkout',
     runScripts: 'outside-only',
   });
   const win = dom.window as unknown as Window & Record<string, any>;
@@ -87,22 +88,46 @@ function renderContextPanel({ config }: PanelOptions) {
   return { dom, panel: win.document.querySelector('[data-layout-lab-panel]') as HTMLElement };
 }
 
-let unregister: () => void = () => {};
+// A neutral example pack stands in for a product's context plugin.
 beforeAll(() => {
-  unregister = registerContextProvider(jiraContextProvider);
+  registerPack({
+    id: 'regions',
+    components: [
+      {
+        kind: 'region',
+        match: { pattern: '^Region___' },
+        nameParts: { separator: '___', keys: ['marker', 'name', 'package'] },
+        title: ['parts.name'],
+        data: { name: 'parts.name', packageName: 'parts.package', teamName: 'props.teamName' },
+        fields: [{ label: 'team', value: 'props.teamName' }],
+      },
+      {
+        kind: 'error',
+        match: { names: ['AppErrorBoundary'] },
+        data: { id: 'props.id', teamName: 'props.teamName' },
+        fields: [
+          { label: 'team', value: 'props.teamName' },
+          { label: 'id', value: 'props.id' },
+        ],
+      },
+    ],
+  });
 });
-afterAll(() => unregister());
+afterAll(() => {
+  resetPacks();
+  resetPlugins();
+});
 
 describe('Chippy marker context panel', () => {
   it('renders provider boundaries and provider-chosen error fields by default', () => {
     const { dom, panel } = renderContextPanel({ config: { contextUiEnabled: true } });
     expect(panel.querySelector('[data-chippy-context="1"]')).toBeTruthy();
-    expect(panel.querySelector('[data-chippy-boundary-marker="1"][data-chippy-boundary="owner"]')).toBeTruthy();
+    expect(panel.querySelector('[data-chippy-boundary-marker="1"][data-chippy-boundary="region"]')).toBeTruthy();
     expect(panel.querySelector('[data-chippy-boundary-marker="1"][data-chippy-boundary="error"]')).toBeTruthy();
-    expect(panel.textContent).toContain('BenefitModal');
-    expect(panel.textContent).toContain('eoc.changeboarding.benefit.modal');
-    expect(panel.textContent).toContain('alexstrasza');
-    expect(panel.textContent).not.toContain('jiraEocChangeboarding');
+    expect(panel.textContent).toContain('Checkout');
+    expect(panel.textContent).toContain('checkout.form');
+    expect(panel.textContent).toContain('payments');
+    expect(panel.textContent).not.toContain('@shop/checkout');
     expect(panel.textContent).not.toContain('flag');
     dom.window.close();
   });

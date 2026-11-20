@@ -27,17 +27,17 @@ afterEach(cleanup);
 
 const markerContext = {
   boundaries: {
-    owner: { name: 'BenefitModal', packageName: 'jiraEocChangeboarding', distance: 0 },
-    error: { componentName: 'JSErrorBoundary', id: 'eoc.changeboarding.benefit.modal', teamName: 'alexstrasza', distance: 1 },
+    region: { name: 'Checkout', packageName: '@shop/checkout', distance: 0 },
+    error: { componentName: 'AppErrorBoundary', id: 'checkout.form', teamName: 'payments', distance: 1 },
     suspense: { componentName: 'Suspense', distance: 2 },
   },
   display: {
-    kinds: [{ kind: 'owner', label: 'owner', accent: '#0c66e4' }],
-    titles: { owner: 'BenefitModal' },
-    fields: { error: [{ label: 'team', value: 'alexstrasza' }, { label: 'id', value: 'eoc.changeboarding.benefit.modal' }] },
+    kinds: [{ kind: 'region', label: 'region', accent: '#0c66e4' }],
+    titles: { region: 'Checkout' },
+    fields: { error: [{ label: 'team', value: 'payments' }, { label: 'id', value: 'checkout.form' }] },
     showError: true,
   },
-  providers: ['jira'],
+  providers: ['regions'],
 };
 
 describe('Chippy Storybook marker context', () => {
@@ -54,16 +54,14 @@ describe('Chippy Storybook marker context', () => {
   it('renders provider and error-boundary facts from the provider display', () => {
     const { rerender } = render(<ContextCard context={markerContext} />);
 
-    // Owner lozenge is the semantic/team owner, labelled "owner" (not "Jira owner",
-    // and not the React render owner).
-    expect(screen.getByTestId('chippy-boundary-owner')).toHaveTextContent('owner');
-    expect(screen.getByTestId('chippy-boundary-owner')).not.toHaveTextContent('Jira owner');
-    expect(screen.getByTestId('chippy-boundary-owner')).toHaveTextContent('BenefitModal');
-    // Owner is a compact lozenge: it does NOT dump package/team (those belong to the error boundary).
-    expect(screen.getByTestId('chippy-boundary-owner')).not.toHaveTextContent('package');
+    // A provider kind renders as a compact lozenge with its label and title,
+    // without dumping package/team (those belong to the error boundary).
+    expect(screen.getByTestId('chippy-boundary-region')).toHaveTextContent('region');
+    expect(screen.getByTestId('chippy-boundary-region')).toHaveTextContent('Checkout');
+    expect(screen.getByTestId('chippy-boundary-region')).not.toHaveTextContent('package');
     // Error boundary now shows only team + id (Sentry key); package/fallback dropped.
-    expect(screen.getByTestId('chippy-boundary-error')).toHaveTextContent('eoc.changeboarding.benefit.modal');
-    expect(screen.getByTestId('chippy-boundary-error')).toHaveTextContent('alexstrasza');
+    expect(screen.getByTestId('chippy-boundary-error')).toHaveTextContent('checkout.form');
+    expect(screen.getByTestId('chippy-boundary-error')).toHaveTextContent('payments');
     expect(screen.getByTestId('chippy-boundary-error')).not.toHaveTextContent('package');
     expect(screen.getByTestId('chippy-boundary-error')).not.toHaveTextContent('fallback');
     // Suspense boundary is now surfaced with its hop distance.
@@ -83,11 +81,11 @@ describe('Chippy Storybook marker context', () => {
     const seen: string[] = [];
     render(<ContextCard context={markerContext} onInspectBoundary={(kind: string) => seen.push(kind)} />);
 
-    fireEvent.click(screen.getByTestId('chippy-boundary-owner'));
+    fireEvent.click(screen.getByTestId('chippy-boundary-region'));
     fireEvent.click(screen.getByTestId('chippy-boundary-error'));
     fireEvent.click(screen.getByTestId('chippy-boundary-suspense'));
 
-    expect(seen).toEqual(['owner', 'error', 'suspense']);
+    expect(seen).toEqual(['region', 'error', 'suspense']);
     // All three boundary blocks are actual buttons when a callback is provided.
     expect(screen.getAllByRole('button')).toHaveLength(3);
     // The last-clicked block is marked selected (persistent visual feedback).
@@ -103,7 +101,7 @@ describe('Chippy Storybook marker context', () => {
       runScripts: 'outside-only',
     });
     const win = dom.window as unknown as Window & Record<string, any>;
-    const fiber = { type: { name: 'BenefitModal' } };
+    const fiber = { type: { name: 'Checkout' } };
 
     class FakeWebSocket {
       static OPEN = 1;
@@ -130,7 +128,7 @@ describe('Chippy Storybook marker context', () => {
           confidence: 'dev',
           nearestTestId: null,
           dom: { tag: 'div', text: 'Benefit', source: null, parents: [], matchedStyles: [] },
-          component: { name: 'BenefitModal', owners: [], parents: [] },
+          component: { name: 'Checkout', owners: [], parents: [] },
           note: null,
         },
       }),
@@ -144,7 +142,6 @@ describe('Chippy Storybook marker context', () => {
     const bridge = win.__CHIPPY.pageBridge;
 
     expect(bridge.getState().markers['1'].context).toEqual(markerContext);
-    expect(bridge.getState().markers['1']).not.toHaveProperty('jiraContext');
     expect(bridge.getState().markers['2'].context).toBeNull();
 
     bridge.applyConfig({ contextUiEnabled: false });

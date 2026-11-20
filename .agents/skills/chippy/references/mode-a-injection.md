@@ -84,7 +84,7 @@ Any React commit that fires between page mount and your `avalanche-install` call
 
 ## Verifying that capture worked
 
-- `chippy.sh avalanche-status <clientId>` → expect `installed: true`, `commitCount > 0`, and `integrationMode` matching the host (`adapter:atl` for a patched Atlassian host, `devtools` otherwise; earlier releases report `atl`), never `none` after a captured commit.
+- `chippy.sh avalanche-status <clientId>` → expect `installed: true`, `commitCount > 0`, and `integrationMode` matching the host (`adapter:<id>` when a plugin adapter drives commits, `devtools` otherwise), never `none` after a captured commit.
 - In `avalanche-export`, compare `meta.commits` vs `meta.memoizedUpdatersSupport.commitsWithData` — they should match. If `commitsWithData > meta.commits`, early commits were missed.
 - To tell the boot-time gap from a wiring fault, repeat the interaction after install. If that capture is also empty, the injection is broken; if only the pre-install interaction is missing, use [pre-page start-up](#pre-page-start-up).
 

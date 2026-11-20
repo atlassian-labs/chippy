@@ -895,7 +895,7 @@ function evalAvalanche(command, api, mod) {
           return { ok: false, available: true, action, error: "commit-peek requires numeric commitId" };
         }
         const include = Array.isArray(command?.include) && command.include.length ? command.include : ["stats", "sources", "timing", "metrics", "hooks"];
-        const allowedInclude = ["stats", "sources", "timing", "metrics", "atl", "hooks", "unmounts", "actions", "rendered", "network", "dom"];
+        const allowedInclude = ["stats", "sources", "timing", "metrics", "hooks", "unmounts", "actions", "rendered", "network", "dom"];
         const invalidInclude = include.filter((key) => !allowedInclude.includes(key));
         if (invalidInclude.length) {
           return {
@@ -915,7 +915,7 @@ function evalAvalanche(command, api, mod) {
         const tuple = ser.commitStats?.[commitId] || ser.commitStats?.[String(commitId)] || null;
         const sourceIds = ser.sourcesByCommit?.[commitId] || ser.sourcesByCommit?.[String(commitId)] || [];
         const timing = ser.commitTimings?.[commitId] || ser.commitTimings?.[String(commitId)] || null;
-        const metricsMap = ser.metricsByCommit || ser.atlByCommit;
+        const metricsMap = ser.metricsByCommit;
         const metrics = metricsMap?.[commitId] || metricsMap?.[String(commitId)] || null;
         const actions = ser.interactionsByCommit?.[commitId] || ser.interactionsByCommit?.[String(commitId)] || [];
         const rendered = ser.renderedByCommit?.[commitId] || ser.renderedByCommit?.[String(commitId)] || [];
@@ -951,7 +951,6 @@ function evalAvalanche(command, api, mod) {
         }
         if (include.includes("timing")) out.timing = timing;
         if (include.includes("metrics")) out.metrics = metrics;
-        if (include.includes("atl")) out.atl = metrics;
         if (include.includes("hooks") && ser.hooks) out.hooks = hookSteps;
         if (include.includes("actions")) {
           out.actions = actions.slice(0, maxItems);
@@ -1125,7 +1124,6 @@ var PER_COMMIT_KEYS = [
   "screenByCommit",
   "domByCommit",
   "metricsByCommit",
-  "atlByCommit",
   "timing",
   "commitTimings"
 ];
@@ -1308,7 +1306,7 @@ Commands:
 
 commit-list sort keys: collateral sources restarts performedWork effects memos
   callbacks contextUpdates unmountedComponents unmountedSubtrees ticks network
-commit-peek include values: stats,sources,timing,metrics,hooks,actions,rendered,network,dom (atl: deprecated alias of metrics)
+commit-peek include values: stats,sources,timing,metrics,hooks,actions,rendered,network,dom
 `;
 function fail(message) {
   process.stderr.write(`avalanche-analyze: ${message}

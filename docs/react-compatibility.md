@@ -11,11 +11,12 @@ The extension installs a compatible hook early. A module import into an already 
 DOM-attached fibers, but it cannot retroactively register a renderer that started
 without any DevTools hook.
 
-Avalanche captures commits through DevTools until an ATL commit callback actually
-fires. An empty `__ATL_REACT_METRICS` object is not proof of a patched renderer.
-Chippy does not ship or install that instrumentation or a React patch.
-When an ATL-enabled host sends callbacks, Avalanche uses that additional evidence
-and records each commit once regardless of whether ATL or DevTools calls first.
+Avalanche captures commits through DevTools until a plugin's commit metrics
+adapter callback actually fires. An empty metrics object is not proof of an
+instrumented renderer. Chippy does not ship or install that instrumentation or a
+React patch. When an instrumented host sends adapter callbacks, Avalanche uses
+that additional evidence and records each commit once regardless of whether the
+adapter or DevTools calls first.
 
 ## Available evidence
 
@@ -26,7 +27,7 @@ and records each commit once regardless of whether ATL or DevTools calls first.
 | Commits, rendered components, prop changes, lifecycle events | DevTools callbacks | Hook installed before React evaluates |
 | Custom-hook structure and replay | Renderer dispatcher reference | Development internals; replay can execute render bodies |
 | Force a component re-render | Renderer `scheduleUpdate` | Development renderer; production builds may omit it |
-| ATL render counters, restart math, state-dispatch/recompute metrics | Not supplied by stock React | Optional host-provided ATL instrumentation |
+| Render counters and restart math | Not supplied by stock React | Optional host instrumentation read by a plugin adapter |
 
 Source maps and React internals vary by build and version. Production inspection
 can retain DOM, props, parent paths, and boundary evidence while losing authored

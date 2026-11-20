@@ -8,10 +8,7 @@
   // A packed build (`chippy pack`) prepends globalThis.__CHIPPY_BUILD to this
   // file with its plugin list and the plugins it enables by default.
   const BUILD = globalThis.__CHIPPY_BUILD || {};
-  const PLUGIN_OPTIONS = Array.isArray(BUILD.plugins) ? BUILD.plugins : [
-    { id: 'jira', label: 'Jira ownership markers' },
-    { id: 'atl', label: 'ATL commit metrics' },
-  ];
+  const PLUGIN_OPTIONS = Array.isArray(BUILD.plugins) ? BUILD.plugins : [];
   const DEFAULT_PLUGINS = Array.isArray(BUILD.defaultPlugins) ? BUILD.defaultPlugins : [];
   const SETTINGS_SLOT_SELECTOR = '[data-chippy-settings-slot]';
   let observer = null;
@@ -60,7 +57,7 @@
     const list = Array.isArray(value) ? value : [value];
     for (const pack of list) {
       if (!pack || typeof pack !== 'object' || Array.isArray(pack)) throw new Error('A pack must be a JSON object.');
-      if (typeof pack.id !== 'string' || !PACK_ID.test(pack.id)) throw new Error('A pack needs an id such as "jira" (lowercase, digits, dashes).');
+      if (typeof pack.id !== 'string' || !PACK_ID.test(pack.id)) throw new Error('A pack needs an id such as "my-pack" (lowercase, digits, dashes).');
     }
     return list;
   }
@@ -79,7 +76,7 @@
           <div data-pack-list class="pack-list"></div>
           <label>
             <span>Add pack (JSON object or array)</span>
-            <textarea data-pack-input rows="3" spellcheck="false" placeholder='{"id": "jira", "components": [...]}'></textarea>
+            <textarea data-pack-input rows="3" spellcheck="false" placeholder='{"id": "my-pack", "components": [...]}'></textarea>
           </label>
         </fieldset>`;
   }

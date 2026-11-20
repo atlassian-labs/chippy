@@ -72,7 +72,7 @@ describe('Chippy embedded extension settings', () => {
     win.chrome = {
       storage: {
         local: {
-          get: async () => ({ helperBaseUrl: 'http://localhost:7823/', plugins: ['jira'] }),
+          get: async () => ({ helperBaseUrl: 'http://localhost:7823/', plugins: ['gate'] }),
           set: async (value: Record<string, unknown>) => { writes.push(value); },
         },
       },
@@ -81,23 +81,24 @@ describe('Chippy embedded extension settings', () => {
       commands.push((event as CustomEvent).detail);
     });
 
+    win.__CHIPPY_BUILD = { plugins: [{ id: 'gate', label: 'Feature gates' }, { id: 'host', label: 'Host metrics' }] };
     win.eval(SETTINGS_SOURCE);
     await flushTasks();
     const helperInput = settingsRoot?.querySelector('[data-helper-url]') as HTMLInputElement;
     expect(helperInput.value).toBe('http://localhost:7823');
     const plugin = (id: string) => settingsRoot?.querySelector(`[data-plugin][value="${id}"]`) as HTMLInputElement;
-    expect(plugin('jira').checked).toBe(true);
-    expect(plugin('atl').checked).toBe(false);
+    expect(plugin('gate').checked).toBe(true);
+    expect(plugin('host').checked).toBe(false);
 
     helperInput.value = 'http://127.0.0.1:9000/';
-    plugin('jira').checked = false;
-    plugin('atl').checked = true;
+    plugin('gate').checked = false;
+    plugin('host').checked = true;
     (settingsRoot?.querySelector('form') as HTMLFormElement).dispatchEvent(
       new win.Event('submit', { bubbles: true, cancelable: true }),
     );
     await flushTasks();
 
-    expect(writes).toEqual([{ helperBaseUrl: 'http://127.0.0.1:9000', plugins: ['atl'], packs: [], activePacks: [] }]);
+    expect(writes).toEqual([{ helperBaseUrl: 'http://127.0.0.1:9000', plugins: ['host'], packs: [], activePacks: [] }]);
     expect(commands).toEqual([{
       type: 'apply-config',
       helperBaseUrl: 'http://127.0.0.1:9000',
@@ -187,14 +188,14 @@ describe('Chippy embedded extension settings', () => {
       },
     };
     win.__CHIPPY_BUILD = {
-      plugins: [{ id: 'jira', label: 'Jira' }, { id: 'gate', label: '<Gate>' }],
+      plugins: [{ id: 'host', label: 'Host' }, { id: 'gate', label: '<Gate>' }],
       defaultPlugins: ['gate'],
     };
 
     win.eval(SETTINGS_SOURCE);
     await flushTasks();
     const inputs = Array.from(settingsRoot!.querySelectorAll('[data-plugin]')) as HTMLInputElement[];
-    expect(inputs.map((input) => [input.value, input.checked])).toEqual([['jira', false], ['gate', true]]);
+    expect(inputs.map((input) => [input.value, input.checked])).toEqual([['host', false], ['gate', true]]);
     expect(settingsRoot!.querySelector('fieldset')?.textContent).toContain('<Gate>');
     dom.window.close();
   });

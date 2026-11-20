@@ -4,7 +4,7 @@ import type {
   CommitInteractionActionDTO,
   CommitTimingDTO,
   NetworkRequestDTO,
-  ATLCommitDeltaDTO,
+  CommitMetricsDeltaDTO,
   ReportMetaDTO,
   SuspenseBoundaryEventDTO,
 } from './report-serializer';
@@ -90,7 +90,7 @@ function makeTiming(): CommitTimingDTO {
   };
 }
 
-function makeAtlDelta(): ATLCommitDeltaDTO {
+function makeMetricsDelta(): CommitMetricsDeltaDTO {
   return {
     mountWorkCount: 1,
     updateWorkCount: 2,
@@ -345,26 +345,10 @@ describe('serializeReport — DTO field parity', () => {
     expect(out.fiber).toBeUndefined();
   });
 
-  it('round-trips every field on ATLCommitDeltaDTO via passthrough', () => {
-    const delta = makeAtlDelta();
-    const dto = serializeReport({
-      meta: makeMeta(),
-      sources: [],
-      commitStats: {},
-      atlByCommit: { 1: delta },
-    });
-    expect(dto.atlByCommit![1]).toEqual(delta);
-    // optional hook-metric field must survive the passthrough boundary
-    expect(dto.atlByCommit![1].setStateCount).toBe(4);
-  });
-
-  it('aliases metricsByCommit and the deprecated atlByCommit to the same deltas', () => {
-    const delta = makeAtlDelta();
-    const fromNew = serializeReport({ meta: makeMeta(), sources: [], commitStats: {}, metricsByCommit: { 1: delta } });
-    expect(fromNew.metricsByCommit![1]).toEqual(delta);
-    expect(fromNew.atlByCommit).toBe(fromNew.metricsByCommit);
-    const fromLegacy = serializeReport({ meta: makeMeta(), sources: [], commitStats: {}, atlByCommit: { 1: delta } });
-    expect(fromLegacy.metricsByCommit![1]).toEqual(delta);
+  it('round-trips every adapter counter in metricsByCommit via passthrough', () => {
+    const delta = makeMetricsDelta();
+    const dto = serializeReport({ meta: makeMeta(), sources: [], commitStats: {}, metricsByCommit: { 1: delta } });
+    expect(dto.metricsByCommit![1]).toEqual(delta);
   });
 
   it('round-trips every field on CommitTimingDTO via passthrough', () => {
@@ -396,7 +380,7 @@ describe('serializeReport — DTO field parity', () => {
     expect(dto.meta).toBe(meta);
   });
 
-  it('omits sourcesByCommit/interactionsByCommit/atlByCommit/commitTimings when undefined', () => {
+  it('omits sourcesByCommit/interactionsByCommit/metricsByCommit/commitTimings when undefined', () => {
     const dto = serializeReport({
       meta: makeMeta(),
       sources: [],
@@ -404,7 +388,7 @@ describe('serializeReport — DTO field parity', () => {
     });
     expect(dto.sourcesByCommit).toBeUndefined();
     expect(dto.interactionsByCommit).toBeUndefined();
-    expect(dto.atlByCommit).toBeUndefined();
+    expect(dto.metricsByCommit).toBeUndefined();
     expect(dto.commitTimings).toBeUndefined();
   });
 
@@ -419,7 +403,7 @@ describe('serializeReport — DTO field parity', () => {
       sourcesByCommit: { 0: [{ sourceId: 's', depth: 0, collateral: 1, rank: 1, sourceIndex: 0 }] },
       suspenseByCommit: { 0: [{ depth: 0, entered: true, left: false }] },
       interactionsByCommit: { 0: [makeAction(1)] },
-      atlByCommit: { 0: makeAtlDelta() },
+      metricsByCommit: { 0: makeMetricsDelta() },
       commitTimings: { 0: makeTiming() },
     });
     expect(() => JSON.stringify(dto)).not.toThrow();
@@ -427,7 +411,7 @@ describe('serializeReport — DTO field parity', () => {
     const parsed = JSON.parse(json);
     expect(parsed.interactionsByCommit['0'][0].id).toBe(1);
     expect(parsed.sources[0].sourceId).toBe('s');
-    expect(parsed.atlByCommit['0'].mountWorkCount).toBe(1);
+    expect(parsed.metricsByCommit['0'].mountWorkCount).toBe(1);
     expect(parsed.commitTimings['0'].startTime).toBe(4333.5);
     expect(parsed.commitTimings['0'].ticks).toBe(2);
     expect(parsed.commitTimings['0'].render.slices).toEqual([[4320, 4325], [4329, 4333]]);

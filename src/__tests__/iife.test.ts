@@ -1,6 +1,13 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { TEST_METRICS_SLOT, createSlotCommitMetricsAdapter } from '../avalanche/test-support/slot-commit-metrics-adapter';
 
-const originalMetricsDescriptor = Object.getOwnPropertyDescriptor(globalThis, '__ATL_REACT_METRICS');
+const gatePlugin = { id: 'gate', contextProvider: { id: 'gate', describe: () => null } };
+const hostPlugin = () => {
+  const adapter = { ...createSlotCommitMetricsAdapter(), prePage: vi.fn() };
+  return { plugin: { id: 'host', commitMetricsAdapter: adapter }, adapter };
+};
+
+const originalMetricsDescriptor = Object.getOwnPropertyDescriptor(globalThis, TEST_METRICS_SLOT);
 const originalDevtoolsHook = (globalThis as any).__REACT_DEVTOOLS_GLOBAL_HOOK__;
 const originalStartupConfig = (globalThis as any).__CHIPPY_STARTUP_CONFIG;
 const originalAvalancheAi = (globalThis as any).__AVALANCHE_AI__;
@@ -15,7 +22,7 @@ function cleanupGlobal(name: string, descriptor?: PropertyDescriptor) {
 
 afterEach(async () => {
   vi.resetModules();
-  cleanupGlobal('__ATL_REACT_METRICS', originalMetricsDescriptor);
+  cleanupGlobal(TEST_METRICS_SLOT, originalMetricsDescriptor);
   cleanupGlobal('__REACT_DEVTOOLS_GLOBAL_HOOK__', originalDevtoolsHook ? {
     configurable: true,
     enumerable: true,
@@ -42,22 +49,25 @@ describe('src/iife.ts startup behavior', () => {
     const mod = await import('../iife');
     expect(mod.default.layoutLab.describeContext).toBeTypeOf('function');
     expect(mod.default.layoutLab.registerContextProvider).toBeTypeOf('function');
-    expect(mod.default.layoutLab).not.toHaveProperty('describeJiraContext');
-    // The shipped bundle enables no built-in plugin unless the page opts in.
-    expect(mod.default.layoutLab.getContextProviders().map((p) => p.id)).not.toContain('jira');
+    // The shipped bundle carries no plugins; a registered one runs once enabled.
+    expect(mod.default.listPlugins()).toEqual([]);
     expect(mod.default.status().metricsAdapter).toBeNull();
-    expect(mod.default.enablePlugins(['jira'])).toEqual(['jira']);
-    expect(mod.default.layoutLab.getContextProviders().map((p) => p.id)).toContain('jira');
+    mod.default.registerPlugin(gatePlugin);
+    expect(mod.default.layoutLab.getContextProviders().map((p) => p.id)).not.toContain('gate');
+    expect(mod.default.enablePlugins(['gate'])).toEqual(['gate']);
+    expect(mod.default.layoutLab.getContextProviders().map((p) => p.id)).toContain('gate');
   });
 
-  it('enables the built-in plugins named by the startup config or __CHIPPY_PLUGINS', async () => {
+  it('enables the plugins named by the startup config or __CHIPPY_PLUGINS', async () => {
     delete (globalThis as any).__AVALANCHE__;
-    (globalThis as any).__CHIPPY_STARTUP_CONFIG = { plugins: ['atl'] };
-    (globalThis as any).__CHIPPY_PLUGINS = ['jira'];
+    (globalThis as any).__CHIPPY_STARTUP_CONFIG = { plugins: ['host'] };
+    (globalThis as any).__CHIPPY_PLUGINS = ['gate'];
     try {
       const mod = await import('../iife');
-      expect(mod.default.layoutLab.getContextProviders().map((p) => p.id)).toContain('jira');
-      expect(mod.default.status().metricsAdapter).toBe('atl');
+      mod.default.registerPlugin(gatePlugin);
+      mod.default.registerPlugin(hostPlugin().plugin);
+      expect(mod.default.layoutLab.getContextProviders().map((p) => p.id)).toContain('gate');
+      expect(mod.default.status().metricsAdapter).toBe('test-host');
     } finally {
       delete (globalThis as any).__CHIPPY_PLUGINS;
     }
@@ -68,7 +78,7 @@ describe('src/iife.ts startup behavior', () => {
     (globalThis as any).__CHIPPY_STARTUP_CONFIG = { plugins: ['gate'] };
     const mod = await import('../iife');
     mod.default.registerPlugin({ id: 'gate', contextProvider: { id: 'gate', describe: () => null } });
-    expect(mod.default.enableDefaultPlugins(['jira'])).toEqual(['gate']);
+    expect(mod.default.enableDefaultPlugins(['other'])).toEqual(['gate']);
     expect(mod.default.listPlugins().filter((p) => p.enabled).map((p) => p.id)).toEqual(['gate']);
   });
 
@@ -76,7 +86,8 @@ describe('src/iife.ts startup behavior', () => {
     delete (globalThis as any).__AVALANCHE__;
     delete (globalThis as any).__CHIPPY_STARTUP_CONFIG;
     const mod = await import('../iife');
-    expect(mod.default.enableDefaultPlugins(['jira'])).toEqual(['jira']);
+    mod.default.registerPlugin(gatePlugin);
+    expect(mod.default.enableDefaultPlugins(['gate'])).toEqual(['gate']);
   });
 
   it('publishes declarative boundary chain and page inspection through the bundled bridge API', async () => {
@@ -95,10 +106,10 @@ describe('src/iife.ts startup behavior', () => {
     expect(mod.default.bridge.resolveFiberSource).toBeTypeOf('function');
   });
 
-  it('bootstraps devtools hook at load but defers ATL metrics to install()', async () => {
-    delete (globalThis as any).__ATL_REACT_METRICS;
+  it('bootstraps the devtools hook at load and seeds no adapter slot', async () => {
+    delete (globalThis as any)[TEST_METRICS_SLOT];
     delete (globalThis as any).__REACT_DEVTOOLS_GLOBAL_HOOK__;
-    (globalThis as any).__CHIPPY_STARTUP_CONFIG = { plugins: ['atl'] };
+    delete (globalThis as any).__CHIPPY_STARTUP_CONFIG;
     delete (globalThis as any).__AVALANCHE_AI__;
 
     const mod = await import('../iife');
@@ -107,13 +118,8 @@ describe('src/iife.ts startup behavior', () => {
     // Devtools hook is still installed eagerly (React reads it at module eval time).
     expect((globalThis as any).__REACT_DEVTOOLS_GLOBAL_HOOK__).toBeTruthy();
     expect((globalThis as any).__REACT_DEVTOOLS_GLOBAL_HOOK__.supportsFiber).toBe(true);
-    // __ATL_REACT_METRICS is NOT seeded at load — the host owns this slot.
-    // It will be seeded lazily when avalanche.install() is called.
-    expect((globalThis as any).__ATL_REACT_METRICS).toBeUndefined();
-    // Calling install() seeds the metrics slot.
-    mod.default.install();
-    expect((globalThis as any).__ATL_REACT_METRICS).toBeTruthy();
-    mod.default.uninstall();
+    // An adapter's host slot belongs to the host; nothing seeds it at load.
+    expect((globalThis as any)[TEST_METRICS_SLOT]).toBeUndefined();
   });
 
   it('keeps its own devtools hook in a cross-origin frame instead of throwing', async () => {
@@ -136,31 +142,32 @@ describe('src/iife.ts startup behavior', () => {
     }
   });
 
-  it('runs no pre-page hook unless the ATL plugin is enabled', async () => {
+  it('runs no pre-page hook unless an adapter plugin is enabled', async () => {
     delete (globalThis as any).__AVALANCHE__;
-    delete (globalThis as any).__ATL_REACT_METRICS;
     delete (globalThis as any).__CHIPPY_STARTUP_CONFIG;
     const mod = await import('../iife');
+    const { plugin, adapter } = hostPlugin();
+    mod.default.registerPlugin(plugin);
     expect(mod.default.runPrePageHooks({ enabled: true })).toBeNull();
-    expect(Object.getOwnPropertyDescriptor(globalThis, '__ATL_REACT_METRICS')).toBeUndefined();
+    expect(adapter.prePage).not.toHaveBeenCalled();
   });
 
-  it('publishes the commit metrics adapter registry with the opted-in ATL adapter', async () => {
+  it('publishes the commit metrics adapter registry with an opted-in adapter plugin', async () => {
     delete (globalThis as any).__AVALANCHE__;
-    delete (globalThis as any).__ATL_REACT_METRICS;
-    (globalThis as any).__CHIPPY_STARTUP_CONFIG = { plugins: ['atl'] };
+    (globalThis as any).__CHIPPY_STARTUP_CONFIG = { plugins: ['host'] };
     const mod = await import('../iife');
+    const { plugin, adapter } = hostPlugin();
+    mod.default.registerPlugin(plugin);
     expect(mod.default.registerCommitMetricsAdapter).toBeTypeOf('function');
-    expect(mod.default.status().metricsAdapter).toBe('atl');
+    expect(mod.default.status().metricsAdapter).toBe('test-host');
     // Early bootstrap calls this before the page's React evaluates.
-    expect(mod.default.runPrePageHooks({ enabled: true })).toBe('atl');
-    const descriptor = Object.getOwnPropertyDescriptor(globalThis, '__ATL_REACT_METRICS');
-    expect(descriptor?.get).toBeTypeOf('function');
-    expect(descriptor?.configurable).toBe(true);
+    const config = { enabled: true };
+    expect(mod.default.runPrePageHooks(config)).toBe('test-host');
+    expect(adapter.prePage).toHaveBeenCalledWith(config);
   });
 
   it('skips auto-install when __AVALANCHE__ is already present on globalThis', async () => {
-    delete (globalThis as any).__ATL_REACT_METRICS;
+    delete (globalThis as any)[TEST_METRICS_SLOT];
     delete (globalThis as any).__REACT_DEVTOOLS_GLOBAL_HOOK__;
     (globalThis as any).__CHIPPY_STARTUP_CONFIG = {
       avalanche: { autoStart: true },

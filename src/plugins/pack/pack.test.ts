@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { createAvalancheHookRunner, resetAvalancheHooks } from '../../avalanche/avalanche-hooks';
 import type { Fiber } from '../../layout-lab/fiber-walk';
 import { describeContext, getContextProviders } from '../../layout-lab/marker-context';
-import { listPlugins, registerBuiltinPlugins, resetPlugins } from '../index';
+import { listPlugins, registerPlugin, resetPlugins } from '../index';
 import { listPacks, parsePack, registerPack, registerPacks, resetPacks, unregisterPack } from './index';
 
 // A neutral example pack. Product packs live with their products, not in Chippy.
@@ -119,11 +119,11 @@ describe('registerPack', () => {
     expect(listPacks().map((pack) => pack.id)).toEqual(['regions']);
   });
 
-  it('replaces a built-in plugin with the same id', () => {
-    registerBuiltinPlugins();
-    registerPack({ id: 'jira', label: 'override', components: [{ kind: 'area', match: { names: ['Area'] } }] });
-    expect(listPlugins().find((plugin) => plugin.id === 'jira')).toEqual({ id: 'jira', label: 'override', enabled: true });
-    const providers = getContextProviders().filter((provider) => provider.id === 'jira');
+  it('replaces a registered plugin with the same id', () => {
+    registerPlugin({ id: 'gate', label: 'Feature gates', contextProvider: { id: 'gate', describe: () => null } });
+    registerPack({ id: 'gate', label: 'override', components: [{ kind: 'area', match: { names: ['Area'] } }] });
+    expect(listPlugins().find((plugin) => plugin.id === 'gate')).toEqual({ id: 'gate', label: 'override', enabled: true });
+    const providers = getContextProviders().filter((provider) => provider.id === 'gate');
     expect(providers).toHaveLength(1);
     expect(providers[0].kinds).toEqual([{ kind: 'area', label: 'area' }]);
   });

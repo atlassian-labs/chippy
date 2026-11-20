@@ -4,7 +4,7 @@
  *
  * A pack becomes a plugin with the same id and is enabled at once, because a
  * pack is only ever present when someone deliberately injected it. A pack
- * whose id matches a built-in plugin, such as `jira`, replaces that plugin.
+ * whose id matches a registered plugin replaces that plugin.
  */
 
 import { enablePlugins, registerPlugin } from '../index';

@@ -19,7 +19,7 @@ function scratch() {
 
 const config = (directory: string, overrides: Record<string, unknown> = {}) => normalizePackConfig({
   plugins: [{ id: 'gate', label: 'Feature gates', entry: './src/gate.ts' }],
-  defaultPlugins: ['gate', 'jira'],
+  defaultPlugins: ['gate'],
   extension: { name: 'Chippy (Gates)', version: '0.4.24.1', key: 'TESTKEY' },
   skill: { overlay: './overlay' },
   outDir: './out',
@@ -42,12 +42,8 @@ describe('chippy pack', () => {
     expect(manifest.action.default_title).toBe('Chippy (Gates)');
 
     const build = {
-      plugins: [
-        { id: 'jira', label: 'Jira ownership markers' },
-        { id: 'atl', label: 'ATL commit metrics' },
-        { id: 'gate', label: 'Feature gates' },
-      ],
-      defaultPlugins: ['gate', 'jira'],
+      plugins: [{ id: 'gate', label: 'Feature gates' }],
+      defaultPlugins: ['gate'],
     };
     for (const file of ['extension/background.js', 'extension/panel-settings.js']) {
       expect(read(file).split('\n')[0]).toBe(`globalThis.__CHIPPY_BUILD = ${JSON.stringify(build)};`);
@@ -57,7 +53,7 @@ describe('chippy pack', () => {
       const bundle = read(file);
       const plugins = bundle.indexOf('/* chippy pack: plugins */');
       expect(plugins).toBeGreaterThan(0);
-      expect(bundle.slice(plugins)).toMatch(/enableDefaultPlugins\(\["gate", "jira"\]\)/);
+      expect(bundle.slice(plugins)).toMatch(/enableDefaultPlugins\(\["gate"\]\)/);
       // The map comment stays last so the core bundle's source map still applies.
       expect(bundle.lastIndexOf('//# sourceMappingURL=')).toBeGreaterThan(plugins);
       const original = readFileSync(join(SKILL, file), 'utf8');
@@ -82,9 +78,8 @@ describe('chippy pack', () => {
   it('rejects configs it cannot build', () => {
     const directory = writePackWorkspace(scratch());
     expect(() => config(directory, { defaultPlugins: ['missing'] })).toThrow('unknown plugin: missing');
-    expect(() => config(directory, { plugins: [{ id: 'jira', entry: './src/gate.ts' }] })).toThrow('built in');
     expect(() => config(directory, { plugins: [{ id: 'gate', entry: './src/none.ts' }] })).toThrow('not found');
-    expect(() => config(directory, { extension: { version: '0.4.24-atl' } })).toThrow('extension.version');
+    expect(() => config(directory, { extension: { version: '0.4.24-beta' } })).toThrow('extension.version');
     expect(() => config(directory, { skill: { overlay: './none' } })).toThrow('overlay not found');
   });
 

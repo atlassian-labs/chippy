@@ -20,7 +20,6 @@ Choose the Chippy decision in front of you—position evidence, trace the page, 
 | Interpret hook output | [Hooks inspection](hooks-inspection.md) | Hook tree reading, limits, and `useDebugValue` guidance |
 | Answer a question no command covers | [Page scripts](page-scripts.md) | The `chippy` toolkit, stdin scripts, gates, limits, and side-effect reports |
 | Automate probe handling | [Playwright probes](playwright-probes.md) | Probe lifecycle, measurement operations, and extension handoff |
-| Work on minified Jira pages | [Jira taxonomy](jira-taxonomy.md) | Production-name patterns and bounded fallback signals |
 
 ## Investigate performance
 
@@ -30,7 +29,6 @@ Choose the Chippy decision in front of you—position evidence, trace the page, 
 | Choose the fix layer | [Fixing performance](fixing-performance.md) | Source/boundary/collateral classification and targeted remediation |
 | Grade one subtree | [Stability render](stability-render.md) | Deterministic nudge procedure and clean/leak/cascade/trasher verdicts |
 | Identify one captured hook | [Debug-hook](debug-hook.md) | Hook primitive, custom-hook ownership, confidence, and remediation branch |
-| Count dispatches or recomputations | [Hook metrics](hook-metrics.md) | `setStateCount`, hook tracker actions, histograms, and Avalanche joins |
 
 These pages are siblings, not substitutes. Start with Avalanche for a real slow interaction or load, use stability-render for a known subtree, and use debug-hook only when a capture already produced `sourceId + hookIndex`.
 

@@ -76,7 +76,7 @@ function makeApi(overrides: Partial<AvalancheApi> = {}): AvalancheApi {
           trasherCounts: { effects: 0, callbacks: 1, memos: 0 },
         }],
       },
-      metricsByCommit: { '0': { atlEvents: 2 } },
+      metricsByCommit: { '0': { hostEvents: 2 } },
     })),
     debugHook: vi.fn(() => ({ hookIndex: 3, primitive: 'State' })),
     ...overrides,
@@ -277,7 +277,7 @@ describe('evalAvalanche', () => {
 
   it('commit-peek: rejects unknown include keys', () => {
     const r = evalAvalanche({ action: 'commit-peek', commitId: 0, include: ['stats', 'bogus'] }, makeApi(), null);
-    expect(r).toMatchObject({ ok: false, validInclude: ['stats', 'sources', 'timing', 'metrics', 'atl', 'hooks', 'unmounts', 'actions', 'rendered', 'network', 'dom'] });
+    expect(r).toMatchObject({ ok: false, validInclude: ['stats', 'sources', 'timing', 'metrics', 'hooks', 'unmounts', 'actions', 'rendered', 'network', 'dom'] });
   });
 
   it('commit-peek: returns full payload for known commit', () => {
@@ -289,23 +289,8 @@ describe('evalAvalanche', () => {
     expect(out.stats).toMatchObject({ collateral: 10 });
     expect((out.sources as unknown[]).length).toBe(2);
     expect(out.timing).toEqual({ duration: 12.5 });
-    expect(out.metrics).toEqual({ atlEvents: 2 });
-    expect(out.atl).toBeUndefined();
+    expect(out.metrics).toEqual({ hostEvents: 2 });
     expect(out.actions).toBeUndefined();
-  });
-
-  it('commit-peek: accepts the deprecated atl include token as an alias of metrics', () => {
-    const r = evalAvalanche({ action: 'commit-peek', commitId: 0, include: ['atl'] }, makeApi(), null);
-    const out = r.payload as Record<string, unknown>;
-    expect(out.atl).toEqual({ atlEvents: 2 });
-    expect(out.metrics).toBeUndefined();
-  });
-
-  it('commit-peek: reads atlByCommit from bundles that predate metricsByCommit', () => {
-    const { metricsByCommit, ...rest } = makeApi().report() as Record<string, unknown>;
-    const api = makeApi({ report: () => ({ ...rest, atlByCommit: metricsByCommit }) as any });
-    const r = evalAvalanche({ action: 'commit-peek', commitId: 0, include: ['metrics'] }, api, null);
-    expect((r.payload as Record<string, unknown>).metrics).toEqual({ atlEvents: 2 });
   });
 
   it('commit-peek: returns rendered component evidence only when requested', () => {

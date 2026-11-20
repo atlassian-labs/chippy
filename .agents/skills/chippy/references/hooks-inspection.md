@@ -11,14 +11,14 @@
 - POD values inlined; objects/arrays/functions safe-serialized.
 - If the hook list is malformed or cyclic, Chippy stops deterministically and marks the break in the output.
 - Hook index is exact within the returned list.
-- No hidden mini-cap for Jira-scale components.
+- No hidden mini-cap for very large components.
 - Hook output is still for inspection, not for counting business data.
 - Re-run after code changes if you need fresh positions.
 - Use `hookCount`, `truncated`, and `maxHooks` together when judging completeness.
 - If `truncated` is false, the full visible hook chain was walked.
 - If `truncated` is true on a real component, the component is unusually deep and worth noting explicitly.
 - The cap is safety, not guidance.
-- Deep Jira fibers are expected to work.
+- Deep fibers are expected to work.
 - Large outputs may still be verbose; inspect around known anchors.
 - Prefer a nearby `State`/`Ref`/`useDebugValue` landmark when scanning hundreds of hooks.
 - Counts can shift between renders.
@@ -30,7 +30,7 @@
 - For cycle breaks, one final synthetic `Unknown` entry may be appended with a note.
 - This keeps failures inspectable instead of silent.
 - The cap exists only to guard against broken or pathological hook lists.
-- Jira with 300 hooks is fine.
+- A component with 300 hooks is fine.
 - Very large components are noisy, but now observable.
 - Use the index numbers as exact anchors.
 - Do not infer missing hooks unless `truncated` says they are missing.

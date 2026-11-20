@@ -27,7 +27,7 @@ For initial load with many context updates, rank the bounded commits before open
 
 ```bash
 chippy.sh avalanche-commit-list <clientId> 20 contextUpdates
-chippy.sh avalanche-commit-peek <clientId> <commitId> stats,sources,atl 3 30
+chippy.sh avalanche-commit-peek <clientId> <commitId> stats,sources,metrics 3 30
 ```
 
 Do not pipe the full export through an ad-hoc reducer. Use prepared Chippy views. If they cannot expose the required Provider detail, report that command gap or add a first-class view before making a causal claim.

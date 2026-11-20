@@ -31,7 +31,7 @@ export type FiberBoundaries = {
   suspense: BoundaryRef<SuspenseBoundaryInfo> | null;
 };
 
-// Ancestry walks in Jira can be deep: the nearest Suspense boundary may sit
+// Ancestry walks in large apps can be deep: the nearest Suspense boundary may sit
 // ~170+ return-hops above a leaf. Callers early-exit once all wanted boundaries
 // are found, so this ceiling only bounds pathological / cyclic trees.
 export const MAX_BOUNDARY_FIBERS = 400;

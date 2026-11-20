@@ -37,7 +37,6 @@ void report; void connection;
     assert.equal(globalThis.__REACT_DEVTOOLS_GLOBAL_HOOK__, undefined);
     assert.equal(globalThis.__CHIPPY, undefined);
     assert.equal(globalThis.__AVALANCHE__, undefined);
-    assert.equal(globalThis.__ATL_REACT_METRICS, undefined);
     assert.equal(typeof createAvalancheDetector, 'function');
     assert.equal(typeof DETECTION_LEVEL, 'object');
   `], { cwd: directory });
@@ -62,7 +61,7 @@ void report; void connection;
 import '@atlassian/chippy/bootstrap';
 import { createAvalancheDetector } from '@atlassian/chippy/avalanche';
 import { connectChippy } from '@atlassian/chippy/browser';
-window.libraryLoaded = { chippy: !!window.__CHIPPY, avalanche: !!window.__AVALANCHE__, metrics: !!window.__ATL_REACT_METRICS };
+window.libraryLoaded = { chippy: !!window.__CHIPPY, avalanche: !!window.__AVALANCHE__ };
 window.connectChippy = connectChippy;
 const detector = createAvalancheDetector({ detectionMode: 'sources', captureFibers: false, historySize: 5 });
 window.detector = detector;
@@ -102,7 +101,7 @@ it('captures real stock React commits through the installed npm package and clea
   try {
     await page.goto(url);
     await page.locator('#counter').waitFor();
-    expect(await page.evaluate(() => (window as any).libraryLoaded)).toEqual({ chippy: false, avalanche: false, metrics: false });
+    expect(await page.evaluate(() => (window as any).libraryLoaded)).toEqual({ chippy: false, avalanche: false });
     await page.locator('#counter').click();
     await expect.poll(() => page.locator('#counter').textContent()).toBe('1');
     const report = await page.evaluate(() => (window as any).detector.report());

@@ -2,10 +2,10 @@
  * Chippy plugin registry. The core runtime has no product knowledge; plugins
  * add it through the context provider and commit metrics adapter seams.
  *
- * The bundle ships the built-in Jira and ATL plugins, and a packed build
- * (`chippy pack`) appends more through `__AVALANCHE__.registerPlugin()`. A
- * plugin runs only once it is both registered and enabled. A page enables
- * plugins through the startup config (`plugins: ['jira', 'atl']`), the
+ * The bundle ships no plugins of its own. A packed build (`chippy pack`)
+ * appends them through `__AVALANCHE__.registerPlugin()`, and packs register
+ * theirs at load. A plugin runs only once it is both registered and enabled. A
+ * page enables plugins through the startup config (`plugins: ['my-plugin']`), the
  * `__CHIPPY_PLUGINS` global, or `__AVALANCHE__.enablePlugins()`; a packed
  * build can name defaults for pages that do neither.
  */
@@ -13,11 +13,9 @@
 import { type AvalancheHooks, registerAvalancheHooks } from '../avalanche/avalanche-hooks';
 import { type CommitMetricsAdapter, registerCommitMetricsAdapter } from '../avalanche/commit-metrics-adapter';
 import { type ContextProvider, registerContextProvider } from '../layout-lab/marker-context';
-import { atlCommitMetricsAdapter } from './atl/commit-metrics-adapter';
-import { jiraContextProvider } from './jira/context-provider';
 
 export type ChippyPlugin = {
-  /** Stable id used to enable the plugin, e.g. `'jira'`. */
+  /** Stable id used to enable the plugin, e.g. `'my-plugin'`. */
   id: string;
   /** Short name shown in the extension's plugin settings. */
   label?: string;
@@ -29,11 +27,6 @@ export type ChippyPlugin = {
 };
 
 export type PluginStatus = { id: string; label: string; enabled: boolean };
-
-export const BUILTIN_PLUGINS: readonly ChippyPlugin[] = [
-  { id: 'jira', label: 'Jira ownership markers', contextProvider: jiraContextProvider },
-  { id: 'atl', label: 'ATL commit metrics', commitMetricsAdapter: atlCommitMetricsAdapter },
-];
 
 const registered = new Map<string, ChippyPlugin>();
 const requested = new Set<string>();
@@ -111,14 +104,6 @@ export function listPlugins(): PluginStatus[] {
     label: plugin.label ?? plugin.id,
     enabled: active.has(plugin.id),
   }));
-}
-
-/** Register the built-in plugins. Returns a function that removes them. */
-export function registerBuiltinPlugins(): () => void {
-  const unregister = BUILTIN_PLUGINS.map(registerPlugin);
-  return () => {
-    for (const fn of unregister.reverse()) fn();
-  };
 }
 
 /** Stop every plugin and forget all registrations and selections. Test helper. */

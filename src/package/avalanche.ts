@@ -6,8 +6,3 @@ export {
   type IntegrationMode,
   registerCommitMetricsAdapter,
 } from '../avalanche/commit-metrics-adapter';
-/** Opt-in adapter for hosts whose react-dom writes `__ATL_REACT_METRICS`. */
-export {
-  atlCommitMetricsAdapter,
-  createATLCommitMetricsAdapter,
-} from '../plugins/atl/commit-metrics-adapter';
