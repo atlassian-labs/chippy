@@ -51,6 +51,29 @@ export type PackComponentRule = {
 };
 
 /**
+ * How the application names one kind of fiber. Page scripts read the result
+ * as `ref.label`, and the overlay uses it as the default box label.
+ *
+ * The rule reads `value` from the fiber itself (`from: "self"`, the default),
+ * or from the nearest component within `within` components above (`parents`)
+ * or below (`children`) it whose display name matches `match`. Rules for the
+ * same kind are tried in order; the first non-empty value wins.
+ */
+export type PackLabelRule = {
+  /** The fibers this rule names: `suspense`, `error`, or a kind from `components`. */
+  for: string;
+  from?: 'self' | 'parents' | 'children';
+  /** The component that carries the name. Required for `parents` and `children`. */
+  match?: { names?: string[]; pattern?: string };
+  /** How many named components to look through; default 3, at most 10. */
+  within?: number;
+  nameParts?: { separator: string; keys: string[] };
+  value: PackValueRef;
+  /** Why this convention names the fiber. For people reading the pack; Chippy ignores it. */
+  note?: string;
+};
+
+/**
  * One named Avalanche extension: optional instructions plus script bodies.
  * A pack may carry several; each keeps its own state, errors, and results,
  * reported under `hooks["<pack id>.<extension name>"]`.
@@ -78,12 +101,17 @@ export type ChippyPack = {
   /** Markdown for agents: what this pack's data means and how to read it. */
   instructions?: string;
   components?: PackComponentRule[];
+  /** How the application names its boundaries and components. */
+  labels?: PackLabelRule[];
   /** Named Avalanche extensions, for example `{ "atl": { "onInit": "...", "onStep": "..." } }`. */
   avalancheExtensions?: Record<string, PackScripts>;
 };
 
 const ID = /^[a-z][a-z0-9-]*$/;
-const TOP_KEYS = new Set(['id', 'label', 'instructions', 'components', 'avalancheExtensions']);
+const TOP_KEYS = new Set(['id', 'label', 'instructions', 'components', 'labels', 'avalancheExtensions']);
+const LABEL_KEYS = new Set(['for', 'from', 'match', 'within', 'nameParts', 'value', 'note']);
+const LABEL_FROM = new Set(['self', 'parents', 'children']);
+export const MAX_LABEL_WITHIN = 10;
 const RULE_KEYS = new Set(['kind', 'label', 'accent', 'match', 'nameParts', 'title', 'fields', 'data', 'showError']);
 const SCRIPT_KEYS = new Set(['onInit', 'onStart', 'onStep', 'onEnd']);
 const EXTENSION_KEYS = new Set(['instructions', ...SCRIPT_KEYS]);
@@ -114,6 +142,51 @@ function checkRef(value: unknown, path: string): void {
   }
 }
 
+function checkMatch(match: unknown, path: string): void {
+  if (!isObject(match)) fail(path, 'must be an object');
+  checkKeys(match, new Set(['names', 'pattern']), path);
+  const { names, pattern } = match;
+  if (names === undefined && pattern === undefined) fail(path, 'needs names or pattern');
+  if (names !== undefined && (!Array.isArray(names) || names.some((name) => typeof name !== 'string' || !name))) {
+    fail(`${path}.names`, 'must be a list of names');
+  }
+  if (pattern !== undefined) {
+    checkString(pattern, `${path}.pattern`);
+    try {
+      new RegExp(pattern as string);
+    } catch (error) {
+      fail(`${path}.pattern`, (error as Error).message);
+    }
+  }
+}
+
+function checkNameParts(parts: unknown, path: string): void {
+  if (parts === undefined) return;
+  if (!isObject(parts)) fail(path, 'must be an object');
+  checkString(parts.separator, `${path}.separator`);
+  if (!Array.isArray(parts.keys) || parts.keys.some((key) => typeof key !== 'string')) {
+    fail(`${path}.keys`, 'must be a list of keys');
+  }
+}
+
+function checkLabel(rule: unknown, path: string): void {
+  if (!isObject(rule)) fail(path, 'must be an object');
+  checkKeys(rule, LABEL_KEYS, path);
+  checkString(rule.for, `${path}.for`);
+  if (rule.from !== undefined && !LABEL_FROM.has(rule.from as string)) fail(`${path}.from`, 'must be self, parents, or children');
+  const from = rule.from ?? 'self';
+  if (rule.match !== undefined || from !== 'self') checkMatch(rule.match, `${path}.match`);
+  if (rule.within !== undefined) {
+    const within = rule.within;
+    if (typeof within !== 'number' || !Number.isInteger(within) || within < 1 || within > MAX_LABEL_WITHIN) {
+      fail(`${path}.within`, `must be a whole number from 1 to ${MAX_LABEL_WITHIN}`);
+    }
+  }
+  checkNameParts(rule.nameParts, `${path}.nameParts`);
+  checkRef(rule.value, `${path}.value`);
+  checkString(rule.note, `${path}.note`, true);
+}
+
 function checkRule(rule: unknown, path: string): void {
   if (!isObject(rule)) fail(path, 'must be an object');
   checkKeys(rule, RULE_KEYS, path);
@@ -121,29 +194,8 @@ function checkRule(rule: unknown, path: string): void {
   if (rule.kind === 'suspense') fail(`${path}.kind`, 'suspense is a core kind');
   checkString(rule.label, `${path}.label`, true);
   checkString(rule.accent, `${path}.accent`, true);
-  if (!isObject(rule.match)) fail(`${path}.match`, 'must be an object');
-  checkKeys(rule.match, new Set(['names', 'pattern']), `${path}.match`);
-  const { names, pattern } = rule.match;
-  if (names === undefined && pattern === undefined) fail(`${path}.match`, 'needs names or pattern');
-  if (names !== undefined && (!Array.isArray(names) || names.some((name) => typeof name !== 'string' || !name))) {
-    fail(`${path}.match.names`, 'must be a list of names');
-  }
-  if (pattern !== undefined) {
-    checkString(pattern, `${path}.match.pattern`);
-    try {
-      new RegExp(pattern as string);
-    } catch (error) {
-      fail(`${path}.match.pattern`, (error as Error).message);
-    }
-  }
-  if (rule.nameParts !== undefined) {
-    const parts = rule.nameParts;
-    if (!isObject(parts)) fail(`${path}.nameParts`, 'must be an object');
-    checkString(parts.separator, `${path}.nameParts.separator`);
-    if (!Array.isArray(parts.keys) || parts.keys.some((key) => typeof key !== 'string')) {
-      fail(`${path}.nameParts.keys`, 'must be a list of keys');
-    }
-  }
+  checkMatch(rule.match, `${path}.match`);
+  checkNameParts(rule.nameParts, `${path}.nameParts`);
   if (rule.title !== undefined) checkRef(rule.title, `${path}.title`);
   if (rule.fields !== undefined) {
     if (!Array.isArray(rule.fields)) fail(`${path}.fields`, 'must be a list');
@@ -178,6 +230,10 @@ export function parsePack(input: unknown): ChippyPack {
   if (value.components !== undefined) {
     if (!Array.isArray(value.components)) fail('components', 'must be a list');
     value.components.forEach((rule, index) => checkRule(rule, `components[${index}]`));
+  }
+  if (value.labels !== undefined) {
+    if (!Array.isArray(value.labels)) fail('labels', 'must be a list');
+    value.labels.forEach((rule, index) => checkLabel(rule, `labels[${index}]`));
   }
   if (value.avalancheExtensions !== undefined) {
     const extensions = value.avalancheExtensions;

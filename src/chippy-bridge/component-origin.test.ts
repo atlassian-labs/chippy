@@ -1,9 +1,11 @@
 // @vitest-environment node
 import { beforeAll, describe, expect, it } from 'vitest';
+import { createContext, forwardRef, memo } from 'react';
 import {
   combineOccurrences,
   componentFunctionOf,
   createComponentOriginResolver,
+  readComponentName,
   type ComponentOriginResolver,
   type ScriptRef,
 } from './component-origin';
@@ -114,6 +116,33 @@ describe('componentFunctionOf', () => {
     expect(componentFunctionOf({ type: { render } })).toBe(render);
     expect(componentFunctionOf({ type: render })).toBe(render);
     expect(componentFunctionOf('div')).toBeNull();
+  });
+});
+
+describe('readComponentName', () => {
+  it('names forwardRef and memo types after the component they wrap, as React DevTools does', () => {
+    expect(readComponentName(forwardRef(function Button() { return null; }))).toBe('Button');
+    expect(readComponentName(memo(function Card() { return null; }))).toBe('Card');
+    expect(readComponentName(memo(forwardRef(function Field() { return null; })))).toBe('Field');
+  });
+
+  it('prefers an explicit displayName on the wrapper, then on the wrapped component', () => {
+    const inner = function Inner() { return null; };
+    const wrapped = forwardRef(inner);
+    wrapped.displayName = 'Outer';
+    expect(readComponentName(wrapped)).toBe('Outer');
+    const named = Object.assign(function Hidden() { return null; }, { displayName: 'Shown' });
+    expect(readComponentName(memo(named))).toBe('Shown');
+  });
+
+  it('leaves a wrapped arrow function without a runtime name unnamed', () => {
+    expect(readComponentName(forwardRef(() => null))).toBeNull();
+    expect(readComponentName(memo(() => null))).toBeNull();
+  });
+
+  it('does not read through objects that are not forwardRef or memo', () => {
+    expect(readComponentName({ type: function Nope() { return null; } })).toBeNull();
+    expect(readComponentName(createContext(null).Provider)).toBeNull();
   });
 });
 

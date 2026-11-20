@@ -4,6 +4,7 @@ import {
   evalAvalanche,
   tupleToStats,
   getReport,
+  nameBudgetFor,
   UPSTREAM_COMMIT_STAT_KEYS,
   type AvalancheApi,
   type AvalancheApiStatus,
@@ -482,5 +483,19 @@ describe('evalAvalanche', () => {
     const api = makeApi({ install: () => { throw new Error('fail'); } });
     const r = evalAvalanche({ action: 'install' }, api, null);
     expect(r).toMatchObject({ ok: false, available: true, action: 'install', error: 'fail' });
+  });
+});
+
+describe('nameBudgetFor', () => {
+  it('keeps the default budget for reads that return a few source ids', () => {
+    expect(nameBudgetFor({ action: 'hot-sources', timeoutMs: 60000 })).toBe(3000);
+    expect(nameBudgetFor(null)).toBe(3000);
+  });
+
+  it('gives an export half of the caller timeout, between 3s and 20s', () => {
+    expect(nameBudgetFor({ action: 'export', timeoutMs: 20000 })).toBe(10000);
+    expect(nameBudgetFor({ action: 'export-last', timeoutMs: 60000 })).toBe(20000);
+    expect(nameBudgetFor({ action: 'export', timeoutMs: 5000 })).toBe(3000);
+    expect(nameBudgetFor({ action: 'export' })).toBe(3000);
   });
 });

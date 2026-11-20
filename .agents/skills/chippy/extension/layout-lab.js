@@ -1191,13 +1191,28 @@
     const style = CONN_STYLES[s] || CONN_STYLES.unknown;
     const title = escapeAttr(getConnTitle(s));
     return `<span data-chippy-key="connection-pill" data-chippy-conn-pill title="${title}" style="
-      font-size:10px;color:${style.color};font-family:monospace;letter-spacing:.04em;
+      font-size:10px;color:${style.color};font-family:monospace;letter-spacing:.04em;white-space:nowrap;flex-shrink:0;
     ">${style.label}</span>`;
   }
 
+  function getIntegration() {
+    return chippy.config?.integration || window.__CHIPPY_OWNER__?.integration || null;
+  }
+
   function isExtensionIntegration() {
-    const integration = chippy.config?.integration || window.__CHIPPY_OWNER__?.integration || null;
-    return integration?.kind === 'extension';
+    return getIntegration()?.kind === 'extension';
+  }
+
+  // How Chippy reached this page, shown next to the connection state so the
+  // user does not have to open settings to learn it.
+  function renderIntegrationPill() {
+    const integration = getIntegration();
+    if (!integration?.kind) return '';
+    const title = [integration.who, integration.reloadAction].filter(Boolean).join('. ');
+    return `<span data-chippy-key="integration-pill" data-chippy-integration-pill="${escapeAttr(integration.kind)}" title="${escapeAttr(title)}" style="
+      font-size:10px;color:#A9ABAF;font-family:monospace;letter-spacing:.04em;
+      white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;
+    ">via ${escapeAttr(integration.kind)}</span>`;
   }
 
   // ─── Avalanche recording controls ────────────────────────────────────────
@@ -1207,6 +1222,12 @@
     ready: { color: '#4BCE97', title: 'Avalanche is capturing commits from page start.' },
     late: { color: '#F5CD47', title: 'Avalanche was installed after the page loaded, so it missed the first render. Click to reload with Avalanche on from page start.' },
     off: { color: '#A9ABAF', title: 'Avalanche is off. Click to reload with Avalanche on from page start.' },
+    missing: { color: '#F87168', title: 'The Chippy runtime (avalanche.iife.js) is not loaded, so probes cannot read components, props, owners, or boundaries. Click to reload with it.' },
+  };
+  const AVALANCHE_PILL_LABELS = {
+    late: '● Avalanche late · reload',
+    off: '○ Avalanche off · reload',
+    missing: '⚠ Runtime missing · reload',
   };
   let recordingTicker = null;
 
@@ -1215,6 +1236,7 @@
   }
 
   function avalancheMode(rec) {
+    if (!rec.avalanche.available) return 'missing';
     if (!rec.avalanche.installed) return 'off';
     return rec.avalanche.fromPageStart ? 'ready' : 'late';
   }
@@ -1249,7 +1271,7 @@
       : `<button type="button" data-chippy-avalanche-reload data-chippy-avalanche-pill="${mode}" title="${escapeAttr(pill.title)}"${busy ? ' disabled' : ''} style="
           border:0;background:rgba(255,255,255,.08);color:${pill.color};border-radius:7px;padding:3px 7px;
           cursor:pointer;font-size:11px;line-height:1.2;pointer-events:auto;
-        ">${mode === 'off' ? '○ Avalanche off · reload' : '● Avalanche late · reload'}</button>`;
+        ">${AVALANCHE_PILL_LABELS[mode]}</button>`;
     const recordLabel = rec.state === 'recording'
       ? `■ Stop ${formatElapsed(Date.now() - rec.startedAt)}`
       : '● Record';
@@ -1321,6 +1343,7 @@
             ${CHIPPY_LOGO}
             <div style="font-weight:650;font-size:14px;color:#CECFD2;">Chippy</div>
             ${renderConnPill()}
+            ${renderIntegrationPill()}
           </div>
           <div style="display:flex;align-items:center;gap:6px;">
             ${settingsButton}

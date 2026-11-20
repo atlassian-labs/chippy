@@ -95,7 +95,8 @@ OODA **Act** is an evidence move; it is not Chippy **Apply**. Load [operating-mo
 
 - Do not mutate the running page instead of editing source.
 - Do not create temporary globals or monkeypatch product behavior to answer an inspection question. Use documented commands or report the capability gap.
-- Do not use ad-hoc Python, Node, jq reducers, or new snippets over Chippy output to answer inspection questions that existing commands cover. Use `probe-parents` / `inspect-fiber-parents` for `fiber.return` walking, `probe-owners` / `inspect-fiber-owners` for `_debugOwner`, and prepared command views first. Extracting one transport field for an automation harness is fine. If those commands prove a reusable evidence reduction is absent, add a first-class command or report the gap.
+- Do not use ad-hoc Python, Node, jq reducers, or new snippets over Chippy output to answer inspection questions that existing commands cover. Use `probe-parents` / `inspect-fiber-parents` for `fiber.return` walking, `probe-owners` / `inspect-fiber-owners` for `_debugOwner`, and prepared command views first. Extracting one transport field for an automation harness is fine.
+- When no command answers the question, write a [page script](references/page-scripts.md) against the `chippy` toolkit instead of reducing command output elsewhere. Report its `limits`, and say so when the script read `ref.raw`.
 - Do not call a performance hotspot a trigger without causal evidence. Separate **trigger**, **hotspot**, and **collateral**.
 - Do not clear probes, captures, or instrumentation while they remain the evidence anchor for an open investigation.
 
@@ -127,13 +128,13 @@ Each route below loads the same page runtime. The extension is one delivery rout
 
 | Route | Who sets it up | Reload behavior | Initial-load capture |
 |---|---|---|---|
-| Browser extension | User, once per browser and origin | Re-injects automatically for enabled origins. | Yes, with `reload-with-avalanche`: the armed reload runs the early scripts at `document_start`. |
+| Browser extension | User, once per browser and origin | Re-injects automatically for enabled origins. Enabling an origin on an open tab loads the full runtime without a reload. | Yes, with `reload-with-avalanche`: the armed reload runs the early scripts at `document_start`. |
 | Agent-driven Playwright browser | Agent; no extension | Init scripts load again on every navigation; the ad-hoc import must be repeated. | Only with the [pre-page start-up](references/mode-a-injection.md#pre-page-start-up) variant, which installs the detector before React on every document. The packaged loader and the ad-hoc import start the detector after connection. |
 | Local proxy (`proxy-start <targetPort> [originalUrl]`) | Agent; the user or Playwright opens the page on the helper port | The proxy adds Chippy to every load of the `originalUrl` path, so pass `originalUrl`. | Yes, with `reload-with-avalanche`: the shim and Avalanche run before page scripts. Targets on this machine only. |
 | Storybook addon (`addons: ['@atlassian/chippy/storybook']`, Storybook 10.3+) | User, in the Storybook configuration | `page-reload` uses Storybook `FORCE_REMOUNT` to remount the SUT without reloading the preview iframe. | The story's mount, through the remount. |
 | Console/module import, including `connectChippy()` from `@atlassian/chippy/browser` | User or page code, in the current document | Full reload/navigation removes Chippy; run the import again. | No: use mid-page capture. |
 
-The extension toolbar popup shows the Chippy mark and name with Enable and Disable for the current origin. The in-page UI starts as one small bottom-corner Chippy button. Expand it to reveal compact `P1 — drag to source` and `P2 — drag to source` rows; each row is the probe's dock and expands into its details once placed. Dragging a probe out keeps the panel expanded, and a placed probe is document-anchored so it moves with its target during page scroll. The gear contains the helper URL and the Jira and ATL plugin switches. Active probes: Choosing Explain or Investigate sends the annotation; Change stays a draft until Enter is pressed in the comment, and Enter also sends any edited comment; Shift+Enter inserts a newline. The probe then shows it as queued for the agent until the agent acknowledges it. Storybook intentionally keeps its probe dock in the preview because its details panel lives in the manager frame.
+The extension toolbar popup shows the Chippy mark and name with Enable and Disable for the current origin. The in-page UI starts as one small bottom-corner Chippy button. Expand it to reveal compact `P1 — drag to source` and `P2 — drag to source` rows; each row is the probe's dock and expands into its details once placed. Dragging a probe out keeps the panel expanded, and a placed probe is document-anchored so it moves with its target during page scroll. The panel header names the route that loaded Chippy (`via extension`, `via import`, and so on; hover for `who` and `reloadAction`). A red `Runtime missing · reload` badge means `avalanche.iife.js` is absent, so probes cannot read components; click it to reload with the runtime. The gear contains the helper URL and the Jira and ATL plugin switches. Active probes: Choosing Explain or Investigate sends the annotation; Change stays a draft until Enter is pressed in the comment, and Enter also sends any edited comment; Shift+Enter inserts a newline. The probe then shows it as queued for the agent until the agent acknowledges it. Storybook intentionally keeps its probe dock in the preview because its details panel lives in the manager frame.
 
 Each connected page reports `integration.kind`, `who`, `source`, `reinjectsOnReload`, and `reloadAction`. Use those fields instead of inferring how Chippy arrived.
 
@@ -250,7 +251,7 @@ avalanche-arm <clientId> <origin> [maxCommits] [captureFibers=true|false] [detec
 avalanche-disarm <clientId> <origin>
 reload-with-avalanche <clientId> <origin> [maxCommits] [timeoutMs] [settleMs] [captureFibers=true|false] [detectionMode=sources|full|stats|amplifiers]
 
-eval-page <clientId> <snippet-file-or-name> [--key value ...]
+eval-page <clientId> <snippet-file-or-name|-> [--allow replay] [--script-timeout ms] [--key value ...]
 eval-snippets
 page-reload <clientId>
 page-wait-reload <clientId> [timeoutMs]
@@ -305,7 +306,7 @@ Choose capture mode from the symptom:
 
 Read broad to narrow: `avalanche-status` → `avalanche-hot-sources` → `avalanche-commit-list` → one `avalanche-commit-peek`. Do not open the full export first. Expand a `latestAction` id with `avalanche-describe-action`. When a capture is large or will be read more than once, run `avalanche-save <clientId> <file>` once (a `.gz` path writes it compressed, often 40x smaller), then read it with `avalanche-offline <file> <summary|commit-list|commit-peek|hot-sources|describe-action|network|timeline|dom-diff|source-search>`.
 
-Arm before the user or harness performs the slow interaction. Probes drill into the captured wave afterward; do not make probe placement a prerequisite for starting the recorder. The user can also record from the Chippy panel: **● Record** clears the capture, as `avalanche-clear` does, and **■ Stop** marks the end. The capture stays in Avalanche; read it with the usual `avalanche-*` commands or save it with `avalanche-save`.
+Arm before the user or harness performs the slow interaction. Probes drill into the captured wave afterward; do not make probe placement a prerequisite for starting the recorder. The user can also record from the Chippy panel: **● Record** clears the capture, as `avalanche-clear` does, and **■ Stop** pauses it, so every `avalanche-*` read and `avalanche-save` covers only the recording. `avalanche-status` reports `paused: true` until the next Record or `avalanche-clear`.
 
 Each commit records `ticks`, the render slices React ran for it: `1` is a render finished in one task, more means a time-sliced or repeated render, and `null` means the page exposes no signal (see `meta.renderTicks.reason`). Rank them with `avalanche-commit-list <clientId> 20 ticks`. Commit timings (`commit-peek ... timing`) are absolute `performance.now()` values on the page clock, shared with `PerformanceObserver` entries and DevTools traces. The `perf-entries` snippet reads the browser's buffered layout shifts, long animation frames, slow interactions, LCP, FCP, TTFB, and User Timing marks and measures, names the component behind each shift source, interaction target, and LCP element, and lists the commits near each entry. Use it when the symptom is a browser metric, then read the listed commits with `commit-peek`.
 
@@ -319,11 +320,13 @@ Avalanche records what each commit changed in the DOM, read from the committed f
 
 Every mode records which components rendered and their prop changes (`commit-peek include=rendered`). `stats` never sets `isSelfSource`, and only `full` or `amplifiers` fill `trasherCounts`. When amplifier evidence is required and triage began in the default `sources` mode, run `avalanche-recapture <clientId> full`, reproduce the identical interaction, and only then read `trasherCounts`. Load [avalanche-detector](references/avalanche-detector.md) for exact schemas and [fixing-performance](references/fixing-performance.md) for fix-layer selection.
 
-## Snippets and active stimuli
+## Page scripts, snippets, and active stimuli
 
-`eval-page` executes a version-controlled snippet from `snippets/` in the page realm and returns a circular-safe JSON envelope. It uses helper HTTP/WebSocket transport; Playwright is not required.
+`eval-page` executes a script in the page realm and returns a circular-safe JSON envelope. It uses helper HTTP/WebSocket transport; Playwright is not required. The script is a packaged snippet from `snippets/`, a file, or `-` for a throwaway script on stdin.
 
-- Prefer a snippet for one-off probes, reproducible procedures, or composed stimuli.
+- Use a command when one answers the question. Otherwise write a [page script](references/page-scripts.md) against `chippy`, the toolkit of fiber selection, relations, geometry, hook reads, and overlay that every script receives. Follow that reference's rules: return refs, read `limits` and `sideEffects`, and clear the overlay you paint.
+- Pass `--allow replay` only after the [debug replay preflight](references/active-stimulus.md#debug-replay-preflight); without it, custom-hook names and `chippy.hooks.callers` fail the run with `gate: "replay"`.
+- Prefer a snippet for reproducible procedures or composed stimuli that will be run again.
 - Promote a reusable, round-trip-sensitive capability to the bridge and keep its procedure in a snippet.
 - Read-only snippets may inspect fibers and page state. Stateful or active snippets must document their ownership and anchor contract.
 - `stability-nudge` schedules one extra render via the first-class `fiber-schedule-update` capability. It does not mutate a hook or prop, but the extra commit and any effects it runs are the stimulus.

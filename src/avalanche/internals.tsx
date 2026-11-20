@@ -2,6 +2,7 @@
 
 import { getFiberSourceCandidate } from '../chippy-bridge/fiber-source';
 import { readComponentName } from '../chippy-bridge/component-origin';
+import { UNNAMED_COMPONENT } from './rendered-names';
 
 export type ComponentType =
   | Function
@@ -218,7 +219,7 @@ export function getComponentName(fiber: Fiber): string {
   const named = readComponentName(fiber.type) || readComponentName(fiber.elementType);
   if (named) return named;
   const source = getFiberSourceCandidate(fiber);
-  return (source && `<${source.fileName}:${source.lineNumber}>`) || 'Anonymous';
+  return (source && `<${source.fileName}:${source.lineNumber}>`) || UNNAMED_COMPONENT;
 }
 
 /**

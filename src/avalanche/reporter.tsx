@@ -297,6 +297,11 @@ export interface ReportMeta {
   renderedEvidence?: RenderedEvidenceStatus;
   /** `domByCommit` budget and what it dropped. Absent when DOM diff capture is off. */
   domDiff?: RenderedEvidenceStatus;
+  /**
+   * Whether the capture is paused. While paused, nothing after `pausedAt`
+   * (performance.now()) enters the capture.
+   */
+  capture?: CaptureStatus;
   /** Amplifier summary (when detectionMode: 'amplifierMetrics') */
   amplifiersMetrics?: {
     totalHookThrashes: number;
@@ -816,6 +821,13 @@ export function humanSourceId(internalId: string, type: ComponentType, depth: nu
   return `${componentName}#${instanceNum}@${depth}`;
 }
 
+/** Whether Avalanche is adding to its capture; see `pause()` on the detector. */
+export interface CaptureStatus {
+  paused: boolean;
+  /** performance.now() when the capture was paused, or null while it records. */
+  pausedAt: number | null;
+}
+
 export function buildReport(
   state: ProfilerState,
   thrashMode: ThrashMode,
@@ -838,6 +850,7 @@ export function buildReport(
     network?: NetworkCaptureStatus;
     renderedEvidence?: RenderedEvidenceStatus;
     domDiff?: RenderedEvidenceStatus;
+    capture?: CaptureStatus;
   }
 ): Report {
   const { minCollateral = 1 } = options;
@@ -1093,8 +1106,9 @@ export function buildReport(
     renderTicks,
     ...(detectorConfig?.renderedEvidence && { renderedEvidence: detectorConfig.renderedEvidence }),
     ...(detectorConfig?.domDiff && { domDiff: detectorConfig.domDiff }),
+    ...(detectorConfig?.capture && { capture: detectorConfig.capture }),
     network: detectorConfig?.network
-      ?? { supported: false, enabled: false, windowStart: 0, requests: 0, dropped: 0, ignoredOwn: 0 },
+      ?? { supported: false, enabled: false, windowStart: 0, requests: 0, dropped: 0, ignoredOwn: 0, pausedAt: null },
     timing: {
       totalDetectorOverhead,
       avgDetectorOverhead,

@@ -8,7 +8,7 @@ const EXTENSION = resolve(__dirname, '../../.agents/skills/chippy/extension');
 const read = (name: string) => readFileSync(resolve(EXTENSION, name), 'utf8');
 
 
-function openPanelWithBridge({ installed = true, fromPageStart = true } = {}) {
+function openPanelWithBridge({ installed = true, fromPageStart = true, runtime = true } = {}) {
   const dom = new JSDOM('<!doctype html><html><body><main>fixture</main></body></html>', {
     url: 'https://example.test/page',
     runScripts: 'outside-only',
@@ -17,11 +17,12 @@ function openPanelWithBridge({ installed = true, fromPageStart = true } = {}) {
   const calls: string[] = [];
   const sent: Array<Record<string, any>> = [];
   let isInstalled = installed;
-  win.__CHIPPY = { config: { activated: true, ui: 'panel', integration: { kind: 'extension' }, publishDebounceMs: 0 } };
+  win.__CHIPPY = { config: { activated: true, ui: 'panel', integration: { kind: 'extension', who: 'Chippy browser extension' }, publishDebounceMs: 0 } };
   if (fromPageStart) win.__CHIPPY_STARTUP_CONFIG = { avalanche: { autoStart: true } };
-  win.__AVALANCHE__ = {
+  if (runtime) win.__AVALANCHE__ = {
     status: () => ({ installed: isInstalled, commitCount: 2 }),
     reset: () => { calls.push('reset'); return { ok: true }; },
+    pause: () => { calls.push('pause'); return { ok: true }; },
     install: () => { isInstalled = true; return { ok: true }; },
     uninstall: () => { calls.push('uninstall'); return { ok: true }; },
     bridge: {
@@ -79,7 +80,7 @@ describe('panel recording controls', () => {
   let close: (() => void) | null = null;
   afterEach(() => { close?.(); close = null; });
 
-  it('clears the capture on Record and marks the end on Stop, without saving anything new', () => {
+  it('clears the capture on Record and pauses it on Stop, without saving anything new', () => {
     const { dom, win, panel, calls, sent } = openPanelWithBridge();
     close = () => { win.__CHIPPY.pageBridge.destroy(); dom.window.close(); };
     expect(panel.querySelector('[data-chippy-avalanche-pill="ready"]')).toBeTruthy();
@@ -91,9 +92,25 @@ describe('panel recording controls', () => {
     (panel.querySelector('[data-chippy-record="recording"]') as HTMLButtonElement).click();
     expect(panel.querySelector('[data-chippy-recording-status]')?.textContent).toMatch(/^Recorded 0:0\d$/);
     expect(panel.querySelector('[data-chippy-record="stopped"]')?.textContent).toBe('● Record');
-    // The recording is Avalanche's capture: no export, no uninstall.
-    expect(calls).toEqual(['reset']);
+    // The recording is Avalanche's capture, paused at Stop: no export, no uninstall.
+    expect(calls).toEqual(['reset', 'pause']);
     expect(sent.some((m) => JSON.stringify(m).includes('"payload"'))).toBe(false);
+  });
+
+  it('keeps recording when the extension injects the bridge again after an in-page navigation', () => {
+    const { dom, win, panel, calls } = openPanelWithBridge();
+    close = () => { win.__CHIPPY.pageBridge.destroy(); dom.window.close(); };
+    (panel.querySelector('[data-chippy-record="idle"]') as HTMLButtonElement).click();
+    const first = win.__CHIPPY.pageBridge;
+
+    win.eval(read('chippy-page-bridge.js'));
+    expect(win.__CHIPPY.pageBridge).not.toBe(first);
+    expect(win.__CHIPPY.pageBridge.recording.state().state).toBe('recording');
+    expect(panel.querySelector('[data-chippy-record="recording"]')).toBeTruthy();
+
+    (panel.querySelector('[data-chippy-record="recording"]') as HTMLButtonElement).click();
+    expect(panel.querySelector('[data-chippy-recording-status]')?.textContent).toMatch(/^Recorded 0:0\d$/);
+    expect(calls).toEqual(['reset', 'pause']);
   });
 
   it('offers a reload when Avalanche is off or was installed after the page loaded', () => {
@@ -107,6 +124,25 @@ describe('panel recording controls', () => {
     close = () => { late.win.__CHIPPY.pageBridge.destroy(); late.dom.window.close(); };
     expect(late.panel.querySelector('[data-chippy-avalanche-pill="late"]')?.tagName).toBe('BUTTON');
     expect(late.panel.querySelector('[data-chippy-record="idle"]')).toBeTruthy();
+  });
+
+  it('says the runtime is missing, not that Avalanche is off, when avalanche.iife.js never loaded', () => {
+    const missing = openPanelWithBridge({ installed: false, fromPageStart: false, runtime: false });
+    close = () => { missing.win.__CHIPPY.pageBridge.destroy(); missing.dom.window.close(); };
+    const pill = missing.panel.querySelector('[data-chippy-avalanche-pill="missing"]');
+    expect(pill?.tagName).toBe('BUTTON');
+    expect(pill?.textContent).toBe('⚠ Runtime missing · reload');
+    expect(missing.panel.querySelector('[data-chippy-avalanche-pill="off"]')).toBeNull();
+    expect(missing.panel.querySelector('[data-chippy-record]')).toBeNull();
+  });
+
+  it('shows how Chippy reached the page in the panel header', () => {
+    const { dom, win, panel } = openPanelWithBridge();
+    close = () => { win.__CHIPPY.pageBridge.destroy(); dom.window.close(); };
+    const pill = panel.querySelector('[data-chippy-integration-pill]');
+    expect(pill?.getAttribute('data-chippy-integration-pill')).toBe('extension');
+    expect(pill?.textContent).toBe('via extension');
+    expect(pill?.getAttribute('title')).toBe('Chippy browser extension');
   });
 
 });

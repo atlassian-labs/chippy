@@ -19,6 +19,10 @@ import { buildDomDiffView } from '../avalanche/dom-diff-view';
 
 export type AvalancheApiStatus = {
   installed: boolean;
+  /** True when the capture is paused (panel Stop). Absent on bundles before pause. */
+  paused?: boolean;
+  /** performance.now() when the capture was paused, or null while it records. */
+  pausedAt?: number | null;
   hasMetricsGlobal: boolean;
   commitCount: number;
   /** `'adapter:<id>'`, `'devtools'`, or `'none'`. Bundles before the adapter seam report `'atl'`. */
@@ -37,6 +41,8 @@ export type ReadStatusResult =
 
 export type AvalancheCommand = {
   action?: string;
+  /** How long the caller waits for the result; sizes whole-capture name recovery. */
+  timeoutMs?: number;
   options?: Record<string, unknown>;
   count?: number;
   sourceId?: string;
@@ -76,6 +82,8 @@ export type AvalancheApi = {
   /** Component types the detector recorded; used to recover production names. */
   /** Component types behind the given report source ids. */
   componentTypesFor?: (sourceIds: Iterable<string>) => unknown[];
+  /** Component types of rendered entries still recorded as `Anonymous`. */
+  unnamedRenderedTypes?: () => unknown[];
   debugHook?: (sourceId: string, hookIndex: number, windowSize?: number) => unknown;
   [key: string]: unknown;
 };
@@ -556,10 +564,27 @@ export function evalAvalanche(
 
 /** Default time budget for recovering production names before a report. */
 export const AVALANCHE_NAME_BUDGET_MS = 3000;
+/** Upper bound for a whole-capture export, which can name hundreds of types. */
+export const AVALANCHE_EXPORT_NAME_BUDGET_MS = 20000;
+
+/**
+ * Name recovery budget for one command. An export names every rendered type,
+ * and the first resolves also load the bundles' source maps, so 3s often covers
+ * only a few dozen types. An export may spend up to half of the caller's
+ * timeout, leaving the rest for the report itself.
+ */
+export function nameBudgetFor(command: AvalancheCommand | null | undefined): number {
+  const action = String(command?.action || 'status');
+  const timeoutMs = Number(command?.timeoutMs);
+  if (!WHOLE_CAPTURE_ACTIONS.has(action) || !Number.isFinite(timeoutMs)) return AVALANCHE_NAME_BUDGET_MS;
+  return Math.min(AVALANCHE_EXPORT_NAME_BUDGET_MS, Math.max(AVALANCHE_NAME_BUDGET_MS, timeoutMs / 2));
+}
 
 /** Actions whose results carry no component source ids, or that change state. */
 const NAME_FREE_ACTIONS = new Set(['install', 'uninstall', 'reset', 'clear', 'status', 'debug-hook', 'network', 'timeline', 'dom-diff']);
 const SOURCE_ID = /^[^\s#@]+#\d+@-?\d+$/;
+/** Actions that return every rendered entry, more ids than `sourceIdsIn` collects. */
+const WHOLE_CAPTURE_ACTIONS = new Set(['export', 'export-last']);
 const MAX_SOURCE_IDS = 2000;
 
 /** Report source ids (`Name#instance@depth`) that appear anywhere in `value`. */
@@ -597,16 +622,18 @@ export async function evalAvalancheWithNames(
   command: AvalancheCommand | null | undefined,
   api: AvalancheApi | null | undefined,
   mod: AvalancheModule | null | undefined,
-  budgetMs = AVALANCHE_NAME_BUDGET_MS,
+  budgetMs = nameBudgetFor(command),
 ): Promise<EvalAvalancheResult> {
   const first = evalAvalanche(command, api, mod);
   const action = String(command?.action || 'status');
   if (!first.ok || NAME_FREE_ACTIONS.has(action) || typeof api?.componentTypesFor !== 'function') return first;
   const ids = sourceIdsIn(first);
-  if (ids.length === 0) return first;
+  const wholeCapture = WHOLE_CAPTURE_ACTIONS.has(action);
+  if (ids.length === 0 && !wholeCapture) return first;
   let types: unknown[];
   try {
-    types = api.componentTypesFor(ids);
+    types = ids.length > 0 ? api.componentTypesFor(ids) : [];
+    if (wholeCapture && typeof api.unnamedRenderedTypes === 'function') types = types.concat(api.unnamedRenderedTypes());
   } catch {
     return first;
   }

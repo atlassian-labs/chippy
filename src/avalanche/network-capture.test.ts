@@ -164,4 +164,26 @@ describe('createNetworkCapture', () => {
     expect(FakeObserver.instances).toHaveLength(0);
     expect(unsupported.status()).toMatchObject({ supported: false, enabled: true });
   });
+
+  it('keeps requests in flight at pause and drops those that start after it', () => {
+    const { capture, observer } = installed();
+    observer.deliver(resource('https://app.test/api/before', 1010, 1050));
+    now = 1100;
+    capture.pause();
+    observer.deliver(
+      resource('https://app.test/api/in-flight', 1090, 1200),
+      resource('https://app.test/api/after', 1150, 1180),
+    );
+    expect(capture.requests.map((r) => r.url)).toEqual([
+      'https://app.test/api/before',
+      'https://app.test/api/in-flight',
+    ]);
+    expect(capture.status().pausedAt).toBe(1100);
+
+    now = 1300;
+    capture.reset();
+    observer.deliver(resource('https://app.test/api/next', 1310, 1320));
+    expect(capture.requests.map((r) => r.url)).toEqual(['https://app.test/api/next']);
+    expect(capture.status().pausedAt).toBeNull();
+  });
 });

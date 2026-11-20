@@ -88,6 +88,8 @@ import {
 import { applyRecoveredOrigin, readComponentName, resolveComponentOrigin } from './chippy-bridge/component-origin';
 import { applyProductionBreadcrumbs } from './chippy-bridge/production-breadcrumbs';
 import { scriptResultJson } from './chippy-bridge/script-result';
+import { runChippyScript } from './chippy-bridge/script-kit/run-script';
+import { clearOverlay } from './chippy-bridge/script-kit/overlay';
 import { measureComponentArea } from './chippy-bridge/component-area/measure';
 import { readAreaWatch, startAreaWatch, stopAreaWatch } from './chippy-bridge/component-area/watch';
 import {
@@ -226,13 +228,21 @@ type AvalancheApi = {
   install: (options?: Parameters<typeof createAvalancheDetector>[0]) => { ok: true; detectionLevel: string } | { ok: false; error: string };
   uninstall: () => { ok: true };
   reset: () => { ok: true };
+  /** Stop adding to the capture while staying attached; reset() or resume() records again. */
+  pause: () => { ok: true } | { ok: false; error: string };
+  resume: () => { ok: true } | { ok: false; error: string };
   report: (topN?: number, sortBy?: 'effect' | 'callback' | 'memo' | 'total', options?: Record<string, unknown>) => unknown;
   exportLast: (n?: number) => unknown;
   componentTypesFor: (sourceIds: Iterable<string>) => unknown[];
+  unnamedRenderedTypes: () => unknown[];
   debugHook: (sourceId: string, hookIndex: number, windowSize?: number) => unknown;
   _debugRawHookEvents: (componentName: string) => unknown;
   status: () => {
     installed: boolean;
+    /** True after pause(): the capture holds only what came before `pausedAt`. */
+    paused: boolean;
+    /** performance.now() when the capture was paused, or null while it records. */
+    pausedAt: number | null;
     hasMetricsGlobal: boolean;
     commitCount: number;
     integrationMode: IntegrationMode;
@@ -324,6 +334,8 @@ type AvalancheApi = {
     applyProductionBreadcrumbs: typeof applyProductionBreadcrumbs;
     safeJson: typeof safeJsonImpl;
     scriptResultJson: typeof scriptResultJson;
+    runChippyScript: typeof runChippyScript;
+    clearScriptOverlay: typeof clearOverlay;
     measureComponentArea: (options?: Parameters<typeof measureComponentArea>[0]) => ReturnType<typeof measureComponentArea>;
     areaWatch: { start: (options?: Parameters<typeof startAreaWatch>[0]) => ReturnType<typeof startAreaWatch>; read: typeof readAreaWatch; stop: typeof stopAreaWatch };
     resolveOwnerFiber: typeof resolveOwnerFiberImpl;
@@ -368,6 +380,16 @@ const api: AvalancheApi = {
     if (detector) detector.reset();
     return { ok: true };
   },
+  pause() {
+    if (!detector) return { ok: false, error: 'not installed' };
+    detector.pause();
+    return { ok: true };
+  },
+  resume() {
+    if (!detector) return { ok: false, error: 'not installed' };
+    detector.resume();
+    return { ok: true };
+  },
   report(topN, sortBy, options) {
     if (!detector) return { ok: false, error: 'not installed' };
     return detector.report(topN, sortBy as any, options as any);
@@ -382,6 +404,9 @@ const api: AvalancheApi = {
   },
   componentTypesFor(sourceIds: Iterable<string>) {
     return detector ? detector.componentTypesFor(sourceIds) : [];
+  },
+  unnamedRenderedTypes() {
+    return detector ? detector.unnamedRenderedTypes() : [];
   },
   debugHook(sourceId, hookIndex, windowSize) {
     if (!detector) return { ok: false, error: 'not installed' };
@@ -401,10 +426,12 @@ const api: AvalancheApi = {
     let commitCount = 0;
     let networkRequests = 0;
     let renderedEvidence: RenderedEvidenceStatus | null = null;
+    let paused = false;
+    let pausedAt: number | null = null;
     try {
       // Counting must not build and walk a full report.
       const counts = detector ? detector.counts() : null;
-      if (counts) ({ commits: commitCount, networkRequests, renderedEvidence } = counts);
+      if (counts) ({ commits: commitCount, networkRequests, renderedEvidence, capture: { paused, pausedAt } } = counts);
     } catch (_) {}
     const integrationMode = detector
       ? (detector as any).getIntegrationMode?.() ?? 'none'
@@ -416,7 +443,7 @@ const api: AvalancheApi = {
     const packs = listPacks().map(({ id, label, instructions, extensions, compileErrors, initErrors }) => ({ id, label, instructions, extensions, compileErrors, initErrors }));
     let hooks: Record<string, AvalancheHookSummary> | null = null;
     try { hooks = summarizeHookResults(detector?.hookResults()); } catch (_) {}
-    return { installed, hasMetricsGlobal, commitCount, integrationMode, metricsAdapter, networkRequests, renderedEvidence, packs, hooks };
+    return { installed, paused, pausedAt, hasMetricsGlobal, commitCount, integrationMode, metricsAdapter, networkRequests, renderedEvidence, packs, hooks };
   },
   registerCommitMetricsAdapter,
   enablePlugins,
@@ -491,6 +518,8 @@ const api: AvalancheApi = {
     applyProductionBreadcrumbs,
     safeJson: safeJsonImpl,
     scriptResultJson,
+    runChippyScript,
+    clearScriptOverlay: clearOverlay,
     measureComponentArea: (options) => measureComponentArea(options),
     areaWatch: { start: (options) => startAreaWatch(options), read: readAreaWatch, stop: stopAreaWatch },
     resolveOwnerFiber: resolveOwnerFiberImpl,

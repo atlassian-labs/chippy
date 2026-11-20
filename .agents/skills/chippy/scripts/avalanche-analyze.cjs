@@ -45,6 +45,10 @@ var AUTHORED_BINDING = new RegExp(
 );
 var LEADING_IDENTIFIER = new RegExp(`^${IDENTIFIER}`);
 
+// src/chippy-bridge/component-origin.ts
+var FORWARD_REF = Symbol.for("react.forward_ref");
+var MEMO = Symbol.for("react.memo");
+
 // src/avalanche/network-signals.ts
 var DEFAULT_NETWORK_WINDOW_MS = 250;
 var NETWORK_SORT_KEYS = ["start", "end", "duration"];
@@ -1353,8 +1357,10 @@ function main(argv) {
   if (argv[0] === "save") {
     const out = argv[2];
     if (!out) fail("save requires <count> <file>");
-    const report2 = unwrapSavedReport(parseJson((0, import_node_fs.readFileSync)(0, "utf8"), "helper response"));
+    const response = parseJson((0, import_node_fs.readFileSync)(0, "utf8"), "helper response");
+    const report2 = unwrapSavedReport(response);
     if (!report2) fail("response has no Avalanche export (expected meta and commitStats); check avalanche-status");
+    const nameRecovery = response?.nameRecovery ?? response?.result?.nameRecovery;
     const trimmed = keepLastCommits(report2, Number(argv[1]) || 0);
     const text = JSON.stringify(trimmed);
     const data = out.endsWith(".gz") ? (0, import_node_zlib.gzipSync)(text, { level: 1 }) : text;
@@ -1362,7 +1368,7 @@ function main(argv) {
     const commits = Object.keys(trimmed.commitStats || {}).length;
     const jsonBytes = Buffer.byteLength(text);
     const bytes = typeof data === "string" ? jsonBytes : data.length;
-    process.stdout.write(`${JSON.stringify({ ok: true, file: out, bytes, ...bytes !== jsonBytes && { jsonBytes }, commits })}
+    process.stdout.write(`${JSON.stringify({ ok: true, file: out, bytes, ...bytes !== jsonBytes && { jsonBytes }, commits, ...nameRecovery ? { nameRecovery } : {} })}
 `);
     return;
   }

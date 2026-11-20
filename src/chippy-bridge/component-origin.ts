@@ -405,17 +405,55 @@ export function resolveComponentOrigin(type: unknown): Promise<ComponentOrigin> 
 
 type Named = { displayName?: unknown; name?: unknown };
 
-function ownName(value: unknown): string | null {
+const FORWARD_REF = Symbol.for('react.forward_ref');
+const MEMO = Symbol.for('react.memo');
+const MAX_WRAPPERS = 4;
+
+/** The component a `forwardRef` or `memo` type wraps, or null for any other type. */
+function wrappedComponentOf(type: unknown): unknown {
+  if (!type || typeof type !== 'object') return null;
+  const wrapper = type as { $$typeof?: unknown; render?: unknown; type?: unknown };
+  if (wrapper.$$typeof === FORWARD_REF) return wrapper.render ?? null;
+  if (wrapper.$$typeof === MEMO) return wrapper.type ?? null;
+  return null;
+}
+
+function ownString(value: unknown, key: keyof Named): string | null {
   if (!value || (typeof value !== 'object' && typeof value !== 'function')) return null;
-  const named = value as Named;
-  if (typeof named.displayName === 'string' && named.displayName !== '') return named.displayName;
+  const named = (value as Named)[key];
+  return typeof named === 'string' && named !== '' ? named : null;
+}
+
+/**
+ * The explicit `displayName` of a type, or of the component a `forwardRef` or
+ * `memo` wraps: `memo(forwardRef(Button))` with `Button.displayName` set is named.
+ */
+function ownName(value: unknown): string | null {
+  let current = value;
+  for (let depth = 0; current && depth <= MAX_WRAPPERS; depth += 1) {
+    const explicit = ownString(current, 'displayName');
+    if (explicit) return explicit;
+    current = wrappedComponentOf(current);
+  }
+  return null;
+}
+
+/** The runtime function or class name of a type, looking through `forwardRef` and `memo`. */
+function runtimeName(value: unknown): string | null {
+  let current = value;
+  for (let depth = 0; current && depth <= MAX_WRAPPERS; depth += 1) {
+    const name = ownString(current, 'name');
+    if (name) return name;
+    current = wrappedComponentOf(current);
+  }
   return null;
 }
 
 /**
  * The name to show for a component type: an explicit `displayName`, then the
  * name recovered from the bundle's source map, then the runtime function name.
- * Host types (strings) return themselves.
+ * `forwardRef` and `memo` types read the component they wrap, as React
+ * DevTools does. Host types (strings) return themselves.
  */
 export function readComponentName(type: unknown): string | null {
   if (!type) return null;
@@ -425,8 +463,7 @@ export function readComponentName(type: unknown): string | null {
   if (explicit) return explicit;
   const recovered = recoveredComponentName(type);
   if (recovered) return recovered;
-  const name = (type as Named).name;
-  return typeof name === 'string' && name !== '' ? name : null;
+  return runtimeName(type);
 }
 
 /** The runtime name when a recovered name replaced it; otherwise null. */

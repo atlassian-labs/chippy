@@ -35,6 +35,8 @@ function buildAvalancheCommand(body = {}, requestId = 'test-request-id') {
   if (body.minRequestMs != null) command.minRequestMs = Number(body.minRequestMs);
   if (body.exclude != null) command.exclude = String(body.exclude);
   if (body.format != null) command.format = String(body.format);
+  // The page sizes its production name recovery to fit the request.
+  if (body.timeoutMs != null) command.timeoutMs = Number(body.timeoutMs);
   return command;
 }
 

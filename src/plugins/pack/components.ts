@@ -4,10 +4,12 @@
  * Each rule finds its nearest matching fiber in the probed ancestry. A rule of
  * a new kind becomes that kind's boundary; an `error` rule enriches the core
  * error boundary instead. Earlier rules win when two rules share a kind.
+ * The pack's `labels` rules (./labels) become the provider's `label`.
  */
 
 import { type Fiber, getDisplayName } from '../../layout-lab/fiber-walk';
 import type { ContextContribution, ContextField, ContextProvider } from '../../layout-lab/marker-context';
+import { compileLabels } from './labels';
 import type { ChippyPack, PackComponentRule, PackValueRef } from './spec';
 
 type CompiledRule = {
@@ -34,7 +36,7 @@ function scalar(value: unknown): string | null {
 }
 
 /** Resolve a value reference against one matched fiber. */
-export function readRef(ref: PackValueRef, hit: Pick<Hit, 'rule' | 'fiber' | 'name'>): string | null {
+export function readRef(ref: PackValueRef, hit: { rule: Pick<PackComponentRule, 'nameParts'>; fiber: Fiber; name: string }): string | null {
   for (const one of Array.isArray(ref) ? ref : [ref]) {
     let value: string | null = null;
     if (one === 'name') value = hit.name;
@@ -66,7 +68,8 @@ function readFields(hit: Hit): ContextField[] {
 
 export function compileComponents(pack: ChippyPack): ContextProvider | null {
   const rules = (pack.components ?? []).map(compileRule);
-  if (rules.length === 0) return null;
+  const labeler = compileLabels(pack.labels);
+  if (rules.length === 0 && !labeler) return null;
   const kinds = new Map<string, { kind: string; label: string; accent?: string }>();
   for (const { rule } of rules) {
     if (rule.kind === 'error' || kinds.has(rule.kind)) continue;
@@ -86,6 +89,13 @@ export function compileComponents(pack: ChippyPack): ContextProvider | null {
       });
     }
     return hits.filter((hit): hit is Hit => !!hit);
+  }
+
+  function matchBoundary(fiber: Fiber): string | null {
+    const name = displayNameOf(fiber);
+    if (!name) return null;
+    const hit = rules.find(({ rule, matches }) => rule.kind !== 'error' && matches(name));
+    return hit ? hit.rule.kind : null;
   }
 
   return {
@@ -119,11 +129,10 @@ export function compileComponents(pack: ChippyPack): ContextProvider | null {
       if (hits.length === 0) return { boundaries: contribution.boundaries };
       return { ...contribution, ...(showError && { showError }) };
     },
-    matchBoundary(fiber) {
-      const name = displayNameOf(fiber);
-      if (!name) return null;
-      const hit = rules.find(({ rule, matches }) => rule.kind !== 'error' && matches(name));
-      return hit ? hit.rule.kind : null;
-    },
+    matchBoundary,
+    ...(labeler && {
+      // A component of one of this pack's kinds is labelled by that kind's rules.
+      label: (fiber: Fiber, kind: string) => labeler(fiber, kind === 'component' ? matchBoundary(fiber) ?? kind : kind),
+    }),
   };
 }

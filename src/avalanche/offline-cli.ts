@@ -78,8 +78,12 @@ function main(argv: string[]) {
     // variables, and the commit count comes from the parsed report.
     const out = argv[2];
     if (!out) fail('save requires <count> <file>');
-    const report = unwrapSavedReport(parseJson(readFileSync(0, 'utf8'), 'helper response'));
+    const response = parseJson(readFileSync(0, 'utf8'), 'helper response') as { nameRecovery?: unknown; result?: { nameRecovery?: unknown } } | null;
+    const report = unwrapSavedReport(response);
     if (!report) fail('response has no Avalanche export (expected meta and commitStats); check avalanche-status');
+    // On a production build the export first names components recorded as
+    // `Anonymous`; `skipped` above zero means another save names more.
+    const nameRecovery = response?.nameRecovery ?? response?.result?.nameRecovery;
     const trimmed = keepLastCommits(report, Number(argv[1]) || 0) as { commitStats?: object };
     const text = JSON.stringify(trimmed);
     // The export repeats the same field names and summaries per rendered
@@ -89,7 +93,7 @@ function main(argv: string[]) {
     const commits = Object.keys(trimmed.commitStats || {}).length;
     const jsonBytes = Buffer.byteLength(text);
     const bytes = typeof data === 'string' ? jsonBytes : data.length;
-    process.stdout.write(`${JSON.stringify({ ok: true, file: out, bytes, ...(bytes !== jsonBytes && { jsonBytes }), commits })}\n`);
+    process.stdout.write(`${JSON.stringify({ ok: true, file: out, bytes, ...(bytes !== jsonBytes && { jsonBytes }), commits, ...(nameRecovery ? { nameRecovery } : {}) })}\n`);
     return;
   }
   const [file, command, ...rest] = argv;

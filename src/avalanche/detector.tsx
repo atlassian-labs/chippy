@@ -45,6 +45,7 @@ import {
 
 import {
   buildReport,
+  type CaptureStatus,
   type DetectorOptions,
   type ProfilerState,
   type PropChangeEvidence,
@@ -76,6 +77,7 @@ import { createScreenCapture } from './screen-changes';
 import { createDomDiffCapture } from './dom-diff';
 import { describeSuspenseLocation } from './suspense-location';
 import { createRenderTickTracker } from './render-ticks';
+import { createRenderedNames } from './rendered-names';
 import { createPropSummarizer } from './prop-summary';
 import { createRenderedEvidenceStore, DEFAULT_MAX_RENDERED_ENTRIES, type RenderedEvidenceStatus } from './rendered-evidence-store';
 import {
@@ -161,6 +163,8 @@ export function createAvalancheDetector(options: DetectorOptions = {}) {
     private typeToId = new WeakMap<object | Function, number>();
     private instanceCounters = new Map<string, number>(); // "typeId@depth" -> instance count
     private nextTypeId = 1;
+    // typeId -> type, set once per type, so a report can name entries recorded before a name existed.
+    private idToType = new Map<number, ComponentType>();
 
     getSourceId(fiber: Fiber, type: ComponentType, depth: number): string {
       // Check if we already have an ID for this fiber
@@ -188,6 +192,7 @@ export function createAvalancheDetector(options: DetectorOptions = {}) {
         typeId = this.nextTypeId++;
         if (weakKey) {
           this.typeToId.set(weakKey, typeId);
+          this.idToType.set(typeId, type);
         }
       }
 
@@ -206,14 +211,30 @@ export function createAvalancheDetector(options: DetectorOptions = {}) {
       return sourceId;
     }
 
+    /** The component type behind an internal `T<typeId>#n@depth` id, or null. */
+    typeOf(sourceId: string): ComponentType | null {
+      if (sourceId.charCodeAt(0) !== 84 /* T */) return null;
+      const typeId = Number(sourceId.slice(1, sourceId.indexOf('#')));
+      return this.idToType.get(typeId) ?? null;
+    }
+
     clear() {
+      // Fibers that outlive the reset get fresh ids too. An id kept from before
+      // would name a type id that is reissued, so it would point at another type.
+      this.idMap = new WeakMap();
       this.instanceCounters.clear();
       this.typeToId = new WeakMap();
+      this.idToType.clear();
       this.nextTypeId = 1;
     }
   }
 
   const sourceIdManager = new StableSourceIdManager();
+  const renderedNames = createRenderedNames<ComponentType>({
+    typeOf: (sourceId) => sourceIdManager.typeOf(sourceId),
+    // eslint-disable-next-line @typescript-eslint/consistent-type-assertions
+    nameOf: (type) => getComponentName({ type } as Fiber),
+  });
   const debugRender = createDebugRender();
   const interactionCapture = createInteractionCapture(options);
   const networkCapture = createNetworkCapture(options);
@@ -854,6 +875,7 @@ export function createAvalancheDetector(options: DetectorOptions = {}) {
             name: getComponentName(fiber),
             depth,
           };
+          renderedNames.note(initialRenderEvidence);
           if (parentSourceId) initialRenderEvidence.parentSourceId = parentSourceId;
           if (fiber.alternate) {
             const propChanges = diffProps(fiber.alternate.memoizedProps, fiber.memoizedProps);
@@ -1300,7 +1322,31 @@ export function createAvalancheDetector(options: DetectorOptions = {}) {
     return perCommit.committedComponentCount;
   }
 
+  // Paused: React keeps committing and the hooks stay attached, but nothing
+  // enters the capture. Set by pause(); cleared by resume(), reset(), install().
+  let pausedAt: number | null = null;
+
+  /** Keep per-commit baselines current so the first commit after resume measures only itself. */
+  function skipPausedCommit(): void {
+    renderTicks.takeCommitTicks();
+    state.lastMetricsSnapshot = captureMetricsSnapshot();
+    state.lastCommitEndTime = performance.now();
+    pendingDevtoolsUnmounts = { components: 0, subtrees: 0 };
+    pendingDevtoolsUnmountSamples = [];
+  }
+
+  function captureStatus(): CaptureStatus {
+    return { paused: pausedAt !== null, pausedAt: pausedAt === null ? null : Math.round(pausedAt * 10) / 10 };
+  }
+
+  function resumeCapture(): void {
+    pausedAt = null;
+    interactionCapture.resume();
+    networkCapture.resume();
+  }
+
   function resetState(): void {
+    resumeCapture();
     state.commits = 0;
     state.sources.clear();
     state.amplifiers.clear();
@@ -1352,6 +1398,7 @@ export function createAvalancheDetector(options: DetectorOptions = {}) {
     state.lastCommitEndTime = performance.now();
     renderTicks.reset();
     sourceIdManager.clear();
+    renderedNames.reset();
   }
 
   type DevtoolsHook = {
@@ -1601,6 +1648,7 @@ export function createAvalancheDetector(options: DetectorOptions = {}) {
      * are already in place).
      */
     install(): void {
+      resumeCapture();
       interactionCapture.install();
       networkCapture.install();
       hookRunner.ensureStarted();
@@ -1639,6 +1687,10 @@ export function createAvalancheDetector(options: DetectorOptions = {}) {
 
         const root = args[1] as { current: Fiber; memoizedUpdaters?: Set<Fiber> } | undefined;
         if (!root) return;
+        if (pausedAt !== null) {
+          skipPausedCommit();
+          return;
+        }
 
         // The adapter is the canonical fast path (it carries the render-counter
         // deltas). Defer only after an adapter callback has proved that the host
@@ -1670,7 +1722,7 @@ export function createAvalancheDetector(options: DetectorOptions = {}) {
           try { devtoolsUnmountPrev(...args); } catch (_) { /* swallow */ }
         }
         const fiber = args[1] as Fiber | undefined;
-        if (!fiber) return;
+        if (!fiber || pausedAt !== null) return;
         const counts = countUnmountedComponentSubtree(fiber);
         pendingDevtoolsUnmounts.components += counts.components;
         pendingDevtoolsUnmounts.subtrees += counts.subtrees;
@@ -1748,6 +1800,10 @@ export function createAvalancheDetector(options: DetectorOptions = {}) {
           if (integrationMode !== adapterMode) {
             integrationMode = adapterMode;
           }
+          if (pausedAt !== null) {
+            skipPausedCommit();
+            return;
+          }
 
           if (previousCapture) {
             // The host may call DevTools first. Enrich that same commit with
@@ -1815,6 +1871,26 @@ export function createAvalancheDetector(options: DetectorOptions = {}) {
       devtoolsUnmountPrev = undefined;
       devtoolsHookCreatedByUs = false;
       integrationMode = 'none';
+      pausedAt = null;
+    },
+
+    /**
+     * Stop adding to the capture while staying attached, so every reader sees
+     * the capture as it stood at this moment. Requests already in flight still
+     * finish into it. reset() or resume() starts recording again.
+     */
+    pause(): void {
+      if (pausedAt !== null) return;
+      pausedAt = performance.now();
+      interactionCapture.pause();
+      networkCapture.pause();
+    },
+
+    /** Record again after pause(), keeping what the capture already holds. */
+    resume(): void {
+      if (pausedAt === null) return;
+      resumeCapture();
+      skipPausedCommit();
     },
 
     /**
@@ -1840,7 +1916,20 @@ export function createAvalancheDetector(options: DetectorOptions = {}) {
       };
       collect(state.sources.entries());
       collect(state.amplifierSources.entries());
+      // Rendered evidence and owner links keep the internal `T<typeId>` ids.
+      for (const sourceId of wanted) {
+        const type = sourceIdManager.typeOf(sourceId);
+        if (type !== null) types.add(type);
+      }
       return Array.from(types);
+    },
+
+    /**
+     * Component types of rendered entries recorded as `Anonymous`, for
+     * recovering their names before an export. See `rendered-names.ts`.
+     */
+    unnamedRenderedTypes(): ComponentType[] {
+      return renderedNames.unnamedTypes();
     },
 
     /**
@@ -1852,6 +1941,7 @@ export function createAvalancheDetector(options: DetectorOptions = {}) {
      */
     report(topN: number = 10, sortBy: SortBy = 'effect', reportOptions?: ReportOptions): Report {
       networkCapture.flush();
+      renderedNames.refresh(state.renderedByCommit);
       const report = buildReport(state, thrashMode, topN, sortBy, reportOptions, {
         effectThrashMode,
         captureFibers,
@@ -1862,6 +1952,7 @@ export function createAvalancheDetector(options: DetectorOptions = {}) {
         network: networkCapture.status(),
         renderedEvidence: renderedEvidence.status(),
         ...(domDiff.enabled && { domDiff: domDiff.status() }),
+        capture: captureStatus(),
       });
       const hooks = hookRunner.collect();
       if (hooks) report.hooks = hooks;
@@ -1991,9 +2082,9 @@ export function createAvalancheDetector(options: DetectorOptions = {}) {
     },
 
     /** Commit and network request counts, without building a report. */
-    counts(): { commits: number; networkRequests: number; renderedEvidence: RenderedEvidenceStatus } {
+    counts(): { commits: number; networkRequests: number; renderedEvidence: RenderedEvidenceStatus; capture: CaptureStatus } {
       networkCapture.flush();
-      return { commits: state.commits, networkRequests: networkCapture.requests.length, renderedEvidence: renderedEvidence.status() };
+      return { commits: state.commits, networkRequests: networkCapture.requests.length, renderedEvidence: renderedEvidence.status(), capture: captureStatus() };
     },
   };
 }
