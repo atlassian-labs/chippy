@@ -73,7 +73,7 @@ For a live interaction investigation, run these as **separate commands**. Do not
 ```bash
 chippy.sh avalanche-arm my-client http://localhost:9000
 # user performs the slow interaction
-chippy.sh avalanche-status my-client
+chippy.sh avalanche-summary my-client
 chippy.sh avalanche-commit-list my-client 15 collateral
 chippy.sh avalanche-commit-peek my-client 42 stats,sources,metrics 6 40
 ```
@@ -91,6 +91,21 @@ Look for `installed`, `hasMetricsGlobal`, `commitCount`. `renderedEvidence` is `
 chippy.sh reload-with-avalanche my-client http://localhost:9000 0 15000 5000
 ```
 Arms, reloads, waits for reconnect, waits settle window, then prints `avalanche-status` and the top 12 hot sources. Defaults: `0 5000 3000 true sources`. It exits 1 when the page does not reconnect within `timeoutMs`, and it leaves the arm in place until `avalanche-disarm`. With the extension or proxy mode, the reloaded document installs Avalanche before React's first commit, so boot commits are included. The reload step's ack reports `earlyStartup`: `registered` (extension), `handoff-only` (no extension; proxy mode still captures boot), `not-armed`, or `storage-unavailable` (the page blocked `sessionStorage`, so boot commits may be missed).
+
+### `avalanche-summary <clientId> [top] [maxItems]`
+```bash
+chippy.sh avalanche-summary my-client
+chippy.sh avalanche-summary my-client 10 5
+```
+The first read of a capture, in one call. It answers what an analysis asks first, so read it before the narrower commands below. `payload` holds:
+
+- `commits`, `firstCommitId`, `lastCommitId`, `sources` (aggregate source count), and `totals`, the commit stats summed over every commit.
+- `timeline`: the `avalanche-timeline` payload of the last interaction without `lanes` or `mermaid`, or `{error}` when it cannot be built.
+- `topCommits`: the `top` commits (default 5) with the most collateral, ties by id. Each has `stat`, `atMs` (from the timeline origin, the last interaction; negative for commits before it), `renderMs`, `ticks`, `paintDelayMs` (commit end to paint), `sourcesTotal`, `sources` (the first `maxItems`, default 3: `sourceId`, `collateralAtCommit`, and `changedHooks` with `index` and `sameContent`, true when the new value equals the old one by content), `latestAction`, and `hooks` (each pack hook's step for that commit). A missing timing is `null`, not 0.
+- `hooks`: each pack hook's start, end, step count, and errors; `null` when no pack hooks ran.
+- `meta`: the capture metadata.
+
+`sameContent: true` on a changed hook means a new reference with equal content: identity churn. Drill down with `avalanche-commit-peek`, `avalanche-timeline`, or `avalanche-dom-diff`.
 
 ### `avalanche-hot-sources <clientId> [limit]`
 ```bash
@@ -291,7 +306,7 @@ Use saved captures without a live page. `commit-list`, `commit-peek`, `hot-sourc
 
 Offline arguments: `commit-list [top] [by]`, `commit-peek <commitId> [include] [maxItems]` (no `depth`; the third value is maxItems, default 50), `hot-sources [limit]`, `describe-action <actionId>`, `network [top] [by] [match] [initiators] [windowMs]`, `timeline [fromCommit] [toCommit] [minRequestMs] [exclude]` (`--top N` keeps the N longest requests, `--format full` adds lanes), `dom-diff [fromCommit] [toCommit] [match] [maxItems]` (`--top N` caps commits), and `source-search --name <regex> [--top N]` (default top 50). Flags such as `--top`, `--by`, `--include`, `--maxItems`, `--match`, `--initiators`, and `--window` are accepted in place of positional values.
 
-`summary` returns commit count, first/last commit id, source count, and totals of the commit stats. `source-search --name <regex>` matches aggregate sources by `sourceId` and rendered components by name with per-instance render and self-source counts.
+`summary [top] [maxItems]` returns the `avalanche-summary` digest, with its fields at the top level beside `ok` and `action`. `source-search --name <regex>` matches aggregate sources by `sourceId` and rendered components by name with per-instance render and self-source counts.
 
 ### `avalanche-arm <clientId> <origin> [maxCommits] [captureFibers] [detectionMode]`
 ```bash

@@ -114,6 +114,15 @@ describe('offline Avalanche analysis', () => {
     expect(analyzeSavedReport(trimmed, 'summary', { _: [] })).toMatchObject({ commits: 2, firstCommitId: 3, lastCommitId: 4 });
   });
 
+  it('returns the same summary digest as the live page', () => {
+    const { api, saved } = capture(4);
+    const live = evalAvalanche({ action: 'summary', top: 2, maxItems: 1 }, api, null) as any;
+    expect(live).toMatchObject({ ok: true, available: true, action: 'summary', payload: { commits: 4 } });
+    expect(live.payload.topCommits).toHaveLength(2);
+    const { ok: _ok, action: _action, ...offline } = analyzeSavedReport(unwrapSavedReport(saved)!, 'summary', { _: ['2', '1'] }) as any;
+    expect(offline).toEqual(JSON.parse(JSON.stringify(live.payload)));
+  });
+
   it('serves pack hook results through status summary, commit-peek, and saved captures', () => {
     registerAvalancheHooks({ id: 'demo.count', onStart: () => 'go', onStep: (ctx) => ({ n: ctx.commits }), onEnd: (ctx) => ({ total: ctx.commits }) });
     try {

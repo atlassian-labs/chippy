@@ -235,6 +235,7 @@ avalanche-clear <clientId>
 avalanche-status <clientId>
 avalanche-export <clientId> [lastN]
 avalanche-hot-sources <clientId> [limit]
+avalanche-summary <clientId> [top] [maxItems]
 avalanche-commit-list <clientId> [top] [by]
 avalanche-commit-peek <clientId> <commitId> [include] [depth] [maxItems]
 avalanche-describe-action <clientId> <actionId>
@@ -304,7 +305,7 @@ Choose capture mode from the symptom:
 | Slow data load, request waterfall, or a commit that waits on a response | Either capture above, then `avalanche-network` | A request is listed once it finishes. Its commit links are proximity within a window (250 ms by default), not cause. No headers or bodies. |
 | What changed in the DOM, and in which order: flicker, content that appears and disappears, a node that is replaced instead of updated | Either capture above, then `avalanche-dom-diff` | Changes inside one commit have no order; order exists only between commits. DOM writes outside React are not recorded. |
 
-Read broad to narrow: `avalanche-status` → `avalanche-hot-sources` → `avalanche-commit-list` → one `avalanche-commit-peek`. Do not open the full export first. Expand a `latestAction` id with `avalanche-describe-action`. When a capture is large or will be read more than once, run `avalanche-save <clientId> <file>` once (a `.gz` path writes it compressed, often 40x smaller), then read it with `avalanche-offline <file> <summary|commit-list|commit-peek|hot-sources|describe-action|network|timeline|dom-diff|source-search>`.
+Read broad to narrow: start with `avalanche-summary <clientId>`, one read that returns the commit totals, the interaction timeline, the top commits by collateral with their timing, sources, changed hooks, and latest input, and each pack hook's result. Then `avalanche-hot-sources` → `avalanche-commit-list` → one `avalanche-commit-peek`. Do not open the full export first. Expand a `latestAction` id with `avalanche-describe-action`. When a capture is large or will be read more than once, run `avalanche-save <clientId> <file>` once (a `.gz` path writes it compressed, often 40x smaller), then read it with `avalanche-offline <file> <summary|commit-list|commit-peek|hot-sources|describe-action|network|timeline|dom-diff|source-search>`.
 
 Arm before the user or harness performs the slow interaction. Probes drill into the captured wave afterward; do not make probe placement a prerequisite for starting the recorder. The user can also record from the Chippy panel: **● Record** clears the capture, as `avalanche-clear` does, and **■ Stop** pauses it, so every `avalanche-*` read and `avalanche-save` covers only the recording. `avalanche-status` reports `paused: true` until the next Record or `avalanche-clear`.
 

@@ -28,6 +28,12 @@ must stay compatible with the extension version in the store.
 
 ### Added
 
+- `avalanche-summary <clientId> [top] [maxItems]` (MCP `summary` action) reads
+  a live capture in one call: commit totals, the interaction timeline, the top
+  commits by collateral with timing, sources, changed hooks, and latest input,
+  and each pack hook's result. `avalanche-offline <file> summary` returns the
+  same digest, now with those fields too.
+
 - Page scripts: `eval-page <clientId> -` runs a throwaway script from stdin
   for a question no command answers. Every script receives `chippy`, a toolkit
   that finds fibers, walks parents and the nearest Suspense or error boundary,

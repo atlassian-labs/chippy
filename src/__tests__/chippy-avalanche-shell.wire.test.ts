@@ -172,3 +172,34 @@ describe('chippy.sh avalanche-dom-diff', () => {
     expect(execFileSync('bash', [CHIPPY, 'help'], { encoding: 'utf8' })).toContain('avalanche-dom-diff <clientId>');
   });
 });
+
+describe('chippy.sh avalanche-summary', () => {
+  it('posts top and maxItems, which reach the bridge digest', () => {
+    const helper = fakeHelper({ ok: true, result: { ok: true } });
+    helper.run('avalanche-summary', 'client-1', '3', '2');
+    const [body] = helper.bodies();
+    expect(body).toEqual({ action: 'summary', top: 3, maxItems: 2 });
+    const command = buildAvalancheCommand(body, 'rq-1');
+    expect(command).toMatchObject({ type: 'eval-avalanche', action: 'summary', top: 3, maxItems: 2 });
+    const result = evalAvalanche(command, largeCapture(), null) as any;
+    expect(result).toMatchObject({ ok: true, action: 'summary', payload: { commits: 100 } });
+    expect(result.payload.topCommits).toHaveLength(3);
+    for (const commit of result.payload.topCommits) expect(commit.sources.length).toBeLessThanOrEqual(2);
+    expect(() => JSON.stringify(result)).not.toThrow();
+  });
+
+  it('skips empty positions', () => {
+    const helper = fakeHelper({ ok: true, result: { ok: true } });
+    helper.run('avalanche-summary', 'client-1', '', '4');
+    expect(helper.bodies()).toEqual([{ action: 'summary', maxItems: 4 }]);
+  });
+
+  it('requires a client id', () => {
+    const helper = fakeHelper({ ok: true });
+    expect(() => helper.run('avalanche-summary')).toThrow(/requires <clientId>/);
+  });
+
+  it('is listed in the usage text', () => {
+    expect(execFileSync('bash', [CHIPPY, 'help'], { encoding: 'utf8' })).toContain('avalanche-summary <clientId>');
+  });
+});

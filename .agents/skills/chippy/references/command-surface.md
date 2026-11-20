@@ -80,6 +80,7 @@ Load [active-stimulus](active-stimulus.md) before an active command. A `fiber:*`
 | `avalanche-uninstall` | Stop capture and detach the detector; captured history stays readable until the next install or clear. |
 | `avalanche-arm`, `avalanche-disarm` | Control live interaction capture without reloading the page. |
 | `reload-with-avalanche` | Arm, reload, wait, settle, and print initial-load evidence. |
+| `avalanche-summary` | Read a capture in one call: totals, the interaction timeline, the top commits by collateral with timing, sources, changed hooks, and input, and each pack hook's result. Read it first. |
 | `avalanche-hot-sources` | Rank source families before opening commit detail. |
 | `avalanche-commit-list` | Rank compact commits by a supported signal. |
 | `avalanche-commit-peek` | Join bounded detail for one commit. |
@@ -167,6 +168,7 @@ explain-component <clientId> <probeId|fiberId|name> [--text|--json|--complexity]
 avalanche-clear <clientId>
 avalanche-status <clientId>
 avalanche-export <clientId> [lastN] [outFile]
+avalanche-summary <clientId> [top] [maxItems]
 avalanche-hot-sources <clientId> [limit]
 avalanche-commit-list <clientId> [top] [by]
 avalanche-commit-peek <clientId> <commitId> [include] [depth] [maxItems]

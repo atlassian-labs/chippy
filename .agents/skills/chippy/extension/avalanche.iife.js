@@ -427,8 +427,8 @@ this.__AVALANCHE__ = (function() {
     const names = /* @__PURE__ */ new Set();
     const { module, offset } = occurrence;
     if (module.maps.length === 0) return names;
-    const toPosition = (at) => {
-      const { line, column } = positionOf(lineStarts, at);
+    const toPosition = (at2) => {
+      const { line, column } = positionOf(lineStarts, at2);
       return { line, column: column + 1 };
     };
     const mappings = mappingsInRange(module.maps, toPosition(offset), toPosition(offset + text.length));
@@ -934,12 +934,12 @@ this.__AVALANCHE__ = (function() {
       if (!match) continue;
       const [, name, url = "", lineDigits = "", columnDigits = ""] = match;
       if (url === "" || url.startsWith("data:")) continue;
-      const at = Number(lineDigits);
+      const at2 = Number(lineDigits);
       const column = Number(columnDigits);
-      if (!Number.isFinite(at) || !Number.isFinite(column) || at < 1) continue;
+      if (!Number.isFinite(at2) || !Number.isFinite(column) || at2 < 1) continue;
       frames.push({
         url,
-        line: at,
+        line: at2,
         column,
         ...name !== void 0 && name !== "" ? { function: name } : {}
       });
@@ -6580,15 +6580,15 @@ this.__AVALANCHE__ = (function() {
     return index;
   }
   function previousSignificant(text, index) {
-    let at = index - 1;
-    while (at >= 0 && /\s/.test(text[at])) at -= 1;
-    return at >= 0 ? text[at] : "";
+    let at2 = index - 1;
+    while (at2 >= 0 && /\s/.test(text[at2])) at2 -= 1;
+    return at2 >= 0 ? text[at2] : "";
   }
   function quotedEnd(text, start, quote) {
-    for (let at = start + 1; at < text.length; at += 1) {
-      const char = text[at];
-      if (char === "\\") at += 1;
-      else if (char === quote) return at;
+    for (let at2 = start + 1; at2 < text.length; at2 += 1) {
+      const char = text[at2];
+      if (char === "\\") at2 += 1;
+      else if (char === quote) return at2;
       else if (char === "\n" && quote !== "`") return -1;
     }
     return -1;
@@ -6596,23 +6596,23 @@ this.__AVALANCHE__ = (function() {
   function templateChunks(text, start) {
     const chunks = [];
     let chunk = "";
-    for (let at = start + 1; at < text.length; at += 1) {
-      const char = text[at];
+    for (let at2 = start + 1; at2 < text.length; at2 += 1) {
+      const char = text[at2];
       if (char === "\\") {
-        chunk += text.slice(at, at + 2);
-        at += 1;
+        chunk += text.slice(at2, at2 + 2);
+        at2 += 1;
       } else if (char === "`") {
         chunks.push(chunk);
-        return { chunks, end: at };
-      } else if (char === "$" && text[at + 1] === "{") {
+        return { chunks, end: at2 };
+      } else if (char === "$" && text[at2 + 1] === "{") {
         chunks.push(chunk);
         chunk = "";
         let depth = 1;
-        for (at += 2; at < text.length && depth > 0; at += 1) {
-          if (text[at] === "{") depth += 1;
-          else if (text[at] === "}") depth -= 1;
+        for (at2 += 2; at2 < text.length && depth > 0; at2 += 1) {
+          if (text[at2] === "{") depth += 1;
+          else if (text[at2] === "}") depth -= 1;
         }
-        at -= 1;
+        at2 -= 1;
       } else {
         chunk += char;
       }
@@ -6626,39 +6626,39 @@ this.__AVALANCHE__ = (function() {
   }
   function regexEnd(text, start) {
     let inClass = false;
-    for (let at = start + 1; at < text.length; at += 1) {
-      const char = text[at];
-      if (char === "\\") at += 1;
+    for (let at2 = start + 1; at2 < text.length; at2 += 1) {
+      const char = text[at2];
+      if (char === "\\") at2 += 1;
       else if (char === "[") inClass = true;
       else if (char === "]") inClass = false;
-      else if (char === "/" && !inClass) return at;
+      else if (char === "/" && !inClass) return at2;
       else if (char === "\n") return start;
     }
     return start;
   }
   function stringLiterals(text) {
     const out = [];
-    for (let at = 0; at < text.length; at += 1) {
-      const char = text[at];
-      if (char === "/" && text[at + 1] === "/") {
-        const end = text.indexOf("\n", at);
-        at = end === -1 ? text.length : end;
-      } else if (char === "/" && text[at + 1] === "*") {
-        const end = text.indexOf("*/", at + 2);
-        at = end === -1 ? text.length : end + 1;
-      } else if (char === "/" && startsRegex(text, at)) {
-        at = regexEnd(text, at);
+    for (let at2 = 0; at2 < text.length; at2 += 1) {
+      const char = text[at2];
+      if (char === "/" && text[at2 + 1] === "/") {
+        const end = text.indexOf("\n", at2);
+        at2 = end === -1 ? text.length : end;
+      } else if (char === "/" && text[at2 + 1] === "*") {
+        const end = text.indexOf("*/", at2 + 2);
+        at2 = end === -1 ? text.length : end + 1;
+      } else if (char === "/" && startsRegex(text, at2)) {
+        at2 = regexEnd(text, at2);
       } else if (char === '"' || char === "'") {
-        const end = quotedEnd(text, at, char);
+        const end = quotedEnd(text, at2, char);
         if (end === -1) continue;
-        const before = previousSignificant(text, at);
+        const before = previousSignificant(text, at2);
         const key = (before === "{" || before === ",") && text[skipSpace(text, end + 1)] === ":";
-        out.push({ value: text.slice(at + 1, end), key, end });
-        at = end;
+        out.push({ value: text.slice(at2 + 1, end), key, end });
+        at2 = end;
       } else if (char === "`") {
-        const { chunks, end } = templateChunks(text, at);
+        const { chunks, end } = templateChunks(text, at2);
         for (const chunk of chunks) out.push({ value: chunk, key: false, end });
-        at = end;
+        at2 = end;
       }
     }
     return out;
@@ -7368,8 +7368,8 @@ this.__AVALANCHE__ = (function() {
     if (result.screen) {
       lines.push("  section Screen changed (share of viewport)");
       for (const c of visible) {
-        const at = c.paintAt ?? c.t;
-        lines.push(`  c${c.commitId} ${percent(c.screen.share)}${c.screen.region ? " " + safe(c.screen.region) : ""} :milestone, sc${c.commitId}, ${at}, ${at}`);
+        const at2 = c.paintAt ?? c.t;
+        lines.push(`  c${c.commitId} ${percent(c.screen.share)}${c.screen.region ? " " + safe(c.screen.region) : ""} :milestone, sc${c.commitId}, ${at2}, ${at2}`);
       }
       lines.push(`  VC90 +${result.screen.vc90} :crit, milestone, vc90, ${result.screen.vc90}, ${result.screen.vc90}`);
     }
@@ -7451,8 +7451,8 @@ this.__AVALANCHE__ = (function() {
       if (list) list.push(change);
       else groups.set(change.at, [change]);
     }
-    for (const [at, changes] of groups) {
-      lines.push(`  ${at}`);
+    for (const [at2, changes] of groups) {
+      lines.push(`  ${at2}`);
       for (const change of changes) lines.push(`    ${formatDomChange(change)}`);
     }
     return lines;
@@ -7530,18 +7530,6 @@ this.__AVALANCHE__ = (function() {
     }
     return out;
   }
-  function compactNetwork(network, maxItems) {
-    const rows = (items) => items.slice(0, maxItems);
-    return {
-      landedBefore: rows((network == null ? void 0 : network.landedBefore) ?? []),
-      landedBeforeTotal: (network == null ? void 0 : network.landedBefore.length) ?? 0,
-      startedAfter: rows((network == null ? void 0 : network.startedAfter) ?? []),
-      startedAfterTotal: (network == null ? void 0 : network.startedAfter.length) ?? 0,
-      startedDuringRender: rows((network == null ? void 0 : network.startedDuringRender) ?? []),
-      startedDuringRenderTotal: (network == null ? void 0 : network.startedDuringRender.length) ?? 0,
-      inFlight: (network == null ? void 0 : network.inFlight) ?? 0
-    };
-  }
   function compactLatestAction(action) {
     if (!action || typeof action !== "object") return action ?? null;
     const location = action.location && typeof action.location === "object" ? action.location : {};
@@ -7564,6 +7552,110 @@ this.__AVALANCHE__ = (function() {
         ownerNames: ownerStack.map((entry) => entry && typeof entry.name === "string" ? entry.name : null).filter(Boolean).slice(0, 10),
         ownerCount: ownerStack.length
       } : null
+    };
+  }
+  const SUMMARY_DEFAULT_TOP = 5;
+  const SUMMARY_DEFAULT_MAX_ITEMS = 3;
+  function positive(value, fallback) {
+    const n = Number(value);
+    return Number.isFinite(n) && n > 0 ? Math.floor(n) : fallback;
+  }
+  function finite(value) {
+    const n = Number(value);
+    return value != null && Number.isFinite(n) ? n : null;
+  }
+  function at(map, id) {
+    return (map == null ? void 0 : map[id]) ?? (map == null ? void 0 : map[String(id)]);
+  }
+  function sameContent(a, b) {
+    if (a === b) return true;
+    try {
+      return JSON.stringify(a) === JSON.stringify(b);
+    } catch {
+      return false;
+    }
+  }
+  function sourceRows(entries, maxItems) {
+    return entries.slice(0, maxItems).map((entry) => {
+      const e = entry && typeof entry === "object" ? entry : { sourceId: entry };
+      return {
+        sourceId: e.sourceId ?? null,
+        collateralAtCommit: finite(e.collateral),
+        changedHooks: (Array.isArray(e.trashers) ? e.trashers : []).map((t) => ({
+          index: (t == null ? void 0 : t.index) ?? null,
+          sameContent: sameContent(t == null ? void 0 : t.prevValue, t == null ? void 0 : t.currentValue)
+        }))
+      };
+    });
+  }
+  function compactTimeline(report) {
+    const timeline = buildTimeline(report);
+    if ("error" in timeline) return { error: timeline.error };
+    const { ok: _ok, lanes: _lanes, mermaid: _mermaid, ...rest } = timeline;
+    return rest;
+  }
+  function buildSummaryView(report, options = {}) {
+    var _a2;
+    const top = positive(options.top, SUMMARY_DEFAULT_TOP);
+    const maxItems = positive(options.maxItems, SUMMARY_DEFAULT_MAX_ITEMS);
+    const commitStats = report.commitStats ?? {};
+    const ids = Object.keys(commitStats).map(Number).filter(Number.isFinite).sort((a, b) => a - b);
+    const totals = Object.fromEntries(UPSTREAM_COMMIT_STAT_KEYS.map((key) => [key, 0]));
+    const statsById = /* @__PURE__ */ new Map();
+    for (const id of ids) {
+      const stats = tupleToStats(at(commitStats, id));
+      statsById.set(id, stats);
+      if (stats) for (const key of UPSTREAM_COMMIT_STAT_KEYS) totals[key] += stats[key];
+    }
+    const timeline = compactTimeline(report);
+    const origin = "origin" in timeline ? finite((_a2 = timeline.origin) == null ? void 0 : _a2.at) : null;
+    const topCommits = ids.slice().sort((a, b) => {
+      var _a3, _b2;
+      return (((_a3 = statsById.get(b)) == null ? void 0 : _a3.collateral) ?? 0) - (((_b2 = statsById.get(a)) == null ? void 0 : _b2.collateral) ?? 0) || a - b;
+    }).slice(0, top).map((commitId) => {
+      var _a3;
+      const timing = at(report.commitTimings, commitId);
+      const start = finite(timing == null ? void 0 : timing.startTime);
+      const end = finite(timing == null ? void 0 : timing.endTime);
+      const paint = finite(timing == null ? void 0 : timing.paintAt);
+      const entries = at(report.sourcesByCommit, commitId);
+      const list = Array.isArray(entries) ? entries : [];
+      const actions = at(report.interactionsByCommit, commitId);
+      return {
+        commitId,
+        stat: statsById.get(commitId) ?? null,
+        atMs: start !== null && origin !== null ? Math.round(start - origin) : null,
+        renderMs: finite((_a3 = timing == null ? void 0 : timing.render) == null ? void 0 : _a3.workMs),
+        ticks: finite(timing == null ? void 0 : timing.ticks),
+        paintDelayMs: paint !== null && end !== null && paint >= end ? Math.round(paint - end) : null,
+        sourcesTotal: list.length,
+        sources: sourceRows(list, maxItems),
+        latestAction: Array.isArray(actions) && actions.length ? compactLatestAction(actions[actions.length - 1]) : null,
+        hooks: hookStepsAt(report.hooks, commitId)
+      };
+    });
+    return {
+      commits: ids.length,
+      firstCommitId: ids[0] ?? null,
+      lastCommitId: ids.at(-1) ?? null,
+      sources: Array.isArray(report.sources) ? report.sources.length : 0,
+      totals,
+      timeline,
+      topCommits,
+      hooks: summarizeHookResults(report.hooks),
+      meta: report.meta ?? null
+    };
+  }
+  function compactNetwork(network, maxItems) {
+    const rows = (items) => items.slice(0, maxItems);
+    return {
+      landedBefore: rows((network == null ? void 0 : network.landedBefore) ?? []),
+      landedBeforeTotal: (network == null ? void 0 : network.landedBefore.length) ?? 0,
+      startedAfter: rows((network == null ? void 0 : network.startedAfter) ?? []),
+      startedAfterTotal: (network == null ? void 0 : network.startedAfter.length) ?? 0,
+      startedDuringRender: rows((network == null ? void 0 : network.startedDuringRender) ?? []),
+      startedDuringRenderTotal: (network == null ? void 0 : network.startedDuringRender.length) ?? 0,
+      inFlight: (network == null ? void 0 : network.inFlight) ?? 0
     };
   }
   const REPORT_ALL_SOURCES = Number.POSITIVE_INFINITY;
@@ -7890,6 +7982,13 @@ this.__AVALANCHE__ = (function() {
           });
           if ("error" in view) return { ok: false, available: true, action, error: view.error };
           return { ok: true, available: true, action, payload: view };
+        }
+        case "summary": {
+          const r = getReport(api2);
+          if (!r || "error" in r) {
+            return { ok: false, available: true, action, error: r && "error" in r ? r.error : "report() unavailable" };
+          }
+          return { ok: true, available: true, action, payload: buildSummaryView(r.serial, { top: command == null ? void 0 : command.top, maxItems: command == null ? void 0 : command.maxItems }) };
         }
         // Removed: start, stop, metrics, help — not present on the current public surface.
         default:

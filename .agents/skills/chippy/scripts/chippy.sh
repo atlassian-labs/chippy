@@ -85,6 +85,7 @@ Usage:
   ./scripts/chippy.sh avalanche-clear <clientId>
   ./scripts/chippy.sh avalanche-status <clientId>
   ./scripts/chippy.sh avalanche-export <clientId> [lastN]
+  ./scripts/chippy.sh avalanche-summary <clientId> [top] [maxItems]
   ./scripts/chippy.sh avalanche-hot-sources <clientId> [limit]
   ./scripts/chippy.sh avalanche-commit-list <clientId> [top] [by]
   ./scripts/chippy.sh avalanche-commit-peek <clientId> <commitId> [include] [depth] [maxItems]
@@ -1025,6 +1026,21 @@ case "$cmd" in
       body+=",\"initiators\":$(node -e 'process.stdout.write(JSON.stringify(process.argv[1].split(",").map((s) => s.trim()).filter(Boolean)))' "$initiators")"
     fi
     if [[ -n "$window_ms" ]]; then body+=",\"window\":$window_ms"; fi
+    body+="}"
+    post_avalanche "$client_id" "$body"
+    ;;
+  avalanche-summary)
+    client_id="${2:-}"
+    top="${3:-}"
+    max_items="${4:-}"
+    if [[ -z "$client_id" ]]; then
+      echo "avalanche-summary requires <clientId> [top] [maxItems]" >&2
+      echo "  top caps commits listed by collateral (default 5); maxItems caps sources per commit (default 3); pass \"\" to skip a position" >&2
+      exit 1
+    fi
+    body="{\"action\":\"summary\""
+    if [[ -n "$top" ]]; then body+=",\"top\":$top"; fi
+    if [[ -n "$max_items" ]]; then body+=",\"maxItems\":$max_items"; fi
     body+="}"
     post_avalanche "$client_id" "$body"
     ;;
