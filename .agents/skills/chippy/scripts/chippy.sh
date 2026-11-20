@@ -85,11 +85,13 @@ Usage:
   ./scripts/chippy.sh avalanche-clear <clientId>
   ./scripts/chippy.sh avalanche-status <clientId>
   ./scripts/chippy.sh avalanche-export <clientId> [lastN]
+  ./scripts/chippy.sh avalanche-summary <clientId> [top] [maxItems]
   ./scripts/chippy.sh avalanche-hot-sources <clientId> [limit]
   ./scripts/chippy.sh avalanche-commit-list <clientId> [top] [by]
   ./scripts/chippy.sh avalanche-commit-peek <clientId> <commitId> [include] [depth] [maxItems]
   ./scripts/chippy.sh avalanche-describe-action <clientId> <actionId>
   ./scripts/chippy.sh avalanche-network <clientId> [top] [by] [match] [initiators] [windowMs]
+  ./scripts/chippy.sh avalanche-perf <clientId> [types] [top] [match] [fromCommit] [toCommit]
   ./scripts/chippy.sh avalanche-timeline <clientId> [fromCommit] [toCommit] [minRequestMs] [exclude] [format]
   ./scripts/chippy.sh avalanche-dom-diff <clientId> [fromCommit] [toCommit] [match] [maxItems] [top]
   ./scripts/chippy.sh avalanche-install <clientId> [detectionMode]
@@ -97,7 +99,7 @@ Usage:
   ./scripts/chippy.sh avalanche-recapture <clientId> [detectionMode]
   ./scripts/chippy.sh avalanche-debug-hook <clientId> <sourceId> <hookIndex> [window]
   ./scripts/chippy.sh avalanche-save <clientId> <file> [count]
-  ./scripts/chippy.sh avalanche-offline <file> <summary|commit-list|commit-peek|hot-sources|describe-action|network|timeline|dom-diff|source-search> [args...]
+  ./scripts/chippy.sh avalanche-offline <file> <summary|commit-list|commit-peek|hot-sources|describe-action|network|perf|timeline|dom-diff|source-search> [args...]
   ./scripts/chippy.sh eval-page <clientId> <snippet-file-or-name|-> [--allow replay] [--script-timeout ms] [--key value ...]
   ./scripts/chippy.sh eval-snippets
   ./scripts/chippy.sh avalanche-arm <clientId> <origin> [maxCommits] [captureFibers=true|false] [detectionMode=sources|full|stats|amplifiers]
@@ -982,7 +984,7 @@ case "$cmd" in
     max_items="${6:-20}"
     if [[ -z "$client_id" || -z "$commit_id" ]]; then
       echo "avalanche-commit-peek requires <clientId> <commitId> [include] [depth] [maxItems]" >&2
-      echo "  include csv ⊆ stats,sources,timing,metrics,hooks,unmounts,actions,rendered,network,dom (unmounts is live-only)" >&2
+      echo "  include csv ⊆ stats,sources,timing,metrics,hooks,unmounts,actions,rendered,network,dom,perf (unmounts is live-only)" >&2
       exit 1
     fi
     include_json="["
@@ -1025,6 +1027,43 @@ case "$cmd" in
       body+=",\"initiators\":$(node -e 'process.stdout.write(JSON.stringify(process.argv[1].split(",").map((s) => s.trim()).filter(Boolean)))' "$initiators")"
     fi
     if [[ -n "$window_ms" ]]; then body+=",\"window\":$window_ms"; fi
+    body+="}"
+    post_avalanche "$client_id" "$body"
+    ;;
+  avalanche-perf)
+    client_id="${2:-}"
+    types="${3:-}"
+    top="${4:-}"
+    match="${5:-}"
+    from_commit="${6:-}"
+    to_commit="${7:-}"
+    if [[ -z "$client_id" ]]; then
+      echo "avalanche-perf requires <clientId> [types] [top] [match] [fromCommit] [toCommit]" >&2
+      echo "  types csv ⊆ mark,measure,long-animation-frame,layout-shift,event,largest-contentful-paint,paint,navigation,longtask (default all)" >&2
+      echo "  top caps entries per type (default 20); match is a regex over entry names; pass \"\" to skip a position" >&2
+      exit 1
+    fi
+    body="{\"action\":\"perf\""
+    if [[ -n "$types" ]]; then body+=",\"types\":$(json_escape "$types")"; fi
+    if [[ -n "$top" ]]; then body+=",\"top\":$top"; fi
+    if [[ -n "$match" ]]; then body+=",\"match\":$(json_escape "$match")"; fi
+    if [[ -n "$from_commit" ]]; then body+=",\"fromCommit\":$from_commit"; fi
+    if [[ -n "$to_commit" ]]; then body+=",\"toCommit\":$to_commit"; fi
+    body+="}"
+    post_avalanche "$client_id" "$body"
+    ;;
+  avalanche-summary)
+    client_id="${2:-}"
+    top="${3:-}"
+    max_items="${4:-}"
+    if [[ -z "$client_id" ]]; then
+      echo "avalanche-summary requires <clientId> [top] [maxItems]" >&2
+      echo "  top caps commits listed by collateral (default 5); maxItems caps sources per commit (default 3); pass \"\" to skip a position" >&2
+      exit 1
+    fi
+    body="{\"action\":\"summary\""
+    if [[ -n "$top" ]]; then body+=",\"top\":$top"; fi
+    if [[ -n "$max_items" ]]; then body+=",\"maxItems\":$max_items"; fi
     body+="}"
     post_avalanche "$client_id" "$body"
     ;;
@@ -1135,7 +1174,7 @@ case "$cmd" in
   avalanche-offline)
     shift
     if [[ $# -lt 2 ]]; then
-      echo "avalanche-offline requires <file> <summary|commit-list|commit-peek|hot-sources|describe-action|network|timeline|dom-diff|source-search> [args...]" >&2
+      echo "avalanche-offline requires <file> <summary|commit-list|commit-peek|hot-sources|describe-action|network|perf|timeline|dom-diff|source-search> [args...]" >&2
       exit 1
     fi
     node "$SCRIPT_DIR/avalanche-analyze.cjs" "$@"
