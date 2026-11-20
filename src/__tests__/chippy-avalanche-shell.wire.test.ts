@@ -203,3 +203,28 @@ describe('chippy.sh avalanche-summary', () => {
     expect(execFileSync('bash', [CHIPPY, 'help'], { encoding: 'utf8' })).toContain('avalanche-summary <clientId>');
   });
 });
+
+describe('chippy.sh avalanche-perf', () => {
+  it('posts types, top, match, and the commit range, which reach the bridge', () => {
+    const helper = fakeHelper({ ok: true, result: { ok: true } });
+    helper.run('avalanche-perf', 'client-1', 'mark,long-animation-frame', '5', '^ufo', '3', '9');
+    const [body] = helper.bodies();
+    expect(body).toEqual({ action: 'perf', types: 'mark,long-animation-frame', top: 5, match: '^ufo', fromCommit: 3, toCommit: 9 });
+    expect(buildAvalancheCommand(body, 'rq-1')).toMatchObject({ type: 'eval-avalanche', action: 'perf', types: 'mark,long-animation-frame', top: 5, match: '^ufo', fromCommit: 3, toCommit: 9 });
+  });
+
+  it('skips empty positions', () => {
+    const helper = fakeHelper({ ok: true, result: { ok: true } });
+    helper.run('avalanche-perf', 'client-1', '', '', 'board');
+    expect(helper.bodies()).toEqual([{ action: 'perf', match: 'board' }]);
+  });
+
+  it('requires a client id', () => {
+    const helper = fakeHelper({ ok: true });
+    expect(() => helper.run('avalanche-perf')).toThrow(/requires <clientId>/);
+  });
+
+  it('is listed in the usage text', () => {
+    expect(execFileSync('bash', [CHIPPY, 'help'], { encoding: 'utf8' })).toContain('avalanche-perf <clientId>');
+  });
+});

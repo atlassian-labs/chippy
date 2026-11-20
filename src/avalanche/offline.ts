@@ -3,7 +3,7 @@
  *
  * A saved export is the `ReportDTO` returned by the live `export` action. The
  * offline commands run the same dispatcher as the live page, so `commit-list`,
- * `commit-peek`, and `hot-sources` return identical shapes online and offline.
+ * `commit-peek`, `hot-sources`, and `perf` return identical shapes online and offline.
  */
 import { buildSummaryView, type SummaryOptions } from './summary-view';
 import { evalAvalanche, type AvalancheCommand } from '../chippy-bridge/avalanche-commands';
@@ -146,6 +146,18 @@ export function analyzeSavedReport(report: SavedReport, command: string, args: {
         ...(typeof match === 'string' && match && { match }),
         ...(initiators && { initiators: initiators.split(',').map((item) => item.trim()).filter(Boolean) }),
         window: number('window', 4),
+      });
+    }
+    case 'perf': {
+      const types = args.types ?? positional[0];
+      const match = args.match ?? positional[2];
+      return dispatch(report, {
+        action: 'perf',
+        ...(typeof types === 'string' && types && { types }),
+        top: number('top', 1),
+        ...(typeof match === 'string' && match && { match }),
+        fromCommit: number('fromCommit', 3),
+        toCommit: number('toCommit', 4),
       });
     }
     case 'timeline': {

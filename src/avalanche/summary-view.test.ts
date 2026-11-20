@@ -65,4 +65,21 @@ describe('buildSummaryView', () => {
     const empty = buildSummaryView({ meta: {}, commitStats: {} });
     expect(empty).toMatchObject({ commits: 0, firstCommitId: null, lastCommitId: null, sources: 0, topCommits: [] });
   });
+
+  it('names the long frame each top commit ran in and summarizes the page metrics', () => {
+    const r = {
+      ...report(),
+      perfEntries: [
+        { id: 1, entryType: 'long-animation-frame', name: 'long-animation-frame', startTime: 95, duration: 40, blockingDuration: 0, scripts: [] },
+        { id: 2, entryType: 'mark', name: 'ready', startTime: 140, duration: 0 },
+      ],
+    };
+    const view = buildSummaryView(r, { top: 3 });
+    const byId = Object.fromEntries(view.topCommits.map((c) => [c.commitId, c.longFrame]));
+    expect(byId[2]).toEqual({ atMs: -5, durationMs: 40, blockingMs: 0, commits: [1, 2] });
+    expect(byId[3]).toBeNull();
+    expect(view.perf).toMatchObject({ longFrames: 1, marks: 1, worstFrame: { id: 1, commits: [1, 2] } });
+    expect(buildSummaryView(report()).perf).toBeNull();
+  });
 });
+

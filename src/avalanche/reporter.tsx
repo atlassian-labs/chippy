@@ -10,6 +10,7 @@ import type { ComponentType, ChangedHook, Fiber, ThrashInfo } from './internals'
 import { CS_RESTARTS } from './commit-stats-indices';
 import type { CommitTicks, RenderTickStatus } from './render-ticks';
 import type { NetworkCaptureStatus, NetworkRequest } from './network-capture';
+import type { PerfCaptureStatus, PerfEntry } from './perf-capture';
 import type { ScreenChange } from './screen-changes';
 import type { DomCommitDiff } from './dom-diff';
 import type { SuspenseLocation } from './suspense-location';
@@ -287,6 +288,11 @@ export interface ReportMeta {
    */
   network: NetworkCaptureStatus;
   /**
+   * Browser performance entry capture behind `perfEntries`: the entry types
+   * observed, when the window opened, and what was dropped. Absent before v9.
+   */
+  perf?: PerfCaptureStatus;
+  /**
    * `renderedByCommit` budget and what it dropped. `evicted.throughCommit`:
    * commits up to it may have lost their rendered evidence.
    */
@@ -497,6 +503,14 @@ export interface Report {
   networkRequests: NetworkRequest[];
 
   /**
+   * Browser performance entries recorded during the capture (User Timing,
+   * long animation frames, layout shifts, slow events, LCP, paint,
+   * navigation), on the same clock as `commitTimings`. Commit links are
+   * computed on read. Absent before report v9.
+   */
+  perfEntries?: PerfEntry[];
+
+  /**
    * Results of plugin Avalanche hooks (packs' onStart/onStep/onEnd), keyed by
    * hook id. Each entry carries the pack's `instructions` for reading it.
    * Absent when no hooks are registered.
@@ -598,6 +612,16 @@ export interface DetectorOptions {
 
   /** Network requests kept per capture; the oldest are dropped first. Default: 500. */
   maxNetworkRequests?: number;
+
+  /**
+   * Record browser performance entries during capture: User Timing marks and
+   * measures, long animation frames, layout shifts, events of 16 ms or more,
+   * LCP, paint, and navigation. Default true.
+   */
+  perfCapture?: boolean;
+
+  /** Performance entries kept per entry type; the oldest of a type are dropped first. Default: 300. */
+  maxPerfEntries?: number;
 
   /**
    * Commit metrics adapter for host render counters. Defaults to the adapter
@@ -746,6 +770,9 @@ export interface ProfilerState {
   /** Network requests that finished during the capture (Resource Timing). */
   networkRequests: NetworkRequest[];
 
+  /** Browser performance entries recorded during the capture. */
+  perfEntries?: PerfEntry[];
+
   /** Screen area each commit changed. */
   screenByCommit?: Record<number, ScreenChange>;
 
@@ -840,6 +867,8 @@ export function buildReport(
     renderTicks?: RenderTickStatus;
     /** Network capture status from the detector. */
     network?: NetworkCaptureStatus;
+    /** Performance entry capture status from the detector. */
+    perf?: PerfCaptureStatus;
     renderedEvidence?: RenderedEvidenceStatus;
     domDiff?: RenderedEvidenceStatus;
     capture?: CaptureStatus;
@@ -1063,7 +1092,7 @@ export function buildReport(
   const renderTicks: RenderTickStatus = detectorConfig?.renderTicks
     ?? { available: false, sources: [], reason: 'detector not installed' };
   const meta: ReportMeta = {
-    version: 8, // v8: networkRequests + meta.network; v7: meta.timeOrigin, absolute commit and action timestamps
+    version: 9, // v9: perfEntries + meta.perf; v8: networkRequests + meta.network; v7: meta.timeOrigin, absolute commit and action timestamps
     timeOrigin: performance.timeOrigin,
     commits: state.commits,
     config: {
@@ -1100,6 +1129,7 @@ export function buildReport(
     ...(detectorConfig?.capture && { capture: detectorConfig.capture }),
     network: detectorConfig?.network
       ?? { supported: false, enabled: false, windowStart: 0, requests: 0, dropped: 0, ignoredOwn: 0, pausedAt: null },
+    ...(detectorConfig?.perf && { perf: detectorConfig.perf }),
     timing: {
       totalDetectorOverhead,
       avgDetectorOverhead,
@@ -1119,6 +1149,7 @@ export function buildReport(
     interactionsByCommit: state.interactionsByCommit,
     renderedByCommit: state.renderedByCommit,
     networkRequests: state.networkRequests.slice(),
+    ...(state.perfEntries && { perfEntries: state.perfEntries.slice() }),
     ...(state.screenByCommit && Object.keys(state.screenByCommit).length > 0 && { screenByCommit: { ...state.screenByCommit } }),
     ...(state.domByCommit && Object.keys(state.domByCommit).length > 0 && { domByCommit: { ...state.domByCommit } }),
     ...(hasMetricsData && { metricsByCommit: state.metricsByCommit }),

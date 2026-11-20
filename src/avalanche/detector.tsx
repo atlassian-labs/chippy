@@ -71,6 +71,7 @@ import {
 import { createCommitSurfaceOwnership } from './commit-surface-ownership';
 import { createInteractionCapture } from './interaction-capture';
 import { createNetworkCapture } from './network-capture';
+import { createPerfCapture } from './perf-capture';
 import { createPaintTracker } from './paint-timing';
 import { createAvalancheHookRunner, type AvalancheHookResult } from './avalanche-hooks';
 import { createScreenCapture } from './screen-changes';
@@ -238,6 +239,7 @@ export function createAvalancheDetector(options: DetectorOptions = {}) {
   const debugRender = createDebugRender();
   const interactionCapture = createInteractionCapture(options);
   const networkCapture = createNetworkCapture(options);
+  const perfCapture = createPerfCapture(options);
   const screenCapture = createScreenCapture(options);
   const domDiff = createDomDiffCapture(options);
   // Plugin hooks (packs' onStart/onStep/onEnd); results land in report.hooks.
@@ -463,6 +465,7 @@ export function createAvalancheDetector(options: DetectorOptions = {}) {
     interactionActions: interactionCapture.state.actions,
     interactionsByCommit: interactionCapture.state.byCommit,
     networkRequests: networkCapture.requests,
+    perfEntries: perfCapture.entries,
     screenByCommit: screenCapture.byCommit,
     domByCommit: domDiff.byCommit,
     renderedByCommit: {},
@@ -1343,6 +1346,7 @@ export function createAvalancheDetector(options: DetectorOptions = {}) {
     pausedAt = null;
     interactionCapture.resume();
     networkCapture.resume();
+    perfCapture.resume();
   }
 
   function resetState(): void {
@@ -1386,6 +1390,7 @@ export function createAvalancheDetector(options: DetectorOptions = {}) {
     renderedEvidence.reset();
     interactionCapture.reset();
     networkCapture.reset();
+    perfCapture.reset();
     screenCapture.reset();
     domDiff.reset();
     paintTracker.reset();
@@ -1651,6 +1656,7 @@ export function createAvalancheDetector(options: DetectorOptions = {}) {
       resumeCapture();
       interactionCapture.install();
       networkCapture.install();
+      perfCapture.install();
       hookRunner.ensureStarted();
       const devtoolsGlobal = globalThis as GlobalWithDevtools;
       metricsAdapter = resolveMetricsAdapter();
@@ -1864,6 +1870,7 @@ export function createAvalancheDetector(options: DetectorOptions = {}) {
       debugRender.uninstall();
       interactionCapture.uninstall();
       networkCapture.uninstall();
+      perfCapture.uninstall();
       commitSurface.reset();
       pendingDevtoolsUnmounts = { components: 0, subtrees: 0 };
       pendingDevtoolsUnmountSamples = [];
@@ -1884,6 +1891,7 @@ export function createAvalancheDetector(options: DetectorOptions = {}) {
       pausedAt = performance.now();
       interactionCapture.pause();
       networkCapture.pause();
+      perfCapture.pause();
     },
 
     /** Record again after pause(), keeping what the capture already holds. */
@@ -1941,6 +1949,7 @@ export function createAvalancheDetector(options: DetectorOptions = {}) {
      */
     report(topN: number = 10, sortBy: SortBy = 'effect', reportOptions?: ReportOptions): Report {
       networkCapture.flush();
+      perfCapture.flush();
       renderedNames.refresh(state.renderedByCommit);
       const report = buildReport(state, thrashMode, topN, sortBy, reportOptions, {
         effectThrashMode,
@@ -1950,6 +1959,7 @@ export function createAvalancheDetector(options: DetectorOptions = {}) {
         integrationMode,
         renderTicks: renderTicks.status(),
         network: networkCapture.status(),
+        perf: perfCapture.status(),
         renderedEvidence: renderedEvidence.status(),
         ...(domDiff.enabled && { domDiff: domDiff.status() }),
         capture: captureStatus(),
@@ -2081,10 +2091,11 @@ export function createAvalancheDetector(options: DetectorOptions = {}) {
       return hookRunner.collect();
     },
 
-    /** Commit and network request counts, without building a report. */
-    counts(): { commits: number; networkRequests: number; renderedEvidence: RenderedEvidenceStatus; capture: CaptureStatus } {
+    /** Commit, network request, and performance entry counts, without building a report. */
+    counts(): { commits: number; networkRequests: number; perfEntries: number; renderedEvidence: RenderedEvidenceStatus; capture: CaptureStatus } {
       networkCapture.flush();
-      return { commits: state.commits, networkRequests: networkCapture.requests.length, renderedEvidence: renderedEvidence.status(), capture: captureStatus() };
+      perfCapture.flush();
+      return { commits: state.commits, networkRequests: networkCapture.requests.length, perfEntries: perfCapture.entries.length, renderedEvidence: renderedEvidence.status(), capture: captureStatus() };
     },
   };
 }

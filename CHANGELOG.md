@@ -34,6 +34,19 @@ must stay compatible with the extension version in the store.
   and each pack hook's result. `avalanche-offline <file> summary` returns the
   same digest, now with those fields too.
 
+- Avalanche records the browser's performance entries while it captures and
+  keeps them in exports (report version 9: `perfEntries` and `meta.perf`):
+  User Timing marks and measures, long animation frames (long tasks where
+  those are unsupported), layout shifts, interaction events of 16 ms or more
+  (other events from 50 ms), LCP, paint, and navigation. Shift sources, event targets, and the LCP element are named
+  with their component when the entry arrives. `avalanche-perf <clientId>
+  [types] [top] [match] [fromCommit] [toCommit]` (MCP `perf` action,
+  `avalanche-offline <file> perf`) lists them with page metrics and the commits
+  near each entry. `avalanche-summary` adds `perf` and each top commit's
+  `longFrame`; `commit-peek` accepts the `perf` include; `avalanche-timeline`
+  draws long frames, measures, marks, and shifts. The helper now forwards the
+  `types` field.
+
 - Page scripts: `eval-page <clientId> -` runs a throwaway script from stdin
   for a question no command answers. Every script receives `chippy`, a toolkit
   that finds fibers, walks parents and the nearest Suspense or error boundary,

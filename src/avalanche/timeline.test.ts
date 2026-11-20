@@ -220,3 +220,39 @@ describe('sibling boundaries', () => {
     expect(t.lanes.suspense.map((s) => [s.label, s.enteredAt, s.leftAt])).toEqual([['Header', 1, 3], ['Body', 1, 5]]);
   });
 });
+
+describe('perf lane', () => {
+  it('draws long frames, measures, marks, and shifts on the perf lane, linked to commits', () => {
+    const perfEntries = [
+      { id: 1, entryType: 'long-animation-frame', name: 'long-animation-frame', startTime: 1090, duration: 130, blockingDuration: 80,
+        scripts: [{ duration: 100, invoker: 'MessagePort.onmessage', sourceFunctionName: 'flush', sourceURL: 'https://app.test/static/react.js' }] },
+      { id: 2, entryType: 'measure', name: 'ttai', startTime: 1000, duration: 600 },
+      { id: 3, entryType: 'mark', name: 'ready', startTime: 1600, duration: 0 },
+      { id: 4, entryType: 'mark', name: 'ready-2', startTime: 1601, duration: 0 },
+      { id: 5, entryType: 'layout-shift', name: '', startTime: 1520, duration: 0, value: 0.02, hadRecentInput: false, sources: [{ element: 'div', testId: 'footer', component: null }] },
+      { id: 6, entryType: 'layout-shift', name: '', startTime: 1521, duration: 0, value: 0.0001, hadRecentInput: false, sources: [] },
+      { id: 7, entryType: 'mark', name: 'before-window', startTime: 500, duration: 0 },
+    ];
+    const result = buildTimeline({ ...report, perfEntries } as never, { maxMarks: 1 });
+    if ('error' in result) throw new Error(result.error);
+    expect(result.lanes.perf.map((p) => [p.kind, p.label, p.start, p.end, p.value, p.commits])).toEqual([
+      ['measure', 'ttai', 0, 600, null, [1, 2, 3, 4]],
+      ['frame', 'MessagePort.onmessage flush react.js', 90, 220, 80, [1, 2]],
+      ['shift', 'footer', 520, 520, 0.02, []],
+      ['mark', 'ready', 600, 600, null, [4]],
+    ]);
+    expect(result.omitted.marks).toBe(1);
+    expect(result.text).toContain('Long frames (no paint inside): 1, 80ms blocking; longest +90 130ms (c1–c2).');
+    expect(result.text).toContain('frame  long frame 130ms (80ms blocking) → +220 · MessagePort.onmessage flush react.js · c1–c2');
+    expect(result.mermaid).toContain('section Browser (long frames, measures)');
+    expect(result.mermaid).toContain('long frame 130ms c1–c2 :crit, perf1, 90, 220');
+  });
+
+  it('counts long task time over 50 ms as blocking where frames are missing', () => {
+    const perfEntries = [{ id: 1, entryType: 'longtask', name: 'self', startTime: 1090, duration: 120 }];
+    const result = buildTimeline({ ...report, perfEntries } as never);
+    if ('error' in result) throw new Error(result.error);
+    expect(result.lanes.perf).toEqual([{ id: 1, kind: 'frame', label: '', start: 90, end: 210, durationMs: 120, value: 70, commits: [1, 2] }]);
+  });
+});
+

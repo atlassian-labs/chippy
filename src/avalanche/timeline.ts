@@ -11,6 +11,11 @@
  * `perceived` summary lists each wait with the requests that were still in
  * flight when it ended and the updates that ran while it waited.
  *
+ * Browser performance entries the report carries (`perfEntries`) form a
+ * `perf` lane: long animation frames, User Timing measures and marks, layout
+ * shifts, slow events, and LCP. A long frame that spans several commits ran
+ * them without a paint between them.
+ *
  * Produces structured lanes plus two renderings: a Mermaid gantt chart for
  * chat or docs, and an aligned text listing for terminals. Runs on report
  * data, live or saved, so capture pays nothing for it.
@@ -31,6 +36,7 @@
  */
 
 import type { NetworkRequest } from './network-capture';
+import type { PerfEntry } from './perf-capture';
 import type { ScreenChange } from './screen-changes';
 import { screenStability, settleMapSvg, type ScreenFrame, type ScreenStability } from './screen-stability';
 import { distinguishingLabels, type SuspenseLocation } from './suspense-location';
@@ -45,6 +51,7 @@ type ReportLike = {
   sourcesByCommit?: Record<string, Array<{ sourceId?: unknown; collateral?: unknown }>>;
   interactionsByCommit?: Record<string, Array<{ id?: unknown; action?: unknown; timestamp?: unknown; location?: { dom?: { nearestTestId?: unknown; text?: unknown; tag?: unknown } }; event?: { trusted?: unknown; key?: unknown; modifiers?: unknown } }>>;
   networkRequests?: NetworkRequest[];
+  perfEntries?: PerfEntry[];
   [key: string]: unknown;
 };
 
@@ -61,6 +68,8 @@ export interface TimelineOptions {
   maxCommits?: number;
   /** Requests whose URL matches this case-insensitive regex are left out. */
   exclude?: string;
+  /** Most User Timing marks listed, earliest kept (default 40). */
+  maxMarks?: number;
   /** Also render the settle map SVG (each part of the screen colored by when it last changed). */
   settleMap?: boolean;
 }
@@ -89,6 +98,20 @@ function inputLabel(i: TimelineInput): string {
  */
 export interface TimelineInput { t: number; action: string; target: string | null; detail: string | null }
 export interface TimelineRequest { id: number; label: string; start: number; end: number; durationMs: number; initiatorType: string; cached: boolean }
+/** Browser performance entries drawn on the timeline. */
+export type TimelinePerfKind = 'frame' | 'measure' | 'mark' | 'shift' | 'event' | 'lcp';
+export interface TimelinePerf {
+  id: number;
+  kind: TimelinePerfKind;
+  label: string;
+  start: number;
+  end: number;
+  durationMs: number;
+  /** Long frames: blocking time. Layout shifts: the shift value. Events: input delay. */
+  value: number | null;
+  /** Commits that started inside the entry's span. */
+  commits: number[];
+}
 export interface TimelineSuspense {
   /** `b<id>` from the detector, or `@<depth>` for reports without boundary ids. */
   boundary: string;
@@ -157,8 +180,8 @@ export interface TimelineResult {
   screen: ScreenStability | null;
   /** SVG of the viewport colored by when each part last changed; only with `settleMap`. */
   settleMapSvg?: string | null;
-  lanes: { input: TimelineInput[]; network: TimelineRequest[]; suspense: TimelineSuspense[]; commits: TimelineCommit[] };
-  omitted: { requests: number; commits: number };
+  lanes: { input: TimelineInput[]; network: TimelineRequest[]; suspense: TimelineSuspense[]; commits: TimelineCommit[]; perf: TimelinePerf[] };
+  omitted: { requests: number; commits: number; marks: number };
   mermaid: string;
   text: string;
 }
@@ -264,6 +287,7 @@ export function buildTimeline(report: ReportLike, options: TimelineOptions = {})
   const kept = [...drawable].sort((a, b) => b.duration - a.duration).slice(0, options.maxRequests ?? 30)
     .sort((a, b) => a.startTime - b.startTime);
   const network = kept.map(toRequest);
+  const perfLane = perfLaneOf(report.perfEntries ?? [], origin, windowEnd, ids.map((id) => ({ id, start: startOf(id) })), rel, options.maxMarks ?? 40);
 
   // Pair Suspense enter/leave events by boundary (the detector's id, else the
   // depth), from the start of the report so a wait that began before the
@@ -379,8 +403,8 @@ export function buildTimeline(report: ReportLike, options: TimelineOptions = {})
     boundaries: boundaryKeys.map((key) => ({ boundary: key, depth: boundaryInfo.get(key)!.depth, label: labelByKey.get(key) ?? null, location: boundaryInfo.get(key)!.location })),
     screen: screenStability(frames),
     ...(options.settleMap && { settleMapSvg: settleMapSvg(frames) }),
-    lanes: { input, network, suspense, commits },
-    omitted: { requests: inWindow.length - kept.length, commits: allCommits.length - commits.length },
+    lanes: { input, network, suspense, commits, perf: perfLane.lane },
+    omitted: { requests: inWindow.length - kept.length, commits: allCommits.length - commits.length, marks: perfLane.omittedMarks },
     mermaid: '',
     text: '',
   };
@@ -388,6 +412,58 @@ export function buildTimeline(report: ReportLike, options: TimelineOptions = {})
   result.text = renderText(result);
   return result;
 }
+
+const SHIFT_MIN = 0.001;
+const EVENT_MIN_MS = 50;
+
+function perfLaneOf(
+  entries: PerfEntry[], origin: number, windowEnd: number,
+  commitStarts: Array<{ id: number; start: number }>, rel: (t: number) => number, maxMarks: number,
+): { lane: TimelinePerf[]; omittedMarks: number } {
+  const lane: TimelinePerf[] = [];
+  let marks = 0;
+  let omittedMarks = 0;
+  const sorted = entries.filter((e) => e.startTime + (e.duration || 0) >= origin && e.startTime <= windowEnd)
+    .sort((a, b) => a.startTime - b.startTime);
+  for (const e of sorted) {
+    let kind: TimelinePerfKind | null = null;
+    let label = e.name;
+    let value: number | null = null;
+    if (e.entryType === 'long-animation-frame' || e.entryType === 'longtask') {
+      kind = 'frame';
+      // Long tasks carry no blocking time; count what ran past 50 ms, as total blocking time does.
+      value = e.entryType === 'longtask' ? round(Math.max(0, e.duration - 50)) : e.blockingDuration ?? null;
+      const script = e.scripts?.[0];
+      label = script ? [script.invoker, script.sourceFunctionName, script.sourceURL?.split('/').pop()].filter(Boolean).join(' ') : '';
+    } else if (e.entryType === 'measure' && e.duration >= 1) kind = 'measure';
+    else if (e.entryType === 'measure' || e.entryType === 'mark') {
+      if (marks >= maxMarks) { omittedMarks += 1; continue; }
+      marks += 1;
+      kind = 'mark';
+    } else if (e.entryType === 'layout-shift' && (e.value ?? 0) >= SHIFT_MIN && !e.hadRecentInput) {
+      kind = 'shift';
+      value = e.value ?? null;
+      const source = e.sources?.find((s) => s.component || s.testId);
+      label = source ? source.component || source.testId || '' : '';
+    } else if (e.entryType === 'event' && e.duration >= EVENT_MIN_MS) {
+      kind = 'event';
+      value = e.inputDelay ?? null;
+      label = e.name + (e.target ? ' ' + (e.target.testId || e.target.component || e.target.element || '') : '');
+    } else if (e.entryType === 'largest-contentful-paint') {
+      kind = 'lcp';
+      label = e.element ? e.element.testId || e.element.component || e.element.element || '' : '';
+    }
+    if (!kind) continue;
+    const end = e.startTime + (e.duration || 0);
+    lane.push({
+      id: e.id, kind, label: label.trim(), start: rel(e.startTime), end: rel(end), durationMs: round(e.duration || 0), value,
+      commits: commitStarts.filter((c) => c.start >= e.startTime && c.start <= end).map((c) => c.id),
+    });
+  }
+  return { lane, omittedMarks };
+}
+
+const commitSpan = (ids: number[]) => (ids.length === 0 ? '' : ids.length === 1 ? `c${ids[0]}` : `c${ids[0]}–c${ids[ids.length - 1]}`);
 
 // Gantt statements that start with one of these words are directives, not
 // tasks: a task named "click card" fails to parse as a click binding.
@@ -420,6 +496,14 @@ function renderMermaid(result: TimelineResult): string {
   if (network.length) {
     lines.push('  section Network');
     for (const r of network) lines.push(`  ${safe(r.label)} ${r.durationMs}ms :${slow.has(r.id) ? 'crit, ' : ''}net${r.id}, ${bar(r.start, r.end)}`);
+  }
+  const browser = result.lanes.perf.filter((p) => p.kind === 'frame' || p.kind === 'measure');
+  if (browser.length) {
+    lines.push('  section Browser (long frames, measures)');
+    for (const p of browser) {
+      const name = p.kind === 'frame' ? `long frame ${p.durationMs}ms${p.commits.length ? ' ' + commitSpan(p.commits) : ''}` : `${p.label} ${p.durationMs}ms`;
+      lines.push(`  ${safe(name)} :${p.kind === 'frame' ? 'crit, ' : ''}perf${p.id}, ${bar(p.start, p.end)}`);
+    }
   }
   if (suspense.length) {
     lines.push('  section User waits (fallback shown)');
@@ -485,6 +569,12 @@ function renderText(result: TimelineResult): string {
     header.push(`Painted late (the commit's task kept running): ${worst.map((c) => `c${c.commitId} +${c.t} → painted +${c.paintAt} (${c.paintAt! - c.t}ms)`).join(', ')}.`);
   }
 
+  const frames = result.lanes.perf.filter((p) => p.kind === 'frame');
+  if (frames.length) {
+    const worst = [...frames].sort((a, b) => b.durationMs - a.durationMs).slice(0, 3);
+    header.push(`Long frames (no paint inside): ${frames.length}, ${Math.round(frames.reduce((sum, p) => sum + (p.value ?? 0), 0))}ms blocking; longest ${worst.map((p) => `+${p.start} ${p.durationMs}ms${p.commits.length ? ' (' + commitSpan(p.commits) + ')' : ''}`).join(', ')}.`);
+  }
+
   type Row = { t: number; lane: string; text: string };
   const rows: Row[] = [];
   for (const i of result.lanes.input) rows.push({ t: i.t, lane: 'input', text: inputLabel(i) });
@@ -498,7 +588,18 @@ function renderText(result: TimelineResult): string {
     const paint = c.paintAt !== null && c.paintAt - c.t >= PAINT_NOTE_MS ? ` · painted +${c.paintAt}` : '';
     rows.push({ t: c.t, lane, text: `c${c.commitId} ${c.kind === 'update' ? '' : c.kind + ' '}${c.rendered} rendered${seen}${c.sources.length ? ' · ' + c.sources.join(', ') : ''}${c.suspense.length ? ' · ' + c.suspense.join(', ') : ''}${paint}` });
   }
-  const order: Record<string, number> = { input: 0, net: 1, wait: 2, SCRN: 3, react: 4 };
+  for (const p of result.lanes.perf) {
+    const commits = p.commits.length ? ` · ${commitSpan(p.commits)}` : '';
+    const text =
+      p.kind === 'frame' ? `long frame ${p.durationMs}ms (${p.value ?? 0}ms blocking) → +${p.end}${p.label ? ' · ' + p.label : ''}${commits}` :
+        p.kind === 'measure' ? `measure ${p.label} → +${p.end} (${p.durationMs}ms)` :
+          p.kind === 'mark' ? `mark ${p.label}` :
+            p.kind === 'shift' ? `layout shift ${p.value}${p.label ? ' · ' + p.label : ''}` :
+              p.kind === 'event' ? `slow ${p.label} ${p.durationMs}ms (input delay ${p.value ?? 0}ms)` :
+                `LCP${p.label ? ' ' + p.label : ''}`;
+    rows.push({ t: p.start, lane: p.kind === 'frame' ? 'frame' : 'perf', text });
+  }
+  const order: Record<string, number> = { input: 0, net: 1, wait: 2, SCRN: 3, react: 4, frame: 5, perf: 6 };
   rows.sort((a, b) => a.t - b.t || order[a.lane] - order[b.lane]);
   const width = Math.max(...rows.map((r) => String(r.t).length), 1);
   return [...header, '', ...rows.map((r) => `+${String(r.t).padStart(width)}  ${r.lane.padEnd(5)}  ${r.text}`)].join('\n');

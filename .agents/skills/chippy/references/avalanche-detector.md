@@ -103,7 +103,10 @@ The first read of a capture, in one call. It answers what an analysis asks first
 - `timeline`: the `avalanche-timeline` payload of the last interaction without `lanes` or `mermaid`, or `{error}` when it cannot be built.
 - `topCommits`: the `top` commits (default 5) with the most collateral, ties by id. Each has `stat`, `atMs` (from the timeline origin, the last interaction; negative for commits before it), `renderMs`, `ticks`, `paintDelayMs` (commit end to paint), `sourcesTotal`, `sources` (the first `maxItems`, default 3: `sourceId`, `collateralAtCommit`, and `changedHooks` with `index` and `sameContent`, true when the new value equals the old one by content), `latestAction`, and `hooks` (each pack hook's step for that commit). A missing timing is `null`, not 0.
 - `hooks`: each pack hook's start, end, step count, and errors; `null` when no pack hooks ran.
+- `perf`: the [`avalanche-perf`](#avalanche-perf-clientid-types-top-match-fromcommit-tocommit) `summary` over the whole capture; `null` when the report has no performance entries.
 - `meta`: the capture metadata.
+
+Each top commit also has `longFrame`: the long animation frame it ran in (`atMs`, `durationMs`, `blockingMs`) and every commit that started in that frame, or `null`.
 
 `sameContent: true` on a changed hook means a new reference with equal content: identity churn. Drill down with `avalanche-commit-peek`, `avalanche-timeline`, or `avalanche-dom-diff`.
 
@@ -147,10 +150,12 @@ Defaults: include `stats,sources,timing,metrics,hooks`, maxItems 20 (MCP and HTT
 
 Valid include values (live and offline):
 ```text
-stats,sources,timing,metrics,hooks,unmounts,actions,rendered,network,dom
+stats,sources,timing,metrics,hooks,unmounts,actions,rendered,network,dom,perf
 ```
 
 `dom` returns `dom`, the DOM changes this commit made (the `avalanche-dom-diff` change shape, cut to `maxItems`), and `domTotal`, their untrimmed count. `domTruncated: true` is added when the commit changed more nodes than were recorded. `domTotal` is 0 for a commit that changed nothing in the DOM.
+
+`perf` returns `perf`, the browser performance entries near this commit (those whose span holds the commit's start, and those that started after it and before the next commit), longest first and cut to `maxItems`, in the `avalanche-perf` entry shape, and `perfTotal`, their untrimmed count.
 
 `unmounts` returns bounded branch-start samples for this one commit. It is a zoom-in surface, not a full export: use `commit-list ... unmountedComponents` / `unmountedSubtrees` for counts first, then `commit-peek N ... unmounts` to ask where teardown started and how large each sampled branch was.
 
@@ -161,7 +166,7 @@ stats,sources,timing,metrics,hooks,unmounts,actions,rendered,network,dom
 Response envelopes (live responses also add `targetClientId`, `resolvedFrom`, and `requestId`):
 - commit-list: `{by,total,rows:[{commitId,stat,sourceCount,ticks,network,latestAction}]}`. Rows are top-level, not under `payload`.
 - hot-sources: `{total,payload:{count,items:[...]}}`.
-- commit-peek: `{payload:{commitId,found:true,stats,sources,sourcesTotal,timing,metrics,hooks,actions,actionsTotal,rendered,renderedTotal,unmounts,unmountsTotal,network,dom,domTotal}}`, containing only the requested slices. An unknown commit returns flat `{commitId,found:false}` without `payload`.
+- commit-peek: `{payload:{commitId,found:true,stats,sources,sourcesTotal,timing,metrics,hooks,actions,actionsTotal,rendered,renderedTotal,unmounts,unmountsTotal,network,dom,domTotal,perf,perfTotal}}`, containing only the requested slices. An unknown commit returns flat `{commitId,found:false}` without `payload`.
 
 ### `avalanche-describe-action <clientId> <actionId>`
 ```bash
@@ -175,6 +180,28 @@ Each action also carries `event`:
 - `modifiers`: modifier keys held during the event.
 
 A trusted key event is not always a deliberate key press. Switching apps with Cmd+Tab or Alt+Tab sends the page a `Meta` or `Alt` keydown and keyup on the focused element. The timeline shows these details next to each input, for example `keydown Meta` or `keydown character with Shift dispatched`.
+
+### `avalanche-perf <clientId> [types] [top] [match] [fromCommit] [toCommit]`
+```bash
+chippy.sh avalanche-perf my-client
+chippy.sh avalanche-perf my-client long-animation-frame,layout-shift 10
+chippy.sh avalanche-perf my-client mark,measure 50 '^ufo'
+chippy.sh avalanche-perf my-client '' '' '' 30 42
+```
+Lists the browser performance entries Avalanche recorded during the capture. `types` is a CSV of `mark`, `measure`, `long-animation-frame`, `layout-shift`, `event`, `largest-contentful-paint`, `paint`, `navigation`, and `longtask` (default all). `top` caps entries per type (default 20): layout shifts are ranked by value, long frames by blocking time, long tasks, events, and measures by duration, and marks latest first. `match` is a case-insensitive regex on the entry name (mark or measure name, event type). `fromCommit` and `toCommit` keep entries that overlap the span from the first commit's start until the commit after the last one starts. Pass `""` to skip a position.
+
+`payload` holds `status` (`meta.perf`), `summary`, and `entries[type]: {count, items}`. `summary` has `cls` (the largest session window of shifts without recent input), `layoutShifts`, `longFrames`, `totalBlockingMs` (long frame blocking time, or long task time over 50 ms where frames are unsupported), `worstFrame` with its commits, `interactions`, `worstInteractionMs`, `lcpMs`, `fcpMs`, `ttfbMs`, `marks`, `measures`, and `longestMeasure`, over the selected entries.
+
+Every entry has `id`, `entryType`, `name`, `startTime`, `duration`, and `commits`: `during` (commits that started inside the entry's span, first ten), `duringCount`, and `before` (`{commitId, gapMs}`, the last commit that started at or before the entry). Type fields:
+
+- marks and measures: `detail`, as one JSON line cut to 200 characters.
+- long animation frames: `blockingDuration`, `renderStart`, `styleAndLayoutStart`, and `scripts`, the five longest (`duration`, `forcedStyleAndLayoutDuration`, `invoker`, `invokerType`, `sourceURL`, `sourceFunctionName`, `sourceCharPosition`; `chippy: true` marks Chippy's own code).
+- layout shifts: `value`, `hadRecentInput`, and up to five `sources` with `element`, `testId`, `component`, `previousRect`, and `currentRect` (`[x, y, width, height]`).
+- events: `interactionId`, `inputDelay`, `processing`, `presentationDelay`, and `target`. Events of 16 ms or more are recorded when they belong to an interaction; others, such as hover, from 50 ms.
+- LCP: `renderTime`, `loadTime`, `size`, `url`, and `element`.
+- navigation: `navigationType`, `ttfb`, `domContentLoaded`, `load`, and `transferSize`.
+
+A long frame lists every commit that started inside it under `commits.during`: those commits ran without a paint between them, so the user saw none of them until the frame ended. Layout shifts and LCP are reported at the frame after the DOM moved, so read `before` for them; for long frames, events, and measures read `during`. Every link is temporal proximity, not proof of cause. A report recorded before version 9 has no entries and returns an error that says so.
 
 ### `avalanche-network <clientId> [top] [by] [match] [initiators] [windowMs]`
 ```bash
@@ -302,9 +329,9 @@ chippy.sh avalanche-offline .chippy-captures/raf-1846.json commit-list 10 collat
 chippy.sh avalanche-offline .chippy-captures/raf-1846.json commit-peek 42 stats,sources,rendered 20
 chippy.sh avalanche-offline .chippy-captures/raf-1846.json source-search --name 'Issue(Row|List)'
 ```
-Use saved captures without a live page. `commit-list`, `commit-peek`, `hot-sources`, `describe-action`, `network`, `timeline`, and `dom-diff` run the same code as the live commands and return the same shapes, so sort keys and include values match the live tables above (`unmounts` is live-only; a saved capture always returns it empty).
+Use saved captures without a live page. `commit-list`, `commit-peek`, `hot-sources`, `describe-action`, `network`, `perf`, `timeline`, and `dom-diff` run the same code as the live commands and return the same shapes, so sort keys and include values match the live tables above (`unmounts` is live-only; a saved capture always returns it empty).
 
-Offline arguments: `commit-list [top] [by]`, `commit-peek <commitId> [include] [maxItems]` (no `depth`; the third value is maxItems, default 50), `hot-sources [limit]`, `describe-action <actionId>`, `network [top] [by] [match] [initiators] [windowMs]`, `timeline [fromCommit] [toCommit] [minRequestMs] [exclude]` (`--top N` keeps the N longest requests, `--format full` adds lanes), `dom-diff [fromCommit] [toCommit] [match] [maxItems]` (`--top N` caps commits), and `source-search --name <regex> [--top N]` (default top 50). Flags such as `--top`, `--by`, `--include`, `--maxItems`, `--match`, `--initiators`, and `--window` are accepted in place of positional values.
+Offline arguments: `commit-list [top] [by]`, `commit-peek <commitId> [include] [maxItems]` (no `depth`; the third value is maxItems, default 50), `hot-sources [limit]`, `describe-action <actionId>`, `network [top] [by] [match] [initiators] [windowMs]`, `perf [types] [top] [match] [fromCommit] [toCommit]`, `timeline [fromCommit] [toCommit] [minRequestMs] [exclude]` (`--top N` keeps the N longest requests, `--format full` adds lanes), `dom-diff [fromCommit] [toCommit] [match] [maxItems]` (`--top N` caps commits), and `source-search --name <regex> [--top N]` (default top 50). Flags such as `--top`, `--by`, `--include`, `--maxItems`, `--match`, `--initiators`, and `--window` are accepted in place of positional values.
 
 `summary [top] [maxItems]` returns the `avalanche-summary` digest, with its fields at the top level beside `ok` and `action`. `source-search --name <regex>` matches aggregate sources by `sourceId` and rendered components by name with per-instance render and self-source counts.
 
@@ -373,7 +400,9 @@ Start with these fields:
 - `domByCommit[N]` — DOM changes commit `N` made: `changes` (the `avalanche-dom-diff` change shape, in tree order, with no order between them), `truncated`, `ms`; present only for commits that changed the DOM
 - `meta.domDiff` — `{maxEntries, entries, commits, evicted}`: the change budget, how many changes and commits are kept, and which oldest commits were dropped (`evicted` is null when none were)
 - suspense events carry `boundary` (a stable id per boundary within the capture) and `location` (the parent and owner chain described under `avalanche-timeline`)
-- `meta.version` — report format; 8 adds `networkRequests` and `meta.network`
+- `perfEntries[]` — browser performance entries recorded during the capture, in arrival order (`avalanche-perf` entry fields without the commit links)
+- `meta.perf` — `{enabled, observed, unsupported, windowStart, entries, byType, dropped, pausedAt}`: whether capture is on, the entry types this browser lets it observe and those it does not, when the capture window opened, how many entries are kept (in total and by type), how many of the oldest of each type were dropped past 300 per type, and when the capture was paused
+- `meta.version` — report format; 8 adds `networkRequests` and `meta.network`; 9 adds `perfEntries` and `meta.perf`
 
 ### Render ticks
 
@@ -401,7 +430,7 @@ Ticks are page-wide: when several roots render between two commits, their slices
 
 `startTime` is when React called the commit hook: after the commit's DOM mutations and layout effects, before passive effects. It marks the end of React's synchronous commit, not the start of render. Overlapping timestamps show temporal proximity; confirm causality with the commit's sources and rendered components.
 
-`eval-page <clientId> perf-entries` does this alignment in the page. For each buffered entry it returns `commits.during` (commits whose `startTime` falls inside the entry) and `commits.before` (the latest commit at or before the entry, with `gapMs`). Layout shifts and LCP are point-in-time entries reported at the frame after the DOM moved, so `during` is almost always empty for them: read `before`. For long frames and interactions, read `during`. Arguments and limits are in the [snippet catalog](../snippets/README.md).
+Avalanche records these entries during the capture (`perfEntries`), so a saved export keeps them; [`avalanche-perf`](#avalanche-perf-clientid-types-top-match-fromcommit-tocommit) joins them to commits, live or offline. `eval-page <clientId> perf-entries` does the same alignment from the browser's buffers, which keep about 150 entries per type and only interactions of 104 ms or more. For each buffered entry it returns `commits.during` (commits whose `startTime` falls inside the entry) and `commits.before` (the latest commit at or before the entry, with `gapMs`). Layout shifts and LCP are point-in-time entries reported at the frame after the DOM moved, so `during` is almost always empty for them: read `before`. For long frames and interactions, read `during`. Arguments and limits are in the [snippet catalog](../snippets/README.md).
 
 Network requests use the same clock. Avalanche records them from Resource Timing during the capture, and [`avalanche-network`](#avalanche-network-clientid-top-by-match-initiators-windowms) links each to the commits around it.
 

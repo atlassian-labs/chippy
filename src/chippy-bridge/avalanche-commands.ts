@@ -16,6 +16,7 @@ import { buildTimeline } from '../avalanche/timeline';
 import { buildDomDiffView } from '../avalanche/dom-diff-view';
 import { compactLatestAction, tupleToStats, UPSTREAM_COMMIT_STAT_KEYS } from '../avalanche/commit-stats';
 import { buildSummaryView } from '../avalanche/summary-view';
+import { perfForCommit, perfView } from '../avalanche/perf-signals';
 
 export { tupleToStats, UPSTREAM_COMMIT_STAT_KEYS };
 
@@ -58,11 +59,13 @@ export type AvalancheCommand = {
   maxItems?: number;
   top?: number;
   by?: string;
-  /** `network`: case-insensitive regex over request URLs. `dom-diff`: regex over each change's op, node, components, markup, and props. */
+  /** `network`: case-insensitive regex over request URLs. `perf`: regex over entry names. `dom-diff`: regex over each change's op, node, components, markup, and props. */
   match?: string;
   /** `network`: initiator types to keep, such as fetch or xmlhttprequest. */
   initiators?: string[];
-  /** `timeline`, `dom-diff`: first and last commit ids of the window. */
+  /** `perf`: performance entry types to list, such as mark, measure, or long-animation-frame. */
+  types?: string[] | string;
+  /** `timeline`, `dom-diff`, `perf`: first and last commit ids of the window. */
   fromCommit?: number;
   toCommit?: number;
   /** `timeline`: requests shorter than this are left out. */
@@ -270,7 +273,7 @@ export function evalAvalanche(
         const include = Array.isArray(command?.include) && command!.include!.length
           ? command!.include!
           : ['stats', 'sources', 'timing', 'metrics', 'hooks'];
-        const allowedInclude = ['stats', 'sources', 'timing', 'metrics', 'hooks', 'unmounts', 'actions', 'rendered', 'network', 'dom'];
+        const allowedInclude = ['stats', 'sources', 'timing', 'metrics', 'hooks', 'unmounts', 'actions', 'rendered', 'network', 'dom', 'perf'];
         const invalidInclude = include.filter((key) => !allowedInclude.includes(key));
         if (invalidInclude.length) {
           return {
@@ -357,6 +360,11 @@ export function evalAvalanche(
         }
         if (include.includes('network')) {
           out.network = compactNetwork(networkByCommit(ser, command?.window).get(commitId), maxItems);
+        }
+        if (include.includes('perf')) {
+          const perf = perfForCommit(ser as Parameters<typeof perfForCommit>[0], commitId, maxItems);
+          out.perf = perf.items;
+          out.perfTotal = perf.total;
         }
         if (include.includes('unmounts')) {
           // Live identity samples live on the raw report (not in DTO/export).
@@ -468,6 +476,21 @@ export function evalAvalanche(
         if ('error' in view) return { ok: false, available: true, action, error: view.error, ...(view.validBy && { validBy: [...view.validBy] }) };
         return { ok: true, available: true, action, payload: view.payload };
       }
+      case 'perf': {
+        const r = getReport(api);
+        if (!r || 'error' in r) {
+          return { ok: false, available: true, action, error: (r && 'error' in r ? r.error : 'report() unavailable') };
+        }
+        const view = perfView(r.serial as Parameters<typeof perfView>[0], {
+          types: command?.types,
+          top: command?.top,
+          match: command?.match,
+          fromCommit: command?.fromCommit,
+          toCommit: command?.toCommit,
+        });
+        if ('error' in view) return { ok: false, available: true, action, error: view.error };
+        return { ok: true, available: true, action, payload: view.payload };
+      }
       case 'timeline': {
         const r = getReport(api);
         if (!r || 'error' in r) {
@@ -537,7 +560,7 @@ export function nameBudgetFor(command: AvalancheCommand | null | undefined): num
 }
 
 /** Actions whose results carry no component source ids, or that change state. */
-const NAME_FREE_ACTIONS = new Set(['install', 'uninstall', 'reset', 'clear', 'status', 'debug-hook', 'network', 'timeline', 'dom-diff']);
+const NAME_FREE_ACTIONS = new Set(['install', 'uninstall', 'reset', 'clear', 'status', 'debug-hook', 'network', 'perf', 'timeline', 'dom-diff']);
 const SOURCE_ID = /^[^\s#@]+#\d+@-?\d+$/;
 /** Actions that return every rendered entry, more ids than `sourceIdsIn` collects. */
 const WHOLE_CAPTURE_ACTIONS = new Set(['export', 'export-last']);

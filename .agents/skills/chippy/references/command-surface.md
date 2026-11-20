@@ -87,6 +87,7 @@ Load [active-stimulus](active-stimulus.md) before an active command. A `fiber:*`
 | `avalanche-describe-action` | Expand one action breadcrumb and its owner/parent context. |
 | `avalanche-timeline` | Put input, network requests, Suspense fallbacks, and commits on one timeline from the interaction, with a summary of what the user waited for, VC50/VC90/VC100, labelled Suspense boundaries, and a Mermaid gantt chart. `format` is `summary` (default), `map` (adds a settle-map SVG), or `full` (adds the map and raw lanes). |
 | `avalanche-network` | List the network requests that finished during the capture, with the commits each started after, started during, or landed before. |
+| `avalanche-perf` | List the browser performance entries recorded during the capture (marks, measures, long frames, layout shifts, slow events, LCP, paint, navigation) with page metrics and the commits near each entry. |
 | `avalanche-dom-diff` | List what each commit changed in the DOM, commits in order: inserted, removed, updated (each prop before and after), moved, and Suspense-hidden or shown nodes, each with the components above it. Each commit is one change set with no order inside it. |
 | `avalanche-debug-hook` | Interrogate one captured `sourceId + hookIndex`. |
 | `avalanche-export` | Return the full export, optionally written to a file; `lastN` does not trim it. Use `avalanche-save ... N` for the last N commits. Do not open this first. |
@@ -174,6 +175,7 @@ avalanche-commit-list <clientId> [top] [by]
 avalanche-commit-peek <clientId> <commitId> [include] [depth] [maxItems]
 avalanche-describe-action <clientId> <actionId>
 avalanche-network <clientId> [top] [by] [match] [initiators] [windowMs]
+avalanche-perf <clientId> [types] [top] [match] [fromCommit] [toCommit]
 avalanche-timeline <clientId> [fromCommit] [toCommit] [minRequestMs] [exclude] [format]
 avalanche-dom-diff <clientId> [fromCommit] [toCommit] [match] [maxItems] [top]
 avalanche-install <clientId> [detectionMode]

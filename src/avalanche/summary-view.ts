@@ -9,6 +9,7 @@
  */
 import { hookStepsAt, summarizeHookResults } from './avalanche-hooks';
 import { compactLatestAction, tupleToStats, UPSTREAM_COMMIT_STAT_KEYS } from './commit-stats';
+import { linkPerfEntries, perfSummary, type PerfSummary } from './perf-signals';
 import { buildTimeline } from './timeline';
 
 export const SUMMARY_DEFAULT_TOP = 5;
@@ -44,6 +45,12 @@ export type SummaryCommit = {
   latestAction: unknown;
   /** Each pack hook's onStep result for this commit; empty without packs. */
   hooks: Record<string, unknown>;
+  /**
+   * The long animation frame the commit ran in, with every commit in that
+   * frame: they ran without a paint between them. Null when the commit ran in
+   * no long frame or the report has no performance entries.
+   */
+  longFrame: { atMs: number | null; durationMs: number; blockingMs: number; commits: number[] } | null;
 };
 
 export type SummaryView = {
@@ -56,6 +63,8 @@ export type SummaryView = {
   timeline: Record<string, unknown> | { error: string };
   topCommits: SummaryCommit[];
   hooks: ReturnType<typeof summarizeHookResults>;
+  /** Browser performance metrics over the whole capture; null when the report has no performance entries. */
+  perf: PerfSummary | null;
   meta: unknown;
 };
 
@@ -105,6 +114,17 @@ function sourceRows(entries: unknown[], maxItems: number): SummarySource[] {
   });
 }
 
+function frameOf(frames: ReturnType<typeof linkPerfEntries>, commitId: number, origin: number | null): SummaryCommit['longFrame'] {
+  const frame = frames.find((f) => f.commits.during.includes(commitId));
+  if (!frame) return null;
+  return {
+    atMs: origin === null ? null : ms(frame.startTime - origin),
+    durationMs: ms(frame.duration),
+    blockingMs: ms(frame.blockingDuration ?? 0),
+    commits: frame.commits.during,
+  };
+}
+
 function compactTimeline(report: Report): SummaryView['timeline'] {
   const timeline = buildTimeline(report as Parameters<typeof buildTimeline>[0]);
   if ('error' in timeline) return { error: timeline.error };
@@ -128,6 +148,10 @@ export function buildSummaryView(report: Report, options: SummaryOptions = {}): 
 
   const timeline = compactTimeline(report);
   const origin = 'origin' in timeline ? finite((timeline.origin as { at?: unknown })?.at) : null;
+
+  const frames = Array.isArray(report.perfEntries)
+    ? linkPerfEntries(report, report.perfEntries.filter((e: { entryType?: unknown }) => e.entryType === 'long-animation-frame' || e.entryType === 'longtask'))
+    : [];
 
   const topCommits = ids
     .slice()
@@ -154,6 +178,7 @@ export function buildSummaryView(report: Report, options: SummaryOptions = {}): 
         sources: sourceRows(list, maxItems),
         latestAction: Array.isArray(actions) && actions.length ? compactLatestAction(actions[actions.length - 1]) : null,
         hooks: hookStepsAt(report.hooks, commitId),
+        longFrame: frameOf(frames, commitId, origin),
       };
     });
 
@@ -166,6 +191,7 @@ export function buildSummaryView(report: Report, options: SummaryOptions = {}): 
     timeline,
     topCommits,
     hooks: summarizeHookResults(report.hooks),
+    perf: Array.isArray(report.perfEntries) ? perfSummary(report) : null,
     meta: report.meta ?? null,
   };
 }
