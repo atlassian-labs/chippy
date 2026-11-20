@@ -11,7 +11,7 @@ capability, or a measured cost. Link the issue or failing run when there is one.
 
 - [ ] `yarn test --project unit`
 - [ ] `yarn test --project browser` (runtime, bridge, or extension changes)
-- [ ] `yarn shipped:check` passes, with the rebuilt bundles committed (source under `src/` changed)
 - [ ] Docs updated: `SKILL.md`, references, or `CHANGELOG.md`
 
+Target `dev`; `main` receives changes only through the Release workflow.
 See [CONTRIBUTING.md](../CONTRIBUTING.md).
