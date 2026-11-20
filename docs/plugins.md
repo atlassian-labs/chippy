@@ -60,6 +60,11 @@ export const featureGateProvider: ContextProvider = {
 - `errorEnrichment` merges fields onto the error boundary the core found.
 - `matchBoundary(fiber)` lets the panel highlight the provider's boundaries in the
   page.
+- `label(fiber, kind)` returns the application's own name for a fiber, or null.
+  `kind` is the core classification: `suspense`, `error` (a class with error
+  lifecycles), or `component`. Page scripts read it as `ref.label`, and the
+  overlay uses it as the default box label. The first provider with an answer
+  wins.
 - Registering the same `id` again replaces the earlier provider. A provider that
   throws is skipped, so it cannot break inspection.
 
@@ -114,13 +119,14 @@ registerCommitMetricsAdapter(atlCommitMetricsAdapter);
 
 A pack adds product knowledge as data, not code: one JSON document that a
 product team keeps and shares itself, then loads into an installed Chippy.
-Chippy ships no product packs. A pack has four parts, all optional except `id`:
+Chippy ships no product packs. A pack has these parts, all optional except `id`:
 
 | Field | Becomes |
 | --- | --- |
 | `id`, `label` | The plugin id and its label. A pack whose id matches a built-in plugin replaces it. |
 | `instructions` | Markdown for agents on how to read the pack's data. It appears in `status().packs` and in every report the pack contributes to. |
 | `components` | Component rules compiled into a context provider. |
+| `labels` | How the application names its boundaries, read by page scripts as `ref.label`. |
 | `avalancheExtensions` | Named extensions, such as `{ "counters": { ... } }`. Each has its own optional `instructions`, an `onInit` script run once when the pack loads, and `onStart`, `onStep`, and `onEnd` script bodies run with each Avalanche recording. |
 
 ```json
@@ -161,6 +167,29 @@ instead; `showError` asks the probe card to show the error boundary. Values are
 references, or lists of references tried in order until one is non-empty:
 `name` (the display name), `props.<key>` (a scalar prop), or `parts.<key>` (a
 segment of the display name split by `nameParts`).
+
+**Label rules.** A boundary's fiber name is often generic (`Suspense`) or
+minified, while the application names it elsewhere: in a prop, or in a marker
+component next to it. Each `labels` rule names the fibers of one kind (`for`:
+`suspense`, `error`, or a kind from `components`) with a value reference read
+from the fiber itself (`from: "self"`, the default), or from the nearest
+component within `within` named components above it (`parents`) or below it
+(`children`) whose display name matches `match`. `within` defaults to 3 and is
+at most 10. Rules for one kind are tried in order, and the first non-empty value
+wins. `note` explains the convention to people reading the pack; Chippy ignores
+it.
+
+```json
+"labels": [
+  { "for": "suspense", "from": "parents", "match": { "names": ["LazySection"] }, "value": "props.name",
+    "note": "LazySection wraps every lazy Suspense and names the section." },
+  { "for": "error", "value": ["props.id", "props.name"] },
+  { "for": "region", "nameParts": { "separator": "___", "keys": ["marker", "name"] }, "value": "parts.name" }
+]
+```
+
+The built-in Jira plugin carries its rules in the same form
+(`src/plugins/jira/labels.ts`), so a Jira pack that replaces it can copy them.
 
 **Initializing the page.** A pack must not expect the globals it reads to
 exist; `onInit` creates them. It runs once when the pack registers, with

@@ -60,6 +60,12 @@ export type ContextProvider = {
   describe(fibers: Fiber[]): ContextContribution | null;
   /** Return the provider kind this fiber is a boundary of, or null. Used for DOM highlighting. */
   matchBoundary?(fiber: Fiber): string | null;
+  /**
+   * The application's own name for one fiber, typically a boundary, or null.
+   * `kind` is the core classification: `suspense`, `error` (a class with
+   * error lifecycles), or `component`. Page scripts read it as `ref.label`.
+   */
+  label?(fiber: Fiber, kind: string): string | null;
 };
 
 export type ContextDisplay = {
@@ -136,6 +142,23 @@ export function collectContextFibers(fiber: Fiber | null | undefined): Fiber[] {
   collectChain(fiber, (entry) => entry.return, fibers, seen);
   collectChain(fiber._debugOwner, (entry) => entry._debugOwner, fibers, seen);
   return fibers;
+}
+
+/**
+ * Ask the registered providers, in registration order, for a fiber's name.
+ * The first non-empty answer wins; a provider that throws is skipped.
+ */
+export function labelFiber(fiber: Fiber, kind: string): string | null {
+  for (const provider of providers) {
+    if (!provider.label) continue;
+    try {
+      const label = provider.label(fiber, kind);
+      if (typeof label === 'string' && label) return label;
+    } catch {
+      // A broken plugin must not break the page script that asked.
+    }
+  }
+  return null;
 }
 
 function runProvider(provider: ContextProvider, fibers: Fiber[]): ContextContribution | null {

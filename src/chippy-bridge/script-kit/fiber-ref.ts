@@ -10,6 +10,7 @@
 
 import { describeErrorBoundary, describeSuspenseBoundary } from '../../layout-lab/fiber-boundaries';
 import { describeFiberSource, resolveFiberSource, type DescribedSource, type Fiber } from '../../layout-lab/fiber-walk';
+import { labelFiber } from '../../layout-lab/marker-context';
 import { readComponentName } from '../component-origin';
 import type { Ledger } from './ledger';
 
@@ -103,12 +104,16 @@ export interface FiberRefJson {
   name: string | null;
   kind: FiberKind;
   source: DescribedSource | null;
+  /** Present when an enabled plugin or pack names this fiber. */
+  label?: string;
 }
 
 export interface FiberRef {
   readonly id: string;
   readonly name: string | null;
   readonly kind: FiberKind;
+  /** The application's own name for this fiber, from an enabled plugin or pack; null when none names it. */
+  readonly label: string | null;
   readonly tag: number;
   readonly key: string | null;
   readonly source: DescribedSource | null;
@@ -166,6 +171,7 @@ export function createRefRegistry(deps: { rememberFiber: (fiber: Fiber) => strin
       get id() { return rememberedId(live(made)); },
       get name() { return fiberName(live(made)); },
       get kind() { return kind || (kind = classifyFiber(live(made))); },
+      get label() { return labelFiber(live(made), made.kind); },
       get tag() { return fiberTag(live(made)); },
       get key() { const k = live(made).key; return k == null ? null : String(k); },
       get source() { return describeFiberSource(live(made)); },
@@ -180,7 +186,10 @@ export function createRefRegistry(deps: { rememberFiber: (fiber: Fiber) => strin
         return live(made);
       },
       resolveSource() { return resolveFiberSource(live(made)); },
-      toJSON() { return { fiberId: made.id, name: made.name, kind: made.kind, source: made.source }; },
+      toJSON() {
+        const label = made.label;
+        return { fiberId: made.id, name: made.name, kind: made.kind, source: made.source, ...(label && { label }) };
+      },
       toString() { return `${made.name || made.kind} (${made.id})`; },
     };
     refFibers.set(made, fiber);

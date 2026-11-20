@@ -44,7 +44,7 @@ const HELP: Record<string, string> = {
   hooks: 'hooks(ref) fiber-only | hooks(ref, { replay: true }) names custom hooks (needs --allow replay) | hooks.callers("useQuery", query) (needs --allow replay) | props(ref)',
   overlay: 'overlay.paint({ items, color, label, dashed } | layers[], { id }) | overlay.clear(id?) | overlay.list()',
   run: 'checkpoint(value) keeps a partial result for timeouts | session persists between runs | log(...values) | allowed lists the gates of this run',
-  ref: 'FiberRef: id name kind tag key source status hidden raw resolveSource(); serializes as { fiberId, name, kind, source }; refs compare with ===',
+  ref: 'FiberRef: id name kind label tag key source status hidden raw resolveSource(); serializes as { fiberId, name, kind, source, label? }; label is the app name from an enabled plugin or pack; refs compare with ===',
 };
 
 export function createScriptKit(deps: ScriptKitDeps) {

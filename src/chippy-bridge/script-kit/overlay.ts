@@ -17,7 +17,7 @@ export interface OverlayLayer {
   items: Item[];
   /** A CSS color, `kind` (default: one hue per fiber kind), or a function of the item. */
   color?: string | ((ref: FiberRef, index: number) => string);
-  /** Label text; default is the fiber name. Return null for no label. */
+  /** Label text; default is `ref.label`, then the fiber name. Return null for no label. */
   label?: string | ((ref: FiberRef, index: number) => string | null);
   /** Dashed outline; default dashes Suspense boundaries that show their fallback. */
   dashed?: boolean | ((ref: FiberRef, index: number) => boolean);
@@ -170,7 +170,7 @@ export function paintOverlay(layers: OverlayLayer | OverlayLayer[], options: { i
       boxes.push({
         ref,
         color: resolve(spec.color, ref, index, 'kind') === 'kind' ? KIND_COLORS[ref.kind] : resolve(spec.color, ref, index, 'kind'),
-        label: resolve(spec.label, ref, index, ref.name as string | null),
+        label: resolve(spec.label, ref, index, ref.label ?? ref.name),
         dashed: resolve(spec.dashed, ref, index, ref.status === 'showing-fallback'),
         depth: 0,
       });

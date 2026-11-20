@@ -12,7 +12,7 @@ import { compileComponents } from './components';
 import { compileScripts } from './scripts';
 import { type ChippyPack, parsePack } from './spec';
 
-export type { ChippyPack, PackComponentRule, PackScripts, PackValueRef } from './spec';
+export type { ChippyPack, PackComponentRule, PackLabelRule, PackScripts, PackValueRef } from './spec';
 export { parsePack } from './spec';
 
 export type PackStatus = {

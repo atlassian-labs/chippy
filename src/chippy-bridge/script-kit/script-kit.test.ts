@@ -10,6 +10,7 @@ import { clearOverlay } from './overlay';
 import { runChippyScript } from './run-script';
 import { buildRoot, cls, comp, div, fakeGeometry, offscreen, suspense, withAlternate, type FakeRoot } from './test-fibers';
 import type { LiveFiber } from './fiber-ref';
+import { registerContextProvider } from '../../layout-lab/marker-context';
 
 class PageErrorBoundary {
   static getDerivedStateFromError() { return {}; }
@@ -110,6 +111,29 @@ describe('fiber refs', () => {
     const { chippy, ledger } = kitFor(page());
     expect(chippy.byId('fiber:99')).toBeNull();
     expect(ledger.entries()[0]).toMatchObject({ primitive: 'byId', kind: 'gap' });
+  });
+});
+
+describe('labels', () => {
+  it('reads the label an enabled provider gives, and paints it by default', () => {
+    const unregister = registerContextProvider({
+      id: 'test-labels',
+      describe: () => null,
+      label: (_fiber, kind) => (kind === 'suspense' ? 'feed-region' : null),
+    });
+    try {
+      const { chippy } = kitFor(page());
+      const [feed] = chippy.find({ kind: 'suspense' });
+      expect(feed.label).toBe('feed-region');
+      expect(chippy.first({ name: 'Feed' })!.label).toBeNull();
+      expect(JSON.parse(JSON.stringify(feed))).toMatchObject({ name: 'Suspense', label: 'feed-region' });
+      expect(JSON.parse(JSON.stringify(chippy.first({ name: 'Feed' })))).not.toHaveProperty('label');
+      chippy.overlay.paint({ items: [feed, chippy.first({ name: 'Feed' })] }, { id: 'labels' });
+      const labels = [...document.querySelector('[data-chippy-overlay]')!.shadowRoot!.querySelectorAll('.l')].map((el) => el.textContent);
+      expect(labels).toEqual(['feed-region', 'Feed']);
+    } finally {
+      unregister();
+    }
   });
 });
 

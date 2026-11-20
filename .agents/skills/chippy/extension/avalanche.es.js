@@ -411,8 +411,8 @@ function nameOccurrence(text, occurrence, lineStarts) {
     ["binding-map-name", () => bindingOffset === null ? null : mappedNameAt(module.maps, lineStarts, bindingOffset)],
     ["binding-source-text", () => authored.binding]
   ];
-  for (const [evidence, read] of candidates) {
-    const name = read();
+  for (const [evidence, read2] of candidates) {
+    const name = read2();
     if (name) return { ...found, name, nameEvidence: evidence, definition };
   }
   return { ...found, definition };
@@ -1893,7 +1893,7 @@ function deriveComponentNameFromStack(stack) {
   return afterWrapper ? "Unknown" : deriveComponentName(seen);
 }
 function currentFiberReader() {
-  const readers = getReactRenderers().map((renderer) => renderer.getCurrentFiber).filter((read) => typeof read === "function");
+  const readers = getReactRenderers().map((renderer) => renderer.getCurrentFiber).filter((read2) => typeof read2 === "function");
   return readers.length === 1 ? readers[0] : null;
 }
 function createDebugRender(options = {}) {
@@ -3474,10 +3474,10 @@ function createRenderTickTracker(options = {}) {
     const previous = Object.getOwnPropertyDescriptor(owner, "A");
     if (previous && previous.configurable === false) return null;
     let stored = previous && "value" in previous ? previous.value : void 0;
-    const read = (previous == null ? void 0 : previous.get) ? () => previous.get.call(owner) : () => stored;
+    const read2 = (previous == null ? void 0 : previous.get) ? () => previous.get.call(owner) : () => stored;
     let outer = void 0;
     function set(next) {
-      const before = read();
+      const before = read2();
       if (previous == null ? void 0 : previous.set) previous.set.call(owner, next);
       else stored = next;
       if (sliceStart < 0) {
@@ -3491,7 +3491,7 @@ function createRenderTickTracker(options = {}) {
       Object.defineProperty(owner, "A", {
         configurable: true,
         enumerable: (previous == null ? void 0 : previous.enumerable) ?? true,
-        get: read,
+        get: read2,
         set
       });
     } catch (_) {
@@ -3500,7 +3500,7 @@ function createRenderTickTracker(options = {}) {
     return () => {
       const current = Object.getOwnPropertyDescriptor(owner, "A");
       if ((current == null ? void 0 : current.set) !== set) return;
-      const value = read();
+      const value = read2();
       if ((previous == null ? void 0 : previous.get) || (previous == null ? void 0 : previous.set)) Object.defineProperty(owner, "A", previous);
       else Object.defineProperty(owner, "A", { configurable: true, enumerable: (previous == null ? void 0 : previous.enumerable) ?? true, writable: true, value });
     };
@@ -4059,29 +4059,29 @@ function createAvalancheDetector(options = {}) {
           const deleted = fiber.deletions[di];
           if (perCommit.unmountSamples == null) perCommit.unmountSamples = [];
           if (perCommit.unmountSamples.length < 30) {
-            let labelFiber = deleted;
-            if (!isComponentFiber$1(labelFiber.tag)) {
-              const stack = [labelFiber];
-              labelFiber = null;
+            let labelFiber2 = deleted;
+            if (!isComponentFiber$1(labelFiber2.tag)) {
+              const stack = [labelFiber2];
+              labelFiber2 = null;
               while (stack.length) {
                 const f = stack.pop();
                 if (isComponentFiber$1(f.tag)) {
-                  labelFiber = f;
+                  labelFiber2 = f;
                   break;
                 }
                 if (f.child) stack.push(f.child);
                 if (f.sibling) stack.push(f.sibling);
               }
             }
-            if (labelFiber) {
+            if (labelFiber2) {
               const counts = countUnmountedComponentSubtree(deleted);
-              const fiberKey = labelFiber.key;
+              const fiberKey = labelFiber2.key;
               perCommit.unmountSamples.push({
-                name: getComponentName(labelFiber),
+                name: getComponentName(labelFiber2),
                 key: fiberKey == null ? null : String(fiberKey),
                 depth,
                 count: counts.components,
-                source: summarizeFiberSource(labelFiber),
+                source: summarizeFiberSource(labelFiber2),
                 host: summarizeHostSubtree(deleted)
               });
             }
@@ -4726,28 +4726,28 @@ function createAvalancheDetector(options = {}) {
         pendingDevtoolsUnmounts.components += counts.components;
         pendingDevtoolsUnmounts.subtrees += counts.subtrees;
         if (counts.components > 0 && pendingDevtoolsUnmountSamples.length < 30) {
-          let labelFiber = fiber;
-          if (!isComponentFiber$1(labelFiber.tag)) {
-            const stack = [labelFiber];
-            labelFiber = null;
+          let labelFiber2 = fiber;
+          if (!isComponentFiber$1(labelFiber2.tag)) {
+            const stack = [labelFiber2];
+            labelFiber2 = null;
             while (stack.length) {
               const f = stack.pop();
               if (isComponentFiber$1(f.tag)) {
-                labelFiber = f;
+                labelFiber2 = f;
                 break;
               }
               if (f.child) stack.push(f.child);
               if (f.sibling) stack.push(f.sibling);
             }
           }
-          if (labelFiber) {
-            const fiberKey = labelFiber.key;
+          if (labelFiber2) {
+            const fiberKey = labelFiber2.key;
             pendingDevtoolsUnmountSamples.push({
-              name: getComponentName(labelFiber),
+              name: getComponentName(labelFiber2),
               key: fiberKey == null ? null : String(fiberKey),
               depth: null,
               count: counts.components,
-              source: summarizeFiberSource(labelFiber),
+              source: summarizeFiberSource(labelFiber2),
               host: summarizeHostSubtree(fiber)
             });
           }
@@ -5523,7 +5523,7 @@ function replayComponentHooks(fiber) {
   };
 }
 const MAX_BOUNDARY_FIBERS = 400;
-const SUSPENSE_TAG$1 = 13;
+const SUSPENSE_TAG$2 = 13;
 const CLASS_COMPONENT_TAG$1 = 1;
 function fiberTag$2(fiber) {
   return fiber.tag;
@@ -5543,7 +5543,7 @@ function describeErrorBoundary(fiber) {
 }
 function describeSuspenseBoundary(fiber) {
   const displayName = getDisplayName(fiber.type) || getDisplayName(fiber.elementType);
-  const isSuspense = fiberTag$2(fiber) === SUSPENSE_TAG$1 || displayName === "Suspense" || displayName === "SuspenseComponent" || displayName === "SuspenseList";
+  const isSuspense = fiberTag$2(fiber) === SUSPENSE_TAG$2 || displayName === "Suspense" || displayName === "SuspenseComponent" || displayName === "SuspenseList";
   if (!isSuspense) return null;
   return { componentName: displayName || "Suspense" };
 }
@@ -5604,6 +5604,17 @@ function collectContextFibers(fiber) {
   collectChain(fiber, (entry) => entry.return, fibers, seen);
   collectChain(fiber._debugOwner, (entry) => entry._debugOwner, fibers, seen);
   return fibers;
+}
+function labelFiber(fiber, kind) {
+  for (const provider of providers) {
+    if (!provider.label) continue;
+    try {
+      const label = provider.label(fiber, kind);
+      if (typeof label === "string" && label) return label;
+    } catch {
+    }
+  }
+  return null;
 }
 function runProvider(provider, fibers) {
   try {
@@ -5866,6 +5877,246 @@ function createATLCommitMetricsAdapter(options = {}) {
   };
 }
 const atlCommitMetricsAdapter = createATLCommitMetricsAdapter();
+function displayNameOf$1(fiber) {
+  return getDisplayName(fiber.type) || getDisplayName(fiber.elementType) || null;
+}
+function compileRule(rule) {
+  const names = new Set(rule.match.names ?? []);
+  const pattern = rule.match.pattern ? new RegExp(rule.match.pattern) : null;
+  return { rule, matches: (name) => names.has(name) || !!(pattern == null ? void 0 : pattern.test(name)) };
+}
+function scalar(value) {
+  if (typeof value === "string") return value.trim() ? value : null;
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  return null;
+}
+function readRef(ref, hit) {
+  var _a2;
+  for (const one of Array.isArray(ref) ? ref : [ref]) {
+    let value = null;
+    if (one === "name") value = hit.name;
+    else if (one.startsWith("props.")) value = scalar((_a2 = hit.fiber.memoizedProps) == null ? void 0 : _a2[one.slice(6)]);
+    else if (one.startsWith("parts.") && hit.rule.nameParts) {
+      const { separator, keys } = hit.rule.nameParts;
+      const index = keys.indexOf(one.slice(6));
+      value = index >= 0 ? scalar(hit.name.split(separator)[index]) : null;
+    }
+    if (value) return value;
+  }
+  return null;
+}
+function readData(hit) {
+  const out = { componentName: hit.name };
+  for (const [key, ref] of Object.entries(hit.rule.data ?? {})) out[key] = readRef(ref, hit);
+  return out;
+}
+function readFields(hit) {
+  const out = [];
+  for (const field2 of hit.rule.fields ?? []) {
+    const value = readRef(field2.value, hit);
+    if (value) out.push({ label: field2.label, value });
+  }
+  return out;
+}
+function compileComponents(pack) {
+  const rules = (pack.components ?? []).map(compileRule);
+  const labeler = compileLabels(pack.labels);
+  if (rules.length === 0 && !labeler) return null;
+  const kinds = /* @__PURE__ */ new Map();
+  for (const { rule } of rules) {
+    if (rule.kind === "error" || kinds.has(rule.kind)) continue;
+    kinds.set(rule.kind, { kind: rule.kind, label: rule.label ?? rule.kind, ...rule.accent && { accent: rule.accent } });
+  }
+  function nearest(fibers) {
+    const hits = rules.map(() => null);
+    let open = rules.length;
+    for (let distance = 0; distance < fibers.length && open > 0; distance += 1) {
+      const name = displayNameOf$1(fibers[distance]);
+      if (!name) continue;
+      rules.forEach((compiled, index) => {
+        if (hits[index] || !compiled.matches(name)) return;
+        hits[index] = { rule: compiled.rule, fiber: fibers[distance], name, distance };
+        open -= 1;
+      });
+    }
+    return hits.filter((hit) => !!hit);
+  }
+  function matchBoundary(fiber) {
+    const name = displayNameOf$1(fiber);
+    if (!name) return null;
+    const hit = rules.find(({ rule, matches: matches2 }) => rule.kind !== "error" && matches2(name));
+    return hit ? hit.rule.kind : null;
+  }
+  return {
+    id: pack.id,
+    kinds: [...kinds.values()],
+    describe(fibers) {
+      const hits = nearest(fibers);
+      const contribution = { boundaries: {}, titles: {}, fields: {} };
+      for (const kind of kinds.keys()) contribution.boundaries[kind] = null;
+      let showError = false;
+      for (const hit of hits) {
+        const { kind } = hit.rule;
+        showError || (showError = !!hit.rule.showError);
+        const claimed = kind === "error" ? contribution.errorEnrichment !== void 0 : !!contribution.boundaries[kind];
+        if (claimed) continue;
+        if (kind === "error") {
+          if (hit.rule.data) contribution.errorEnrichment = readData(hit);
+        } else {
+          contribution.boundaries[kind] = { distance: hit.distance, ...readData(hit) };
+        }
+        const title = hit.rule.title ? readRef(hit.rule.title, hit) : null;
+        if (title && !contribution.titles[kind]) contribution.titles[kind] = title;
+        const fields = readFields(hit);
+        if (fields.length && !contribution.fields[kind]) contribution.fields[kind] = fields;
+      }
+      if (hits.length === 0) return { boundaries: contribution.boundaries };
+      return { ...contribution, ...showError && { showError } };
+    },
+    matchBoundary,
+    ...labeler && {
+      // A component of one of this pack's kinds is labelled by that kind's rules.
+      label: (fiber, kind) => labeler(fiber, kind === "component" ? matchBoundary(fiber) ?? kind : kind)
+    }
+  };
+}
+const SUSPENSE_TAG$1 = 13;
+const DEFAULT_WITHIN = 3;
+const MAX_CHILD_VISITS = 200;
+function labelNameOf(fiber) {
+  if (typeof fiber.type === "string") return null;
+  const name = getDisplayName(fiber.type) || getDisplayName(fiber.elementType);
+  if (name) return name;
+  return fiber.tag === SUSPENSE_TAG$1 ? "Suspense" : null;
+}
+function compile$1(rule) {
+  if (!rule.match) return { rule, matches: () => true };
+  const names = new Set(rule.match.names ?? []);
+  const pattern = rule.match.pattern ? new RegExp(rule.match.pattern) : null;
+  return { rule, matches: (name) => names.has(name) || !!(pattern == null ? void 0 : pattern.test(name)) };
+}
+function read(compiled, fiber, name) {
+  if (name === null) {
+    if (compiled.rule.match) return null;
+  } else if (!compiled.matches(name)) return null;
+  return readRef(compiled.rule.value, { rule: compiled.rule, fiber, name: name ?? "" });
+}
+function fromParents(compiled, fiber) {
+  const within = compiled.rule.within ?? DEFAULT_WITHIN;
+  let seen = 0;
+  for (let node = fiber.return; node && seen < within; node = node.return) {
+    const name = labelNameOf(node);
+    if (!name) continue;
+    seen += 1;
+    const value = read(compiled, node, name);
+    if (value) return value;
+  }
+  return null;
+}
+function fromChildren(compiled, fiber) {
+  const within = compiled.rule.within ?? DEFAULT_WITHIN;
+  const stack = [];
+  for (let child = fiber.child; child; child = child.sibling) stack.push({ node: child, depth: 0 });
+  stack.reverse();
+  let visits = 0;
+  while (stack.length && visits++ < MAX_CHILD_VISITS) {
+    const { node, depth } = stack.pop();
+    const name = labelNameOf(node);
+    const here = name ? depth + 1 : depth;
+    if (name) {
+      const value = read(compiled, node, name);
+      if (value) return value;
+    }
+    if (here >= within) continue;
+    const children = [];
+    for (let child = node.child; child; child = child.sibling) children.push(child);
+    for (let index = children.length - 1; index >= 0; index -= 1) stack.push({ node: children[index], depth: here });
+  }
+  return null;
+}
+function apply(compiled, fiber) {
+  const from = compiled.rule.from ?? "self";
+  if (from === "parents") return fromParents(compiled, fiber);
+  if (from === "children") return fromChildren(compiled, fiber);
+  return read(compiled, fiber, labelNameOf(fiber));
+}
+function compileLabels(rules) {
+  if (!(rules == null ? void 0 : rules.length)) return null;
+  const byKind = /* @__PURE__ */ new Map();
+  for (const rule of rules) {
+    const list = byKind.get(rule.for) ?? [];
+    list.push(compile$1(rule));
+    byKind.set(rule.for, list);
+  }
+  return (fiber, kind) => {
+    for (const compiled of byKind.get(kind) ?? []) {
+      const value = apply(compiled, fiber);
+      if (value) return value;
+    }
+    return null;
+  };
+}
+const OWNER_MARK_PARTS = { separator: "___", keys: ["marker", "type", "name", "package", "variant"] };
+const JIRA_LABEL_RULES = [
+  {
+    for: "suspense",
+    value: "props.interactionName",
+    note: "Jira passes the UFO interaction name to the Suspense element itself; it names the region that waits."
+  },
+  {
+    for: "suspense",
+    from: "parents",
+    match: { names: ["SuspenseWrapper", "SuspensePlaceholder"] },
+    value: "props.name",
+    note: "A lazy section renders SuspensePlaceholder > SuspenseWrapper > Suspense; the `name` prop on either wrapper names the section."
+  },
+  {
+    for: "suspense",
+    from: "parents",
+    match: { pattern: "^OwnerMark___placeholder___" },
+    within: 4,
+    nameParts: OWNER_MARK_PARTS,
+    value: "parts.name",
+    note: "OwnerMark___placeholder___<name>___<package>___<variant> sits just above SuspenseWrapper when the wrapper props are gone."
+  },
+  {
+    for: "suspense",
+    from: "parents",
+    match: { names: ["Suspense"] },
+    within: 1,
+    value: "props.interactionName",
+    note: "A Suspense rendered directly inside a named one waits for the same region."
+  },
+  {
+    for: "error",
+    value: ["props.id", "props.location", "props.name"],
+    note: "JSErrorBoundary and the ErrorBoundary class it renders take `id` (with `packageName` and `teamName`); navigation boundaries take `location`."
+  },
+  {
+    for: "error",
+    from: "children",
+    match: { pattern: "^OwnerMark___error-boundary___" },
+    within: 2,
+    nameParts: OWNER_MARK_PARTS,
+    value: "parts.name",
+    note: "OwnerMark___error-boundary___<id>___<package>___<variant> renders just inside the boundary class."
+  },
+  {
+    for: "error",
+    from: "parents",
+    match: { pattern: "ErrorBoundary$" },
+    within: 2,
+    value: ["props.location", "props.id"],
+    note: "A minified boundary class has no props of its own; the function wrapper around it (NavErrorBoundary > InnerErrorBoundary) holds `location`. The wrapper is not a boundary: it has no error lifecycle."
+  },
+  {
+    for: "owner",
+    match: { names: ["OwnerMark", "OwnershipMark"], pattern: "^(OwnerMark|OwnershipMark)___" },
+    nameParts: OWNER_MARK_PARTS,
+    value: ["parts.name", "props.name"],
+    note: "An ownership marker is named by the <name> segment of its display name, or by its `name` prop."
+  }
+];
 const OWNER_MARK_NAMES = /* @__PURE__ */ new Set(["OwnerMark", "OwnershipMark"]);
 function readScalar(props, ...keys) {
   for (const key of keys) {
@@ -5875,7 +6126,7 @@ function readScalar(props, ...keys) {
   }
   return null;
 }
-function displayNameOf$1(fiber) {
+function displayNameOf(fiber) {
   return getDisplayName(fiber.type) || getDisplayName(fiber.elementType) || null;
 }
 function parseOwnerMarkDisplayName(displayName) {
@@ -5894,7 +6145,7 @@ function parseOwnerMarkDisplayName(displayName) {
   };
 }
 function describeOwnership(fiber) {
-  const displayName = displayNameOf$1(fiber);
+  const displayName = displayNameOf(fiber);
   const encoded = parseOwnerMarkDisplayName(displayName);
   if (encoded) {
     return {
@@ -5915,7 +6166,7 @@ function describeOwnership(fiber) {
   };
 }
 function jiraErrorBoundary(fiber) {
-  const componentName = displayNameOf$1(fiber);
+  const componentName = displayNameOf(fiber);
   if (componentName !== "JSErrorBoundary") return null;
   return {
     componentName,
@@ -5943,7 +6194,7 @@ function describeJiraContribution(fibers) {
       }
     }
     if (!errorBoundary) errorBoundary = jiraErrorBoundary(entry);
-    const displayName = displayNameOf$1(entry);
+    const displayName = displayNameOf(entry);
     if (displayName === "ErrorComponent" || (displayName == null ? void 0 : displayName.endsWith("ErrorComponent"))) errorComponent = true;
     if (ownership && errorBoundary && errorComponent) break;
   }
@@ -5967,8 +6218,13 @@ const jiraContextProvider = {
   id: "jira",
   kinds: [{ kind: "owner", label: "owner", accent: "#0c66e4" }],
   describe: describeJiraContribution,
-  matchBoundary: (fiber) => describeOwnership(fiber) ? "owner" : null
+  matchBoundary: (fiber) => describeOwnership(fiber) ? "owner" : null,
+  label: compileJiraLabels()
 };
+function compileJiraLabels() {
+  const labeler = compileLabels(JIRA_LABEL_RULES);
+  return (fiber, kind) => labeler(fiber, kind === "component" && describeOwnership(fiber) ? "owner" : kind);
+}
 const BUILTIN_PLUGINS = [
   { id: "jira", label: "Jira ownership markers", contextProvider: jiraContextProvider },
   { id: "atl", label: "ATL commit metrics", commitMetricsAdapter: atlCommitMetricsAdapter }
@@ -6036,103 +6292,6 @@ function registerBuiltinPlugins() {
     for (const fn of unregister.reverse()) fn();
   };
 }
-function displayNameOf(fiber) {
-  return getDisplayName(fiber.type) || getDisplayName(fiber.elementType) || null;
-}
-function compileRule(rule) {
-  const names = new Set(rule.match.names ?? []);
-  const pattern = rule.match.pattern ? new RegExp(rule.match.pattern) : null;
-  return { rule, matches: (name) => names.has(name) || !!(pattern == null ? void 0 : pattern.test(name)) };
-}
-function scalar(value) {
-  if (typeof value === "string") return value.trim() ? value : null;
-  if (typeof value === "number" || typeof value === "boolean") return String(value);
-  return null;
-}
-function readRef(ref, hit) {
-  var _a2;
-  for (const one of Array.isArray(ref) ? ref : [ref]) {
-    let value = null;
-    if (one === "name") value = hit.name;
-    else if (one.startsWith("props.")) value = scalar((_a2 = hit.fiber.memoizedProps) == null ? void 0 : _a2[one.slice(6)]);
-    else if (one.startsWith("parts.") && hit.rule.nameParts) {
-      const { separator, keys } = hit.rule.nameParts;
-      const index = keys.indexOf(one.slice(6));
-      value = index >= 0 ? scalar(hit.name.split(separator)[index]) : null;
-    }
-    if (value) return value;
-  }
-  return null;
-}
-function readData(hit) {
-  const out = { componentName: hit.name };
-  for (const [key, ref] of Object.entries(hit.rule.data ?? {})) out[key] = readRef(ref, hit);
-  return out;
-}
-function readFields(hit) {
-  const out = [];
-  for (const field2 of hit.rule.fields ?? []) {
-    const value = readRef(field2.value, hit);
-    if (value) out.push({ label: field2.label, value });
-  }
-  return out;
-}
-function compileComponents(pack) {
-  const rules = (pack.components ?? []).map(compileRule);
-  if (rules.length === 0) return null;
-  const kinds = /* @__PURE__ */ new Map();
-  for (const { rule } of rules) {
-    if (rule.kind === "error" || kinds.has(rule.kind)) continue;
-    kinds.set(rule.kind, { kind: rule.kind, label: rule.label ?? rule.kind, ...rule.accent && { accent: rule.accent } });
-  }
-  function nearest(fibers) {
-    const hits = rules.map(() => null);
-    let open = rules.length;
-    for (let distance = 0; distance < fibers.length && open > 0; distance += 1) {
-      const name = displayNameOf(fibers[distance]);
-      if (!name) continue;
-      rules.forEach((compiled, index) => {
-        if (hits[index] || !compiled.matches(name)) return;
-        hits[index] = { rule: compiled.rule, fiber: fibers[distance], name, distance };
-        open -= 1;
-      });
-    }
-    return hits.filter((hit) => !!hit);
-  }
-  return {
-    id: pack.id,
-    kinds: [...kinds.values()],
-    describe(fibers) {
-      const hits = nearest(fibers);
-      const contribution = { boundaries: {}, titles: {}, fields: {} };
-      for (const kind of kinds.keys()) contribution.boundaries[kind] = null;
-      let showError = false;
-      for (const hit of hits) {
-        const { kind } = hit.rule;
-        showError || (showError = !!hit.rule.showError);
-        const claimed = kind === "error" ? contribution.errorEnrichment !== void 0 : !!contribution.boundaries[kind];
-        if (claimed) continue;
-        if (kind === "error") {
-          if (hit.rule.data) contribution.errorEnrichment = readData(hit);
-        } else {
-          contribution.boundaries[kind] = { distance: hit.distance, ...readData(hit) };
-        }
-        const title = hit.rule.title ? readRef(hit.rule.title, hit) : null;
-        if (title && !contribution.titles[kind]) contribution.titles[kind] = title;
-        const fields = readFields(hit);
-        if (fields.length && !contribution.fields[kind]) contribution.fields[kind] = fields;
-      }
-      if (hits.length === 0) return { boundaries: contribution.boundaries };
-      return { ...contribution, ...showError && { showError } };
-    },
-    matchBoundary(fiber) {
-      const name = displayNameOf(fiber);
-      if (!name) return null;
-      const hit = rules.find(({ rule, matches: matches2 }) => rule.kind !== "error" && matches2(name));
-      return hit ? hit.rule.kind : null;
-    }
-  };
-}
 function compile(body, name, errors) {
   try {
     return new Function("ctx", body);
@@ -6161,7 +6320,10 @@ function compileScripts(pack) {
   return { extensions, hooks, compileErrors };
 }
 const ID = /^[a-z][a-z0-9-]*$/;
-const TOP_KEYS = /* @__PURE__ */ new Set(["id", "label", "instructions", "components", "avalancheExtensions"]);
+const TOP_KEYS = /* @__PURE__ */ new Set(["id", "label", "instructions", "components", "labels", "avalancheExtensions"]);
+const LABEL_KEYS = /* @__PURE__ */ new Set(["for", "from", "match", "within", "nameParts", "value", "note"]);
+const LABEL_FROM = /* @__PURE__ */ new Set(["self", "parents", "children"]);
+const MAX_LABEL_WITHIN = 10;
 const RULE_KEYS = /* @__PURE__ */ new Set(["kind", "label", "accent", "match", "nameParts", "title", "fields", "data", "showError"]);
 const SCRIPT_KEYS = /* @__PURE__ */ new Set(["onInit", "onStart", "onStep", "onEnd"]);
 const EXTENSION_KEYS = /* @__PURE__ */ new Set(["instructions", ...SCRIPT_KEYS]);
@@ -6186,6 +6348,48 @@ function checkRef(value, path) {
     if (typeof ref !== "string" || !REF.test(ref)) fail(path, `"${String(ref)}" is not name, props.<key>, or parts.<key>`);
   }
 }
+function checkMatch(match, path) {
+  if (!isObject(match)) fail(path, "must be an object");
+  checkKeys(match, /* @__PURE__ */ new Set(["names", "pattern"]), path);
+  const { names, pattern } = match;
+  if (names === void 0 && pattern === void 0) fail(path, "needs names or pattern");
+  if (names !== void 0 && (!Array.isArray(names) || names.some((name) => typeof name !== "string" || !name))) {
+    fail(`${path}.names`, "must be a list of names");
+  }
+  if (pattern !== void 0) {
+    checkString(pattern, `${path}.pattern`);
+    try {
+      new RegExp(pattern);
+    } catch (error) {
+      fail(`${path}.pattern`, error.message);
+    }
+  }
+}
+function checkNameParts(parts, path) {
+  if (parts === void 0) return;
+  if (!isObject(parts)) fail(path, "must be an object");
+  checkString(parts.separator, `${path}.separator`);
+  if (!Array.isArray(parts.keys) || parts.keys.some((key) => typeof key !== "string")) {
+    fail(`${path}.keys`, "must be a list of keys");
+  }
+}
+function checkLabel(rule, path) {
+  if (!isObject(rule)) fail(path, "must be an object");
+  checkKeys(rule, LABEL_KEYS, path);
+  checkString(rule.for, `${path}.for`);
+  if (rule.from !== void 0 && !LABEL_FROM.has(rule.from)) fail(`${path}.from`, "must be self, parents, or children");
+  const from = rule.from ?? "self";
+  if (rule.match !== void 0 || from !== "self") checkMatch(rule.match, `${path}.match`);
+  if (rule.within !== void 0) {
+    const within = rule.within;
+    if (typeof within !== "number" || !Number.isInteger(within) || within < 1 || within > MAX_LABEL_WITHIN) {
+      fail(`${path}.within`, `must be a whole number from 1 to ${MAX_LABEL_WITHIN}`);
+    }
+  }
+  checkNameParts(rule.nameParts, `${path}.nameParts`);
+  checkRef(rule.value, `${path}.value`);
+  checkString(rule.note, `${path}.note`, true);
+}
 function checkRule(rule, path) {
   if (!isObject(rule)) fail(path, "must be an object");
   checkKeys(rule, RULE_KEYS, path);
@@ -6193,29 +6397,8 @@ function checkRule(rule, path) {
   if (rule.kind === "suspense") fail(`${path}.kind`, "suspense is a core kind");
   checkString(rule.label, `${path}.label`, true);
   checkString(rule.accent, `${path}.accent`, true);
-  if (!isObject(rule.match)) fail(`${path}.match`, "must be an object");
-  checkKeys(rule.match, /* @__PURE__ */ new Set(["names", "pattern"]), `${path}.match`);
-  const { names, pattern } = rule.match;
-  if (names === void 0 && pattern === void 0) fail(`${path}.match`, "needs names or pattern");
-  if (names !== void 0 && (!Array.isArray(names) || names.some((name) => typeof name !== "string" || !name))) {
-    fail(`${path}.match.names`, "must be a list of names");
-  }
-  if (pattern !== void 0) {
-    checkString(pattern, `${path}.match.pattern`);
-    try {
-      new RegExp(pattern);
-    } catch (error) {
-      fail(`${path}.match.pattern`, error.message);
-    }
-  }
-  if (rule.nameParts !== void 0) {
-    const parts = rule.nameParts;
-    if (!isObject(parts)) fail(`${path}.nameParts`, "must be an object");
-    checkString(parts.separator, `${path}.nameParts.separator`);
-    if (!Array.isArray(parts.keys) || parts.keys.some((key) => typeof key !== "string")) {
-      fail(`${path}.nameParts.keys`, "must be a list of keys");
-    }
-  }
+  checkMatch(rule.match, `${path}.match`);
+  checkNameParts(rule.nameParts, `${path}.nameParts`);
   if (rule.title !== void 0) checkRef(rule.title, `${path}.title`);
   if (rule.fields !== void 0) {
     if (!Array.isArray(rule.fields)) fail(`${path}.fields`, "must be a list");
@@ -6248,6 +6431,10 @@ function parsePack(input) {
   if (value.components !== void 0) {
     if (!Array.isArray(value.components)) fail("components", "must be a list");
     value.components.forEach((rule, index) => checkRule(rule, `components[${index}]`));
+  }
+  if (value.labels !== void 0) {
+    if (!Array.isArray(value.labels)) fail("labels", "must be a list");
+    value.labels.forEach((rule, index) => checkLabel(rule, `labels[${index}]`));
   }
   if (value.avalancheExtensions !== void 0) {
     const extensions = value.avalancheExtensions;
@@ -8575,6 +8762,9 @@ function createRefRegistry(deps) {
       get kind() {
         return kind || (kind = classifyFiber(live(made)));
       },
+      get label() {
+        return labelFiber(live(made), made.kind);
+      },
       get tag() {
         return fiberTag$1(live(made));
       },
@@ -8601,7 +8791,8 @@ function createRefRegistry(deps) {
         return resolveFiberSource(live(made));
       },
       toJSON() {
-        return { fiberId: made.id, name: made.name, kind: made.kind, source: made.source };
+        const label = made.label;
+        return { fiberId: made.id, name: made.name, kind: made.kind, source: made.source, ...label && { label } };
       },
       toString() {
         return `${made.name || made.kind} (${made.id})`;
@@ -9174,7 +9365,7 @@ function paintOverlay(layers, options, deps) {
       boxes.push({
         ref,
         color: resolve(spec.color, ref, index, "kind") === "kind" ? KIND_COLORS[ref.kind] : resolve(spec.color, ref, index, "kind"),
-        label: resolve(spec.label, ref, index, ref.name),
+        label: resolve(spec.label, ref, index, ref.label ?? ref.name),
         dashed: resolve(spec.dashed, ref, index, ref.status === "showing-fallback"),
         depth: 0
       });
@@ -9375,7 +9566,7 @@ const HELP = {
   hooks: 'hooks(ref) fiber-only | hooks(ref, { replay: true }) names custom hooks (needs --allow replay) | hooks.callers("useQuery", query) (needs --allow replay) | props(ref)',
   overlay: "overlay.paint({ items, color, label, dashed } | layers[], { id }) | overlay.clear(id?) | overlay.list()",
   run: "checkpoint(value) keeps a partial result for timeouts | session persists between runs | log(...values) | allowed lists the gates of this run",
-  ref: "FiberRef: id name kind tag key source status hidden raw resolveSource(); serializes as { fiberId, name, kind, source }; refs compare with ==="
+  ref: "FiberRef: id name kind label tag key source status hidden raw resolveSource(); serializes as { fiberId, name, kind, source, label? }; label is the app name from an enabled plugin or pack; refs compare with ==="
 };
 function createScriptKit(deps) {
   const ledger = deps.ledger || createLedger();
@@ -9892,19 +10083,19 @@ function summarizeFunctionContract(value) {
   };
 }
 function evalFiberPropContract(fiberId, propName, deps) {
-  const read = readFiberProp(fiberId, propName, deps);
-  if (!read.ok) {
-    const fiberName2 = read.fiber ? getFiberDisplayName$1(read.fiber) : null;
-    return { ok: false, error: read.error, fiberId: read.fiberId, fiberName: fiberName2, propNames: read.props ? Object.keys(read.props) : [] };
+  const read2 = readFiberProp(fiberId, propName, deps);
+  if (!read2.ok) {
+    const fiberName2 = read2.fiber ? getFiberDisplayName$1(read2.fiber) : null;
+    return { ok: false, error: read2.error, fiberId: read2.fiberId, fiberName: fiberName2, propNames: read2.props ? Object.keys(read2.props) : [] };
   }
-  const propNames = Object.keys(read.props);
-  const contract = summarizeFunctionContract(read.value);
+  const propNames = Object.keys(read2.props);
+  const contract = summarizeFunctionContract(read2.value);
   return {
     ok: true,
-    fiberId: read.fiberId,
-    fiberName: getFiberDisplayName$1(read.fiber),
-    source: getFiberSource$1(read.fiber),
-    propName: read.propName,
+    fiberId: read2.fiberId,
+    fiberName: getFiberDisplayName$1(read2.fiber),
+    source: getFiberSource$1(read2.fiber),
+    propName: read2.propName,
     propNames,
     ...contract,
     nextStep: contract.isFunction ? "Read the component/owner source to determine the callback argument contract before fiber-invoke." : "This prop is not callable; do not fiber-invoke it."
@@ -9920,24 +10111,24 @@ function pickThisArg(fiber) {
   return void 0;
 }
 async function evalFiberInvoke(fiberId, propName, args, deps) {
-  const read = readFiberProp(fiberId, propName, deps);
-  if (!read.ok) {
-    const fiberName2 = read.fiber ? getFiberDisplayName$1(read.fiber) : null;
-    return { ok: false, error: read.error, fiberId: read.fiberId, fiberName: fiberName2 };
+  const read2 = readFiberProp(fiberId, propName, deps);
+  if (!read2.ok) {
+    const fiberName2 = read2.fiber ? getFiberDisplayName$1(read2.fiber) : null;
+    return { ok: false, error: read2.error, fiberId: read2.fiberId, fiberName: fiberName2 };
   }
-  const value = read.value;
+  const value = read2.value;
   if (typeof value !== "function") {
     return {
       ok: false,
-      error: `prop ${read.propName} is not a function`,
-      fiberId: read.fiberId,
-      fiberName: getFiberDisplayName$1(read.fiber),
-      propName: read.propName,
+      error: `prop ${read2.propName} is not a function`,
+      fiberId: read2.fiberId,
+      fiberName: getFiberDisplayName$1(read2.fiber),
+      propName: read2.propName,
       propType: typeof value
     };
   }
   const invokeArgs = Array.isArray(args) ? args : [];
-  const thisArg = pickThisArg(read.fiber);
+  const thisArg = pickThisArg(read2.fiber);
   let result;
   try {
     result = value.apply(thisArg, invokeArgs);
@@ -9948,18 +10139,18 @@ async function evalFiberInvoke(fiberId, propName, args, deps) {
       error: (err == null ? void 0 : err.message) || String(e),
       stack: (err == null ? void 0 : err.stack) || null,
       threw: true,
-      fiberId: read.fiberId,
-      fiberName: getFiberDisplayName$1(read.fiber),
-      propName: read.propName,
+      fiberId: read2.fiberId,
+      fiberName: getFiberDisplayName$1(read2.fiber),
+      propName: read2.propName,
       propType: "function",
       args: deps.safeSerialize(invokeArgs, 0, /* @__PURE__ */ new Set())
     };
   }
   const base = {
     ok: true,
-    fiberId: read.fiberId,
-    fiberName: getFiberDisplayName$1(read.fiber),
-    propName: read.propName,
+    fiberId: read2.fiberId,
+    fiberName: getFiberDisplayName$1(read2.fiber),
+    propName: read2.propName,
     propType: "function",
     fnLength: Number.isFinite(value.length) ? value.length : null,
     invoked: true,
@@ -9982,9 +10173,9 @@ async function evalFiberInvoke(fiberId, propName, args, deps) {
         stack: (err == null ? void 0 : err.stack) || null,
         threw: false,
         rejected: true,
-        fiberId: read.fiberId,
-        fiberName: getFiberDisplayName$1(read.fiber),
-        propName: read.propName,
+        fiberId: read2.fiberId,
+        fiberName: getFiberDisplayName$1(read2.fiber),
+        propName: read2.propName,
         propType: "function",
         args: deps.safeSerialize(invokeArgs, 0, /* @__PURE__ */ new Set())
       };

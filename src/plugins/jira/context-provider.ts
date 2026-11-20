@@ -1,7 +1,8 @@
 /**
  * Jira context provider: recognizes Jira's OwnerMark/OwnershipMark ownership
  * markers and JSErrorBoundary props, and layers them onto the generic marker
- * context as an `owner` boundary kind and error-boundary enrichment.
+ * context as an `owner` boundary kind and error-boundary enrichment. It also
+ * names Jira's boundaries for page scripts (./labels).
  *
  * Registered by the bundle's composition root; the core marker context works
  * without it.
@@ -15,6 +16,8 @@ import {
   type MarkerContext,
   describeContext,
 } from '../../layout-lab/marker-context';
+import { compileLabels } from '../pack/labels';
+import { JIRA_LABEL_RULES } from './labels';
 
 export type JiraOwnership = {
   markerName: string;
@@ -151,7 +154,14 @@ export const jiraContextProvider: ContextProvider = {
   kinds: [{ kind: 'owner', label: 'owner', accent: '#0c66e4' }],
   describe: describeJiraContribution,
   matchBoundary: (fiber) => (describeOwnership(fiber) ? 'owner' : null),
+  label: compileJiraLabels(),
 };
+
+function compileJiraLabels(): NonNullable<ContextProvider['label']> {
+  const labeler = compileLabels(JIRA_LABEL_RULES)!;
+  // An ownership marker classifies as a component; its rules are filed under `owner`.
+  return (fiber, kind) => labeler(fiber, kind === 'component' && describeOwnership(fiber) ? 'owner' : kind);
+}
 
 /** The marker context with the Jira fields always present. */
 export function describeJiraContext(fiber: Fiber | null | undefined): MarkerContext | null {

@@ -41,7 +41,8 @@ the same `chippy` toolkit.
 
 ## Rules
 
-- Return `FiberRef`s, not raw fibers. A returned ref serializes as `{ fiberId, name, kind, source }`, and `fiberId` works with every `fiber-*` and `inspect-fiber-*` command.
+- Return `FiberRef`s, not raw fibers. A returned ref serializes as `{ fiberId, name, kind, source }`, plus `label` when a plugin or pack names it, and `fiberId` works with every `fiber-*` and `inspect-fiber-*` command.
+- Prefer `ref.label` to a name you derive yourself. A boundary's fiber name is often generic (`Suspense`) or minified; `label` is the application's own name for it. When `label` is null and you derive a name from the page's conventions, say so in your report: the rule belongs in that application's pack `labels`, not in the script.
 - Read `limits` before you trust `result`. An empty array means every primitive finished its work with full confidence. Each entry names the primitive, a kind (`truncated`, `confidence`, `raw`, or `gap`), and a detail.
 - Do not read `ref.raw` unless the toolkit has no primitive for the question. Reading it adds a `raw` limit; say in your report that the answer reads React internals directly.
 - Run the [debug replay preflight](active-stimulus.md#debug-replay-preflight) before `--allow replay`. Replay executes component and hook bodies. Without the gate, a replay call fails the run with `gate: "replay"`.
@@ -64,6 +65,7 @@ interface FiberRef {
   name: string | null;
   kind: Kind;                 // 'error' for a class with getDerivedStateFromError or componentDidCatch, whatever its name;
                               // find({ kind: 'component' }) still matches it
+  label: string | null;       // the app's own name for this fiber, from an enabled plugin or pack; null when none names it
   tag: number;
   key: string | null;
   source: { fileName: string | null; lineNumber: number | null; columnNumber: number | null } | null;
@@ -107,7 +109,7 @@ interface HooksResult {
 interface OverlayLayer {
   items: Array<FiberRef | null>;
   color?: string | ((ref: FiberRef, i: number) => string);        // default: one hue per kind
-  label?: string | ((ref: FiberRef, i: number) => string | null); // default: the fiber name
+  label?: string | ((ref: FiberRef, i: number) => string | null); // default: ref.label, then the fiber name
   dashed?: boolean | ((ref: FiberRef, i: number) => boolean);     // default: Suspense showing fallback
 }
 
