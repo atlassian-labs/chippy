@@ -18,6 +18,8 @@ Commands:
   describe-action <actionId>
   network       [top] [by] [match] [initiators] [windowMs]
                 (--top N --by start|end|duration --match regex --initiators csv --window ms)
+  perf          [types] [top] [match] [fromCommit] [toCommit]
+                (--types csv --top N --match regex --fromCommit N --toCommit N)
   timeline      [fromCommit] [toCommit] [minRequestMs] [exclude]
                 (--fromCommit N --toCommit N --minRequestMs ms --top N --exclude regex --format summary|map|full)
   dom-diff      [fromCommit] [toCommit] [match] [maxItems]
@@ -26,7 +28,9 @@ Commands:
 
 commit-list sort keys: collateral sources restarts performedWork effects memos
   callbacks contextUpdates unmountedComponents unmountedSubtrees ticks network
-commit-peek include values: stats,sources,timing,metrics,hooks,actions,rendered,network,dom
+commit-peek include values: stats,sources,timing,metrics,hooks,actions,rendered,network,dom,perf
+perf types: mark measure long-animation-frame layout-shift event
+  largest-contentful-paint paint navigation longtask
 `;
 
 function fail(message: string): never {

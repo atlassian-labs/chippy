@@ -425,8 +425,8 @@ function referencedNames(text, occurrence, lineStarts) {
   const names = /* @__PURE__ */ new Set();
   const { module, offset } = occurrence;
   if (module.maps.length === 0) return names;
-  const toPosition = (at) => {
-    const { line, column } = positionOf(lineStarts, at);
+  const toPosition = (at2) => {
+    const { line, column } = positionOf(lineStarts, at2);
     return { line, column: column + 1 };
   };
   const mappings = mappingsInRange(module.maps, toPosition(offset), toPosition(offset + text.length));
@@ -932,12 +932,12 @@ function parseStackFrames$1(stack) {
     if (!match) continue;
     const [, name, url = "", lineDigits = "", columnDigits = ""] = match;
     if (url === "" || url.startsWith("data:")) continue;
-    const at = Number(lineDigits);
+    const at2 = Number(lineDigits);
     const column = Number(columnDigits);
-    if (!Number.isFinite(at) || !Number.isFinite(column) || at < 1) continue;
+    if (!Number.isFinite(at2) || !Number.isFinite(column) || at2 < 1) continue;
     frames.push({
       url,
-      line: at,
+      line: at2,
       column,
       ...name !== void 0 && name !== "" ? { function: name } : {}
     });
@@ -1344,7 +1344,7 @@ const CS_UNMOUNTED_SUBTREES = 9;
 const MAX_DEPTH = 2;
 const MAX_ENTRIES = 8;
 const MAX_STRING$1 = 200;
-function cut(text) {
+function cut$1(text) {
   return text.length > MAX_STRING$1 ? text.slice(0, MAX_STRING$1) + `…(${text.length})` : text;
 }
 function constructorName(value) {
@@ -1384,8 +1384,8 @@ function opaqueMarker(value) {
   if (value instanceof Map) return `[Map(${value.size})]`;
   if (value instanceof Set) return `[Set(${value.size})]`;
   if (value instanceof Date) return Number.isNaN(value.getTime()) ? "[Date invalid]" : value.toISOString();
-  if (value instanceof RegExp) return cut(String(value));
-  if (value instanceof Error) return cut(`[${value.name}: ${value.message}]`);
+  if (value instanceof RegExp) return cut$1(String(value));
+  if (value instanceof Error) return cut$1(`[${value.name}: ${value.message}]`);
   if (ArrayBuffer.isView(value)) return `[${constructorName(value)}]`;
   return null;
 }
@@ -1399,11 +1399,11 @@ function copy(value, depth, seen) {
     case "number":
       return Number.isFinite(value) ? value : String(value);
     case "string":
-      return cut(value);
+      return cut$1(value);
     case "bigint":
       return `${String(value)}n`;
     case "symbol":
-      return cut(String(value));
+      return cut$1(String(value));
     case "function":
       return `[Function ${value.name || "anonymous"}]`;
   }
@@ -1508,6 +1508,7 @@ function serializeReport(report) {
     ...report.metricsByCommit && { metricsByCommit: report.metricsByCommit },
     ...report.commitTimings && { commitTimings: report.commitTimings },
     ...report.networkRequests && { networkRequests: report.networkRequests.map((request) => ({ ...request })) },
+    ...report.perfEntries && { perfEntries: report.perfEntries.map((entry) => ({ ...entry })) },
     ...report.screenByCommit && { screenByCommit: report.screenByCommit },
     ...report.domByCommit && { domByCommit: report.domByCommit },
     ...report.hooks && { hooks: report.hooks }
@@ -1699,8 +1700,8 @@ function buildReport(state2, thrashMode, topN, sortBy, options = {}, detectorCon
   const metricsAvailable = metricsAdapter !== null && hasMetricsData;
   const renderTicks = (detectorConfig == null ? void 0 : detectorConfig.renderTicks) ?? { available: false, sources: [], reason: "detector not installed" };
   const meta = {
-    version: 8,
-    // v8: networkRequests + meta.network; v7: meta.timeOrigin, absolute commit and action timestamps
+    version: 9,
+    // v9: perfEntries + meta.perf; v8: networkRequests + meta.network; v7: meta.timeOrigin, absolute commit and action timestamps
     timeOrigin: performance.timeOrigin,
     commits: state2.commits,
     config: {
@@ -1736,6 +1737,7 @@ function buildReport(state2, thrashMode, topN, sortBy, options = {}, detectorCon
     ...(detectorConfig == null ? void 0 : detectorConfig.domDiff) && { domDiff: detectorConfig.domDiff },
     ...(detectorConfig == null ? void 0 : detectorConfig.capture) && { capture: detectorConfig.capture },
     network: (detectorConfig == null ? void 0 : detectorConfig.network) ?? { supported: false, enabled: false, windowStart: 0, requests: 0, dropped: 0, ignoredOwn: 0, pausedAt: null },
+    ...(detectorConfig == null ? void 0 : detectorConfig.perf) && { perf: detectorConfig.perf },
     timing: {
       totalDetectorOverhead,
       avgDetectorOverhead,
@@ -1754,6 +1756,7 @@ function buildReport(state2, thrashMode, topN, sortBy, options = {}, detectorCon
     interactionsByCommit: state2.interactionsByCommit,
     renderedByCommit: state2.renderedByCommit,
     networkRequests: state2.networkRequests.slice(),
+    ...state2.perfEntries && { perfEntries: state2.perfEntries.slice() },
     ...state2.screenByCommit && Object.keys(state2.screenByCommit).length > 0 && { screenByCommit: { ...state2.screenByCommit } },
     ...state2.domByCommit && Object.keys(state2.domByCommit).length > 0 && { domByCommit: { ...state2.domByCommit } },
     ...hasMetricsData && { metricsByCommit: state2.metricsByCommit },
@@ -1824,9 +1827,9 @@ function getReactRenderers(scope = globalThis) {
 }
 function dispatcherSlotOf(injected) {
   if (!injected || typeof injected !== "object") return null;
-  const owner = injected;
-  if (typeof owner.H !== "undefined") return { owner, key: "H" };
-  if ("current" in owner) return { owner, key: "current" };
+  const owner2 = injected;
+  if (typeof owner2.H !== "undefined") return { owner: owner2, key: "H" };
+  if ("current" in owner2) return { owner: owner2, key: "current" };
   return null;
 }
 function getDispatcherSlot(scope = globalThis) {
@@ -1841,16 +1844,16 @@ function dispatcherRefOf(slot) {
   if (slot.key === "current") return slot.owner;
   let ref = modernRefs.get(slot.owner);
   if (!ref) {
-    const { owner } = slot;
+    const { owner: owner2 } = slot;
     ref = {
       get current() {
-        return owner.H;
+        return owner2.H;
       },
       set current(value) {
-        owner.H = value;
+        owner2.H = value;
       }
     };
-    modernRefs.set(owner, ref);
+    modernRefs.set(owner2, ref);
   }
   return ref;
 }
@@ -2065,14 +2068,14 @@ function createDebugRender(options = {}) {
     const slot = getDispatcherSlot();
     if (!slot) return { ok: false, reason: "ReactCurrentDispatcher not found" };
     dispatcherSlot = slot;
-    const { owner, key } = slot;
+    const { owner: owner2, key } = slot;
     currentFiber = currentFiberReader();
-    patchDispatcher(owner[key]);
-    lastSeenDispatcher = owner[key];
-    originalDescriptor = Object.getOwnPropertyDescriptor(owner, key) || null;
-    let stored = owner[key];
+    patchDispatcher(owner2[key]);
+    lastSeenDispatcher = owner2[key];
+    originalDescriptor = Object.getOwnPropertyDescriptor(owner2, key) || null;
+    let stored = owner2[key];
     try {
-      Object.defineProperty(owner, key, {
+      Object.defineProperty(owner2, key, {
         configurable: true,
         get() {
           return stored;
@@ -2087,7 +2090,7 @@ function createDebugRender(options = {}) {
         }
       });
     } catch (e) {
-      unpatchDispatcher(owner[key]);
+      unpatchDispatcher(owner2[key]);
       dispatcherSlot = null;
       return { ok: false, reason: "cannot define property on ReactCurrentDispatcher" };
     }
@@ -2097,12 +2100,12 @@ function createDebugRender(options = {}) {
   function uninstall() {
     if (!installed2) return;
     if (dispatcherSlot) {
-      const { owner, key } = dispatcherSlot;
+      const { owner: owner2, key } = dispatcherSlot;
       try {
         if (originalDescriptor) {
-          Object.defineProperty(owner, key, originalDescriptor);
+          Object.defineProperty(owner2, key, originalDescriptor);
         } else {
-          Object.defineProperty(owner, key, {
+          Object.defineProperty(owner2, key, {
             configurable: true,
             writable: true,
             enumerable: true,
@@ -2557,7 +2560,7 @@ function createInteractionCapture(options = {}) {
 }
 const DEFAULT_MAX_NETWORK_REQUESTS = 500;
 const MAX_URL_LENGTH = 300;
-const round$5 = (value) => Math.round(value * 10) / 10;
+const round$7 = (value) => Math.round(value * 10) / 10;
 function cacheUse(entry) {
   if (entry.deliveryType === "cache") return true;
   const transfer = entry.transferSize ?? 0;
@@ -2596,9 +2599,9 @@ function createNetworkCapture(options = {}) {
       id: nextId++,
       url: entry.name.length > MAX_URL_LENGTH ? entry.name.slice(0, MAX_URL_LENGTH) : entry.name,
       initiatorType: entry.initiatorType || "other",
-      startTime: round$5(entry.startTime),
-      endTime: round$5(endTime),
-      duration: round$5(endTime - entry.startTime),
+      startTime: round$7(entry.startTime),
+      endTime: round$7(endTime),
+      duration: round$7(endTime - entry.startTime),
       status: typeof entry.responseStatus === "number" && entry.responseStatus > 0 ? entry.responseStatus : null,
       cached: cacheUse(entry),
       startedBeforeCapture: entry.startTime < windowStart
@@ -2664,11 +2667,279 @@ function createNetworkCapture(options = {}) {
       return {
         supported: observerConstructor() !== null,
         enabled,
-        windowStart: round$5(windowStart),
+        windowStart: round$7(windowStart),
         requests: requests.length,
         dropped,
         ignoredOwn,
-        pausedAt: pausedAt === null ? null : round$5(pausedAt)
+        pausedAt: pausedAt === null ? null : round$7(pausedAt)
+      };
+    }
+  };
+}
+const MAX_ANCESTORS = 200;
+function elementOf(node) {
+  if (typeof Element === "undefined" || !node) return null;
+  if (node instanceof Element) return node;
+  const parent = node.parentElement;
+  return parent instanceof Element ? parent : null;
+}
+function hostFiberOf(element) {
+  let current = element;
+  for (let depth = 0; current && depth < MAX_ANCESTORS; depth += 1) {
+    const key = Object.getOwnPropertyNames(current).find((name) => name.startsWith("__reactFiber$"));
+    if (key) return current[key] ?? null;
+    current = current.parentElement;
+  }
+  return null;
+}
+function describeNodeOwner(node) {
+  var _a2, _b2;
+  const element = elementOf(node);
+  if (!element) return null;
+  let fiber = hostFiberOf(element);
+  for (let depth = 0; fiber && !isComponentFiber$1(fiber.tag) && depth < MAX_ANCESTORS; depth += 1) fiber = fiber.return ?? null;
+  let component = null;
+  try {
+    component = fiber && isComponentFiber$1(fiber.tag) ? getComponentName(fiber) : null;
+  } catch {
+    component = null;
+  }
+  return {
+    element: element.tagName ? element.tagName.toLowerCase() + (element.id ? "#" + element.id : "") : null,
+    testId: ((_b2 = (_a2 = element.closest) == null ? void 0 : _a2.call(element, "[data-testid]")) == null ? void 0 : _b2.getAttribute("data-testid")) ?? null,
+    component
+  };
+}
+const PERF_ENTRY_TYPES = [
+  "mark",
+  "measure",
+  "long-animation-frame",
+  "layout-shift",
+  "event",
+  "largest-contentful-paint",
+  "paint",
+  "navigation"
+];
+const DEFAULT_MAX_PERF_ENTRIES_PER_TYPE = 300;
+const EVENT_DURATION_THRESHOLD_MS = 16;
+const NON_INTERACTION_EVENT_MIN_MS = 50;
+const MAX_TEXT = 200;
+const MAX_SCRIPTS = 5;
+const MAX_SHIFT_SOURCES = 5;
+const round$6 = (value) => typeof value === "number" && Number.isFinite(value) ? Math.round(value * 10) / 10 : 0;
+const cut = (text) => text.length > MAX_TEXT ? text.slice(0, MAX_TEXT) + "…" : text;
+function detailOf(value) {
+  if (value === void 0 || value === null) return null;
+  let text;
+  try {
+    text = JSON.stringify(value);
+  } catch {
+    text = void 0;
+  }
+  return cut(typeof text === "string" ? text : String(value));
+}
+function rectOf(rect) {
+  return rect ? [round$6(rect.x), round$6(rect.y), round$6(rect.width), round$6(rect.height)] : null;
+}
+function owner(node) {
+  try {
+    return describeNodeOwner(node);
+  } catch {
+    return null;
+  }
+}
+function scriptsOf(raw) {
+  const scripts = Array.isArray(raw.scripts) ? raw.scripts.slice() : [];
+  return scripts.sort((a, b) => ((b == null ? void 0 : b.duration) ?? 0) - ((a == null ? void 0 : a.duration) ?? 0)).slice(0, MAX_SCRIPTS).map((s) => {
+    const sourceURL = typeof (s == null ? void 0 : s.sourceURL) === "string" && s.sourceURL ? cut(s.sourceURL) : null;
+    return {
+      duration: round$6(s == null ? void 0 : s.duration),
+      forcedStyleAndLayoutDuration: typeof (s == null ? void 0 : s.forcedStyleAndLayoutDuration) === "number" ? round$6(s.forcedStyleAndLayoutDuration) : null,
+      invoker: typeof (s == null ? void 0 : s.invoker) === "string" && s.invoker ? cut(s.invoker) : null,
+      invokerType: (s == null ? void 0 : s.invokerType) || null,
+      sourceURL,
+      sourceFunctionName: (s == null ? void 0 : s.sourceFunctionName) || null,
+      sourceCharPosition: typeof (s == null ? void 0 : s.sourceCharPosition) === "number" && s.sourceCharPosition >= 0 ? s.sourceCharPosition : null,
+      ...sourceURL && isChippyAssetUrl(sourceURL) && { chippy: true }
+    };
+  });
+}
+function shapePerfEntry(raw) {
+  if (!raw || typeof raw.startTime !== "number") return null;
+  const entryType = String(raw.entryType || "");
+  const base = { entryType, name: cut(String(raw.name ?? "")), startTime: round$6(raw.startTime), duration: round$6(raw.duration) };
+  switch (entryType) {
+    case "mark":
+    case "measure":
+      return { ...base, detail: detailOf(raw.detail) };
+    case "long-animation-frame":
+      return {
+        ...base,
+        blockingDuration: round$6(raw.blockingDuration),
+        renderStart: round$6(raw.renderStart),
+        styleAndLayoutStart: round$6(raw.styleAndLayoutStart),
+        scripts: scriptsOf(raw)
+      };
+    case "layout-shift":
+      return {
+        ...base,
+        value: Math.round(Number(raw.value || 0) * 1e4) / 1e4,
+        hadRecentInput: !!raw.hadRecentInput,
+        sources: (Array.isArray(raw.sources) ? raw.sources : []).slice(0, MAX_SHIFT_SOURCES).map((s) => ({
+          ...owner(s == null ? void 0 : s.node) ?? { element: null, testId: null, component: null },
+          previousRect: rectOf(s == null ? void 0 : s.previousRect),
+          currentRect: rectOf(s == null ? void 0 : s.currentRect)
+        }))
+      };
+    case "event":
+      return {
+        ...base,
+        interactionId: Number(raw.interactionId) || 0,
+        inputDelay: round$6(raw.processingStart - raw.startTime),
+        processing: round$6(raw.processingEnd - raw.processingStart),
+        presentationDelay: round$6(raw.startTime + (raw.duration ?? 0) - raw.processingEnd),
+        target: owner(raw.target)
+      };
+    case "largest-contentful-paint":
+      return {
+        ...base,
+        renderTime: round$6(raw.renderTime),
+        loadTime: round$6(raw.loadTime),
+        size: Number(raw.size) || 0,
+        url: typeof raw.url === "string" && raw.url ? cut(raw.url) : null,
+        element: owner(raw.element)
+      };
+    case "navigation":
+      return {
+        ...base,
+        navigationType: String(raw.type || ""),
+        ttfb: round$6(raw.responseStart),
+        domContentLoaded: round$6(raw.domContentLoadedEventEnd),
+        load: round$6(raw.loadEventEnd),
+        transferSize: Number(raw.transferSize) || 0
+      };
+    case "paint":
+    case "longtask":
+      return base;
+    default:
+      return null;
+  }
+}
+function createPerfCapture(options = {}) {
+  const enabled = options.perfCapture !== false;
+  const limit = Math.max(1, Math.floor(Number(options.maxPerfEntries) || DEFAULT_MAX_PERF_ENTRIES_PER_TYPE));
+  const entries = [];
+  const kept = /* @__PURE__ */ new Map();
+  const dropped = /* @__PURE__ */ new Map();
+  let nextId = 1;
+  let windowStart = performance.now();
+  let pausedAt = null;
+  let observers = [];
+  function observerConstructor() {
+    const ctor = globalThis.PerformanceObserver;
+    return typeof ctor === "function" ? ctor : null;
+  }
+  function plannedTypes() {
+    const ctor = observerConstructor();
+    const supported = ctor && Array.isArray(ctor.supportedEntryTypes) ? ctor.supportedEntryTypes : [];
+    const observed = PERF_ENTRY_TYPES.filter((type) => supported.includes(type));
+    const unsupported = PERF_ENTRY_TYPES.filter((type) => !supported.includes(type));
+    if (!supported.includes("long-animation-frame") && supported.includes("longtask")) observed.push("longtask");
+    return { observed, unsupported };
+  }
+  function dropOldest(type) {
+    const index = entries.findIndex((entry) => entry.entryType === type);
+    if (index < 0) return;
+    entries.splice(index, 1);
+    kept.set(type, (kept.get(type) ?? 1) - 1);
+    dropped.set(type, (dropped.get(type) ?? 0) + 1);
+  }
+  function record(raw) {
+    const entry = raw;
+    if (!entry || typeof entry.startTime !== "number") return;
+    const end = entry.startTime + (typeof entry.duration === "number" ? entry.duration : 0);
+    if (end < windowStart) return;
+    if (pausedAt !== null && entry.startTime >= pausedAt) return;
+    if (entry.entryType === "event" && !entry.interactionId && (entry.duration ?? 0) < NON_INTERACTION_EVENT_MIN_MS) return;
+    const shaped = shapePerfEntry(entry);
+    if (!shaped) return;
+    entries.push({ id: nextId++, ...shaped });
+    kept.set(shaped.entryType, (kept.get(shaped.entryType) ?? 0) + 1);
+    if ((kept.get(shaped.entryType) ?? 0) > limit) dropOldest(shaped.entryType);
+  }
+  function flush() {
+    for (const observer of observers) {
+      if (typeof observer.takeRecords !== "function") continue;
+      try {
+        for (const entry of observer.takeRecords()) record(entry);
+      } catch {
+      }
+    }
+  }
+  return {
+    entries,
+    flush,
+    install() {
+      if (!enabled || observers.length) return;
+      const Ctor = observerConstructor();
+      if (!Ctor) return;
+      for (const type of plannedTypes().observed) {
+        try {
+          const observer = new Ctor((list) => {
+            for (const entry of list.getEntries()) record(entry);
+          });
+          observer.observe({
+            type,
+            buffered: true,
+            ...type === "event" && { durationThreshold: EVENT_DURATION_THRESHOLD_MS }
+          });
+          observers.push(observer);
+        } catch {
+        }
+      }
+    },
+    uninstall() {
+      flush();
+      for (const observer of observers) {
+        try {
+          observer.disconnect();
+        } catch {
+        }
+      }
+      observers = [];
+    },
+    /** Stop taking new entries; entries that started before the pause still arrive. */
+    pause() {
+      if (pausedAt !== null) return;
+      flush();
+      pausedAt = performance.now();
+    },
+    resume() {
+      flush();
+      pausedAt = null;
+    },
+    reset() {
+      flush();
+      pausedAt = null;
+      entries.length = 0;
+      kept.clear();
+      dropped.clear();
+      nextId = 1;
+      windowStart = performance.now();
+    },
+    status() {
+      const { observed, unsupported } = enabled ? plannedTypes() : { observed: [], unsupported: [] };
+      const byType = {};
+      for (const [type, count] of kept) if (count > 0) byType[type] = count;
+      return {
+        enabled,
+        observed,
+        unsupported,
+        windowStart: round$6(windowStart),
+        entries: entries.length,
+        byType,
+        dropped: Object.fromEntries(dropped),
+        pausedAt: pausedAt === null ? null : round$6(pausedAt)
       };
     }
   };
@@ -3065,7 +3336,7 @@ function regionLabel(node, fiber) {
   }
   return ((_c2 = element == null ? void 0 : element.tagName) == null ? void 0 : _c2.toLowerCase()) || "unknown";
 }
-const round$4 = (n) => Math.round(n);
+const round$5 = (n) => Math.round(n);
 const MAX_DESCENT = 32;
 function isEmptyBox(box) {
   return !box || box.right - box.left <= 0 || box.bottom - box.top <= 0;
@@ -3129,16 +3400,16 @@ function createScreenCapture(options = {}, geometry = domScreenGeometry) {
     }
     if (rects.length === 0) return;
     const full = Math.max(1, rectArea(viewport));
-    const area = round$4(changed.area());
-    const removedArea = round$4(removed.area());
+    const area = round$5(changed.area());
+    const removedArea = round$5(removed.area());
     rects.sort((a, b) => b.area - a.area);
     byCommit[commitId] = {
-      viewport: [round$4(viewport.right - viewport.left), round$4(viewport.bottom - viewport.top)],
+      viewport: [round$5(viewport.right - viewport.left), round$5(viewport.bottom - viewport.top)],
       area,
       removedArea,
       share: Math.min(1, Math.round((area + removedArea) / full * 1e3) / 1e3),
-      rects: rects.slice(0, MAX_RECTS_PER_COMMIT).map(({ rect }) => [round$4(rect.left), round$4(rect.top), round$4(rect.right), round$4(rect.bottom)]),
-      regions: [...regions.entries()].sort((a, b) => b[1] - a[1]).slice(0, MAX_REGIONS).map(([label, regionArea]) => ({ label, area: round$4(Math.min(regionArea, full)) })),
+      rects: rects.slice(0, MAX_RECTS_PER_COMMIT).map(({ rect }) => [round$5(rect.left), round$5(rect.top), round$5(rect.right), round$5(rect.bottom)]),
+      regions: [...regions.entries()].sort((a, b) => b[1] - a[1]).slice(0, MAX_REGIONS).map(([label, regionArea]) => ({ label, area: round$5(Math.min(regionArea, full)) })),
       nodes: found.length,
       ...truncated && { truncated: true },
       ms: Math.round((geometry.now() - started) * 100) / 100
@@ -3435,9 +3706,9 @@ function nameOfType(type) {
   }
   return null;
 }
-function entryFor(owner, via) {
-  if (!owner || typeof owner !== "object") return null;
-  const fiber = owner;
+function entryFor(owner2, via) {
+  if (!owner2 || typeof owner2 !== "object") return null;
+  const fiber = owner2;
   if (typeof fiber.tag === "number") {
     const source = getFiberSourceCandidate(fiber);
     const props2 = pickLocationProps(fiber.memoizedProps);
@@ -3448,14 +3719,14 @@ function entryFor(owner, via) {
       ...props2 && { props: props2 }
     };
   }
-  const info = owner;
+  const info = owner2;
   if (typeof info.name !== "string") return null;
   const props = pickLocationProps(info.props);
   return { via, name: info.name, ...props && { props } };
 }
-function nextOwner(owner) {
-  if (!owner || typeof owner !== "object") return null;
-  const value = owner;
+function nextOwner(owner2) {
+  if (!owner2 || typeof owner2 !== "object") return null;
+  const value = owner2;
   return typeof value.tag === "number" ? value._debugOwner ?? null : value.owner ?? null;
 }
 function describeSuspenseLocation(boundary, parents = LOCATION_PARENTS, owners = LOCATION_OWNERS) {
@@ -3559,15 +3830,15 @@ function createRenderTickTracker(options = {}) {
     if (pending.slices.length < maxSlices) pending.slices.push([start, end]);
     else pending.slicesTruncated = true;
   }
-  function attachAsyncDispatcher(owner) {
-    const previous = Object.getOwnPropertyDescriptor(owner, "A");
+  function attachAsyncDispatcher(owner2) {
+    const previous = Object.getOwnPropertyDescriptor(owner2, "A");
     if (previous && previous.configurable === false) return null;
     let stored = previous && "value" in previous ? previous.value : void 0;
-    const read2 = (previous == null ? void 0 : previous.get) ? () => previous.get.call(owner) : () => stored;
+    const read2 = (previous == null ? void 0 : previous.get) ? () => previous.get.call(owner2) : () => stored;
     let outer = void 0;
     function set(next) {
       const before = read2();
-      if (previous == null ? void 0 : previous.set) previous.set.call(owner, next);
+      if (previous == null ? void 0 : previous.set) previous.set.call(owner2, next);
       else stored = next;
       if (sliceStart < 0) {
         outer = before;
@@ -3577,7 +3848,7 @@ function createRenderTickTracker(options = {}) {
       }
     }
     try {
-      Object.defineProperty(owner, "A", {
+      Object.defineProperty(owner2, "A", {
         configurable: true,
         enumerable: (previous == null ? void 0 : previous.enumerable) ?? true,
         get: read2,
@@ -3587,11 +3858,11 @@ function createRenderTickTracker(options = {}) {
       return null;
     }
     return () => {
-      const current = Object.getOwnPropertyDescriptor(owner, "A");
+      const current = Object.getOwnPropertyDescriptor(owner2, "A");
       if ((current == null ? void 0 : current.set) !== set) return;
       const value = read2();
-      if ((previous == null ? void 0 : previous.get) || (previous == null ? void 0 : previous.set)) Object.defineProperty(owner, "A", previous);
-      else Object.defineProperty(owner, "A", { configurable: true, enumerable: (previous == null ? void 0 : previous.enumerable) ?? true, writable: true, value });
+      if ((previous == null ? void 0 : previous.get) || (previous == null ? void 0 : previous.set)) Object.defineProperty(owner2, "A", previous);
+      else Object.defineProperty(owner2, "A", { configurable: true, enumerable: (previous == null ? void 0 : previous.enumerable) ?? true, writable: true, value });
     };
   }
   function compose(slot) {
@@ -3914,6 +4185,7 @@ function createAvalancheDetector(options = {}) {
   const debugRender = createDebugRender();
   const interactionCapture = createInteractionCapture(options);
   const networkCapture = createNetworkCapture(options);
+  const perfCapture = createPerfCapture(options);
   const screenCapture = createScreenCapture(options);
   const domDiff = createDomDiffCapture(options);
   const hookRunner = createAvalancheHookRunner();
@@ -3997,6 +4269,7 @@ function createAvalancheDetector(options = {}) {
     interactionActions: interactionCapture.state.actions,
     interactionsByCommit: interactionCapture.state.byCommit,
     networkRequests: networkCapture.requests,
+    perfEntries: perfCapture.entries,
     screenByCommit: screenCapture.byCommit,
     domByCommit: domDiff.byCommit,
     renderedByCommit: {}
@@ -4267,9 +4540,9 @@ function createAvalancheDetector(options = {}) {
             let hook = fiber.memoizedState;
             let hookIndex = 0;
             while (hook) {
-              const ms = hook.memoizedState;
-              if (Array.isArray(ms) && ms.length === 2 && Array.isArray(ms[1])) {
-                const result = ms[0];
+              const ms2 = hook.memoizedState;
+              if (Array.isArray(ms2) && ms2.length === 2 && Array.isArray(ms2[1])) {
+                const result = ms2[0];
                 if (result != null && (typeof result === "object" || typeof result === "function")) {
                   valueProvenance.set(result, {
                     type,
@@ -4575,6 +4848,7 @@ function createAvalancheDetector(options = {}) {
     pausedAt = null;
     interactionCapture.resume();
     networkCapture.resume();
+    perfCapture.resume();
   }
   function resetState() {
     resumeCapture();
@@ -4606,6 +4880,7 @@ function createAvalancheDetector(options = {}) {
     renderedEvidence.reset();
     interactionCapture.reset();
     networkCapture.reset();
+    perfCapture.reset();
     screenCapture.reset();
     domDiff.reset();
     paintTracker.reset();
@@ -4791,6 +5066,7 @@ function createAvalancheDetector(options = {}) {
       resumeCapture();
       interactionCapture.install();
       networkCapture.install();
+      perfCapture.install();
       hookRunner.ensureStarted();
       const devtoolsGlobal = globalThis;
       metricsAdapter = resolveMetricsAdapter();
@@ -4975,6 +5251,7 @@ function createAvalancheDetector(options = {}) {
       debugRender.uninstall();
       interactionCapture.uninstall();
       networkCapture.uninstall();
+      perfCapture.uninstall();
       commitSurface.reset();
       pendingDevtoolsUnmounts = { components: 0, subtrees: 0 };
       pendingDevtoolsUnmountSamples = [];
@@ -4994,6 +5271,7 @@ function createAvalancheDetector(options = {}) {
       pausedAt = performance.now();
       interactionCapture.pause();
       networkCapture.pause();
+      perfCapture.pause();
     },
     /** Record again after pause(), keeping what the capture already holds. */
     resume() {
@@ -5045,6 +5323,7 @@ function createAvalancheDetector(options = {}) {
      */
     report(topN = 10, sortBy = "effect", reportOptions) {
       networkCapture.flush();
+      perfCapture.flush();
       renderedNames.refresh(state2.renderedByCommit);
       const report = buildReport(state2, thrashMode, topN, sortBy, reportOptions, {
         effectThrashMode,
@@ -5054,6 +5333,7 @@ function createAvalancheDetector(options = {}) {
         integrationMode,
         renderTicks: renderTicks.status(),
         network: networkCapture.status(),
+        perf: perfCapture.status(),
         renderedEvidence: renderedEvidence.status(),
         ...domDiff.enabled && { domDiff: domDiff.status() },
         capture: captureStatus()
@@ -5172,10 +5452,11 @@ function createAvalancheDetector(options = {}) {
     hookResults() {
       return hookRunner.collect();
     },
-    /** Commit and network request counts, without building a report. */
+    /** Commit, network request, and performance entry counts, without building a report. */
     counts() {
       networkCapture.flush();
-      return { commits: state2.commits, networkRequests: networkCapture.requests.length, renderedEvidence: renderedEvidence.status(), capture: captureStatus() };
+      perfCapture.flush();
+      return { commits: state2.commits, networkRequests: networkCapture.requests.length, perfEntries: perfCapture.entries.length, renderedEvidence: renderedEvidence.status(), capture: captureStatus() };
     }
   };
 }
@@ -5313,14 +5594,14 @@ function logReplayError(label, componentName, err) {
   }
 }
 function classifyHook(hookNode, index) {
-  const ms = hookNode.memoizedState;
+  const ms2 = hookNode.memoizedState;
   const queue = hookNode.queue;
   const base = { index };
   if (queue && typeof queue.dispatch === "function") {
-    return { ...base, tag: "State", value: safeSerialize(ms, 0, /* @__PURE__ */ new Set()) };
+    return { ...base, tag: "State", value: safeSerialize(ms2, 0, /* @__PURE__ */ new Set()) };
   }
-  if (isEffectNode(ms)) {
-    const m = ms;
+  if (isEffectNode(ms2)) {
+    const m = ms2;
     return {
       ...base,
       tag: "Effect",
@@ -5328,11 +5609,11 @@ function classifyHook(hookNode, index) {
       hasCleanup: typeof m.destroy === "function"
     };
   }
-  if (!queue && ms !== null && typeof ms === "object" && Object.prototype.hasOwnProperty.call(ms, "current")) {
-    return { ...base, tag: "Ref", current: safeSerialize(ms.current, 0, /* @__PURE__ */ new Set()) };
+  if (!queue && ms2 !== null && typeof ms2 === "object" && Object.prototype.hasOwnProperty.call(ms2, "current")) {
+    return { ...base, tag: "Ref", current: safeSerialize(ms2.current, 0, /* @__PURE__ */ new Set()) };
   }
-  if (!queue && Array.isArray(ms) && ms.length === 2 && (Array.isArray(ms[1]) || ms[1] === null)) {
-    const arr = ms;
+  if (!queue && Array.isArray(ms2) && ms2.length === 2 && (Array.isArray(ms2[1]) || ms2[1] === null)) {
+    const arr = ms2;
     const depsTag = arr[1] === null ? "null" : "[array:" + arr[1].length + "]";
     return {
       ...base,
@@ -5341,19 +5622,19 @@ function classifyHook(hookNode, index) {
       deps: depsTag
     };
   }
-  if (queue || ms === null || typeof ms !== "object" || isUnclaimedObject()) {
-    return { ...base, tag: "Value", value: safeSerialize(ms, 0, /* @__PURE__ */ new Set()) };
+  if (queue || ms2 === null || typeof ms2 !== "object" || isUnclaimedObject()) {
+    return { ...base, tag: "Value", value: safeSerialize(ms2, 0, /* @__PURE__ */ new Set()) };
   }
   return {
     ...base,
     tag: "Unknown",
     hasQueue: !!queue,
-    value: safeSerialize(ms, 0, /* @__PURE__ */ new Set())
+    value: safeSerialize(ms2, 0, /* @__PURE__ */ new Set())
   };
 }
-function isEffectNode(ms) {
-  if (!ms || typeof ms !== "object") return false;
-  const m = ms;
+function isEffectNode(ms2) {
+  if (!ms2 || typeof ms2 !== "object") return false;
+  const m = ms2;
   if (typeof m.tag !== "number") return false;
   if (typeof m.create !== "function") return false;
   if (m.next === void 0 || m.next === null) return false;
@@ -5551,11 +5832,11 @@ function replayComponentHooks(fiber) {
     return { node, value, index, path };
   }
   function setDebugLabel(frames, label) {
-    const owner = currentDebugOwner(frames);
+    const owner2 = currentDebugOwner(frames);
     for (let i = records.length - 1; i >= 0; i--) {
       const rec = records[i];
       const tail = rec.path && rec.path.length ? rec.path[rec.path.length - 1].name : componentName;
-      if (tail === owner) {
+      if (tail === owner2) {
         rec.debugLabel = safeSerialize(label, 1, /* @__PURE__ */ new Set());
         return;
       }
@@ -6578,15 +6859,15 @@ function skipSpace(text, index) {
   return index;
 }
 function previousSignificant(text, index) {
-  let at = index - 1;
-  while (at >= 0 && /\s/.test(text[at])) at -= 1;
-  return at >= 0 ? text[at] : "";
+  let at2 = index - 1;
+  while (at2 >= 0 && /\s/.test(text[at2])) at2 -= 1;
+  return at2 >= 0 ? text[at2] : "";
 }
 function quotedEnd(text, start, quote) {
-  for (let at = start + 1; at < text.length; at += 1) {
-    const char = text[at];
-    if (char === "\\") at += 1;
-    else if (char === quote) return at;
+  for (let at2 = start + 1; at2 < text.length; at2 += 1) {
+    const char = text[at2];
+    if (char === "\\") at2 += 1;
+    else if (char === quote) return at2;
     else if (char === "\n" && quote !== "`") return -1;
   }
   return -1;
@@ -6594,23 +6875,23 @@ function quotedEnd(text, start, quote) {
 function templateChunks(text, start) {
   const chunks = [];
   let chunk = "";
-  for (let at = start + 1; at < text.length; at += 1) {
-    const char = text[at];
+  for (let at2 = start + 1; at2 < text.length; at2 += 1) {
+    const char = text[at2];
     if (char === "\\") {
-      chunk += text.slice(at, at + 2);
-      at += 1;
+      chunk += text.slice(at2, at2 + 2);
+      at2 += 1;
     } else if (char === "`") {
       chunks.push(chunk);
-      return { chunks, end: at };
-    } else if (char === "$" && text[at + 1] === "{") {
+      return { chunks, end: at2 };
+    } else if (char === "$" && text[at2 + 1] === "{") {
       chunks.push(chunk);
       chunk = "";
       let depth = 1;
-      for (at += 2; at < text.length && depth > 0; at += 1) {
-        if (text[at] === "{") depth += 1;
-        else if (text[at] === "}") depth -= 1;
+      for (at2 += 2; at2 < text.length && depth > 0; at2 += 1) {
+        if (text[at2] === "{") depth += 1;
+        else if (text[at2] === "}") depth -= 1;
       }
-      at -= 1;
+      at2 -= 1;
     } else {
       chunk += char;
     }
@@ -6624,39 +6905,39 @@ function startsRegex(text, index) {
 }
 function regexEnd(text, start) {
   let inClass = false;
-  for (let at = start + 1; at < text.length; at += 1) {
-    const char = text[at];
-    if (char === "\\") at += 1;
+  for (let at2 = start + 1; at2 < text.length; at2 += 1) {
+    const char = text[at2];
+    if (char === "\\") at2 += 1;
     else if (char === "[") inClass = true;
     else if (char === "]") inClass = false;
-    else if (char === "/" && !inClass) return at;
+    else if (char === "/" && !inClass) return at2;
     else if (char === "\n") return start;
   }
   return start;
 }
 function stringLiterals(text) {
   const out = [];
-  for (let at = 0; at < text.length; at += 1) {
-    const char = text[at];
-    if (char === "/" && text[at + 1] === "/") {
-      const end = text.indexOf("\n", at);
-      at = end === -1 ? text.length : end;
-    } else if (char === "/" && text[at + 1] === "*") {
-      const end = text.indexOf("*/", at + 2);
-      at = end === -1 ? text.length : end + 1;
-    } else if (char === "/" && startsRegex(text, at)) {
-      at = regexEnd(text, at);
+  for (let at2 = 0; at2 < text.length; at2 += 1) {
+    const char = text[at2];
+    if (char === "/" && text[at2 + 1] === "/") {
+      const end = text.indexOf("\n", at2);
+      at2 = end === -1 ? text.length : end;
+    } else if (char === "/" && text[at2 + 1] === "*") {
+      const end = text.indexOf("*/", at2 + 2);
+      at2 = end === -1 ? text.length : end + 1;
+    } else if (char === "/" && startsRegex(text, at2)) {
+      at2 = regexEnd(text, at2);
     } else if (char === '"' || char === "'") {
-      const end = quotedEnd(text, at, char);
+      const end = quotedEnd(text, at2, char);
       if (end === -1) continue;
-      const before = previousSignificant(text, at);
+      const before = previousSignificant(text, at2);
       const key = (before === "{" || before === ",") && text[skipSpace(text, end + 1)] === ":";
-      out.push({ value: text.slice(at + 1, end), key, end });
-      at = end;
+      out.push({ value: text.slice(at2 + 1, end), key, end });
+      at2 = end;
     } else if (char === "`") {
-      const { chunks, end } = templateChunks(text, at);
+      const { chunks, end } = templateChunks(text, at2);
       for (const chunk of chunks) out.push({ value: chunk, key: false, end });
-      at = end;
+      at2 = end;
     }
   }
   return out;
@@ -6859,7 +7140,7 @@ function evalDescribeComponent(fiberIdRaw, nameRaw, deps) {
 }
 const DEFAULT_NETWORK_WINDOW_MS = 250;
 const NETWORK_SORT_KEYS = ["start", "end", "duration"];
-const round$3 = (value) => Math.round(value * 10) / 10;
+const round$4 = (value) => Math.round(value * 10) / 10;
 function commitAnchors(commitTimings) {
   var _a2;
   const anchors = [];
@@ -6893,7 +7174,7 @@ function linkRequest(request, anchors, windowMs) {
   const { startTime, endTime } = request;
   const afterIndex = firstAtOrAfter(anchors, startTime, "commitEnd") - 1;
   const after = afterIndex >= 0 ? anchors[afterIndex] : null;
-  const startedAfter = after && startTime - after.commitEnd <= windowMs ? { commitId: after.commitId, gapMs: round$3(startTime - after.commitEnd) } : null;
+  const startedAfter = after && startTime - after.commitEnd <= windowMs ? { commitId: after.commitId, gapMs: round$4(startTime - after.commitEnd) } : null;
   const rendering = anchors[firstAtOrAfter(anchors, startTime, "commitStart")];
   const startedDuringRender = rendering && rendering.renderStartKnown && rendering.renderStart <= startTime ? rendering.commitId : null;
   let landedBefore = null;
@@ -6901,7 +7182,7 @@ function linkRequest(request, anchors, windowMs) {
     const anchor = anchors[i];
     if (anchor.renderStart - endTime > windowMs) break;
     if (anchor.renderStart >= endTime) {
-      landedBefore = { commitId: anchor.commitId, gapMs: round$3(anchor.renderStart - endTime) };
+      landedBefore = { commitId: anchor.commitId, gapMs: round$4(anchor.renderStart - endTime) };
       break;
     }
   }
@@ -7109,7 +7390,7 @@ function inputDetail(event) {
 function inputLabel(i) {
   return i.action + (i.detail ? " " + i.detail : "") + (i.target ? " " + i.target : "");
 }
-const round$2 = (n) => Math.round(n);
+const round$3 = (n) => Math.round(n);
 function requestLabel(url) {
   try {
     const parsed = new URL(url, "http://local.invalid");
@@ -7122,7 +7403,7 @@ function requestLabel(url) {
     return url.slice(0, 60);
   }
 }
-function commitStart(report, id) {
+function commitStart$1(report, id) {
   var _a2, _b2;
   const start = Number((_b2 = (_a2 = report.commitTimings) == null ? void 0 : _a2[String(id)]) == null ? void 0 : _b2.startTime);
   return Number.isFinite(start) ? start : null;
@@ -7154,9 +7435,9 @@ function kindOf(events) {
 }
 function buildTimeline(report, options = {}) {
   var _a2, _b2, _c2;
-  const ids = Object.keys(report.commitTimings ?? {}).map(Number).filter((id) => Number.isFinite(id) && commitStart(report, id) !== null).sort((a, b) => a - b);
+  const ids = Object.keys(report.commitTimings ?? {}).map(Number).filter((id) => Number.isFinite(id) && commitStart$1(report, id) !== null).sort((a, b) => a - b);
   if (ids.length === 0) return { ok: false, error: "report has no commit timings (report version 6 or later is required)" };
-  const startOf = (id) => commitStart(report, id);
+  const startOf = (id) => commitStart$1(report, id);
   const shownOf = (id) => commitPaint(report, id, startOf(id)) ?? startOf(id);
   const interactions = /* @__PURE__ */ new Map();
   for (const list of Object.values(report.interactionsByCommit ?? {})) {
@@ -7179,7 +7460,7 @@ function buildTimeline(report, options = {}) {
   const windowEnd = startOf(windowIds[windowIds.length - 1]);
   const originInput = inputs.find((input2) => input2.t <= windowStart && windowStart - input2.t <= 5e3);
   const origin = originInput ? originInput.t : windowStart;
-  const rel = (t) => round$2(t - origin);
+  const rel = (t) => round$3(t - origin);
   const input = inputs.filter((i) => i.t >= origin && i.t <= windowEnd).map((i) => ({ ...i, t: rel(i.t) }));
   let exclude = null;
   try {
@@ -7194,13 +7475,14 @@ function buildTimeline(report, options = {}) {
     label: requestLabel(r.url),
     start: rel(r.startTime),
     end: rel(r.endTime),
-    durationMs: round$2(r.duration),
+    durationMs: round$3(r.duration),
     initiatorType: r.initiatorType,
     cached: !!r.cached
   });
   const drawable = inWindow.filter((r) => r.duration >= minRequestMs);
   const kept = [...drawable].sort((a, b) => b.duration - a.duration).slice(0, options.maxRequests ?? 30).sort((a, b) => a.startTime - b.startTime);
   const network = kept.map(toRequest);
+  const perfLane = perfLaneOf(report.perfEntries ?? [], origin, windowEnd, ids.map((id) => ({ id, start: startOf(id) })), rel, options.maxMarks ?? 40);
   const boundaryKey = (event) => typeof event.boundary === "number" ? "b" + event.boundary : "@" + Number(event.depth);
   const open = /* @__PURE__ */ new Map();
   const suspense = [];
@@ -7313,8 +7595,8 @@ function buildTimeline(report, options = {}) {
     boundaries: boundaryKeys.map((key) => ({ boundary: key, depth: boundaryInfo.get(key).depth, label: labelByKey.get(key) ?? null, location: boundaryInfo.get(key).location })),
     screen: screenStability(frames),
     ...options.settleMap && { settleMapSvg: settleMapSvg(frames) },
-    lanes: { input, network, suspense, commits },
-    omitted: { requests: inWindow.length - kept.length, commits: allCommits.length - commits.length },
+    lanes: { input, network, suspense, commits, perf: perfLane.lane },
+    omitted: { requests: inWindow.length - kept.length, commits: allCommits.length - commits.length, marks: perfLane.omittedMarks },
     mermaid: "",
     text: ""
   };
@@ -7322,6 +7604,60 @@ function buildTimeline(report, options = {}) {
   result.text = renderText(result);
   return result;
 }
+const SHIFT_MIN = 1e-3;
+const EVENT_MIN_MS = 50;
+function perfLaneOf(entries, origin, windowEnd, commitStarts2, rel, maxMarks) {
+  var _a2, _b2, _c2;
+  const lane = [];
+  let marks = 0;
+  let omittedMarks = 0;
+  const sorted = entries.filter((e) => e.startTime + (e.duration || 0) >= origin && e.startTime <= windowEnd).sort((a, b) => a.startTime - b.startTime);
+  for (const e of sorted) {
+    let kind = null;
+    let label = e.name;
+    let value = null;
+    if (e.entryType === "long-animation-frame" || e.entryType === "longtask") {
+      kind = "frame";
+      value = e.entryType === "longtask" ? round$3(Math.max(0, e.duration - 50)) : e.blockingDuration ?? null;
+      const script = (_a2 = e.scripts) == null ? void 0 : _a2[0];
+      label = script ? [script.invoker, script.sourceFunctionName, (_b2 = script.sourceURL) == null ? void 0 : _b2.split("/").pop()].filter(Boolean).join(" ") : "";
+    } else if (e.entryType === "measure" && e.duration >= 1) kind = "measure";
+    else if (e.entryType === "measure" || e.entryType === "mark") {
+      if (marks >= maxMarks) {
+        omittedMarks += 1;
+        continue;
+      }
+      marks += 1;
+      kind = "mark";
+    } else if (e.entryType === "layout-shift" && (e.value ?? 0) >= SHIFT_MIN && !e.hadRecentInput) {
+      kind = "shift";
+      value = e.value ?? null;
+      const source = (_c2 = e.sources) == null ? void 0 : _c2.find((s) => s.component || s.testId);
+      label = source ? source.component || source.testId || "" : "";
+    } else if (e.entryType === "event" && e.duration >= EVENT_MIN_MS) {
+      kind = "event";
+      value = e.inputDelay ?? null;
+      label = e.name + (e.target ? " " + (e.target.testId || e.target.component || e.target.element || "") : "");
+    } else if (e.entryType === "largest-contentful-paint") {
+      kind = "lcp";
+      label = e.element ? e.element.testId || e.element.component || e.element.element || "" : "";
+    }
+    if (!kind) continue;
+    const end = e.startTime + (e.duration || 0);
+    lane.push({
+      id: e.id,
+      kind,
+      label: label.trim(),
+      start: rel(e.startTime),
+      end: rel(end),
+      durationMs: round$3(e.duration || 0),
+      value,
+      commits: commitStarts2.filter((c) => c.start >= e.startTime && c.start <= end).map((c) => c.id)
+    });
+  }
+  return { lane, omittedMarks };
+}
+const commitSpan = (ids) => ids.length === 0 ? "" : ids.length === 1 ? `c${ids[0]}` : `c${ids[0]}–c${ids[ids.length - 1]}`;
 const GANTT_KEYWORDS = /^(click|call|href|section|title|dateformat|axisformat|tickinterval|excludes|includes|todaymarker|weekday|weekend|inclusiveenddates|topaxis|acctitle|accdescr|displaymode|gantt)\b/i;
 function ganttTaskName(raw) {
   const name = raw.replace(/[:#;]/g, " ").replace(/%%/g, "% %").replace(/\s+/g, " ").trim() || "unnamed";
@@ -7349,6 +7685,14 @@ function renderMermaid(result) {
     lines.push("  section Network");
     for (const r of network) lines.push(`  ${safe(r.label)} ${r.durationMs}ms :${slow.has(r.id) ? "crit, " : ""}net${r.id}, ${bar(r.start, r.end)}`);
   }
+  const browser = result.lanes.perf.filter((p) => p.kind === "frame" || p.kind === "measure");
+  if (browser.length) {
+    lines.push("  section Browser (long frames, measures)");
+    for (const p of browser) {
+      const name = p.kind === "frame" ? `long frame ${p.durationMs}ms${p.commits.length ? " " + commitSpan(p.commits) : ""}` : `${p.label} ${p.durationMs}ms`;
+      lines.push(`  ${safe(name)} :${p.kind === "frame" ? "crit, " : ""}perf${p.id}, ${bar(p.start, p.end)}`);
+    }
+  }
   if (suspense.length) {
     lines.push("  section User waits (fallback shown)");
     suspense.forEach((s, n) => {
@@ -7366,8 +7710,8 @@ function renderMermaid(result) {
   if (result.screen) {
     lines.push("  section Screen changed (share of viewport)");
     for (const c of visible) {
-      const at = c.paintAt ?? c.t;
-      lines.push(`  c${c.commitId} ${percent(c.screen.share)}${c.screen.region ? " " + safe(c.screen.region) : ""} :milestone, sc${c.commitId}, ${at}, ${at}`);
+      const at2 = c.paintAt ?? c.t;
+      lines.push(`  c${c.commitId} ${percent(c.screen.share)}${c.screen.region ? " " + safe(c.screen.region) : ""} :milestone, sc${c.commitId}, ${at2}, ${at2}`);
     }
     lines.push(`  VC90 +${result.screen.vc90} :crit, milestone, vc90, ${result.screen.vc90}, ${result.screen.vc90}`);
   }
@@ -7407,6 +7751,11 @@ function renderText(result) {
     const worst = [...delayed].sort((a, b) => b.paintAt - b.t - (a.paintAt - a.t)).slice(0, 5);
     header.push(`Painted late (the commit's task kept running): ${worst.map((c) => `c${c.commitId} +${c.t} → painted +${c.paintAt} (${c.paintAt - c.t}ms)`).join(", ")}.`);
   }
+  const frames = result.lanes.perf.filter((p2) => p2.kind === "frame");
+  if (frames.length) {
+    const worst = [...frames].sort((a, b) => b.durationMs - a.durationMs).slice(0, 3);
+    header.push(`Long frames (no paint inside): ${frames.length}, ${Math.round(frames.reduce((sum, p2) => sum + (p2.value ?? 0), 0))}ms blocking; longest ${worst.map((p2) => `+${p2.start} ${p2.durationMs}ms${p2.commits.length ? " (" + commitSpan(p2.commits) + ")" : ""}`).join(", ")}.`);
+  }
   const rows = [];
   for (const i of result.lanes.input) rows.push({ t: i.t, lane: "input", text: inputLabel(i) });
   for (const r of result.lanes.network) rows.push({ t: r.start, lane: "net", text: `${r.label}  → +${r.end} (${r.durationMs}ms${r.cached ? ", cached" : ""})` });
@@ -7419,7 +7768,12 @@ function renderText(result) {
     const paint = c.paintAt !== null && c.paintAt - c.t >= PAINT_NOTE_MS ? ` · painted +${c.paintAt}` : "";
     rows.push({ t: c.t, lane, text: `c${c.commitId} ${c.kind === "update" ? "" : c.kind + " "}${c.rendered} rendered${seen}${c.sources.length ? " · " + c.sources.join(", ") : ""}${c.suspense.length ? " · " + c.suspense.join(", ") : ""}${paint}` });
   }
-  const order = { input: 0, net: 1, wait: 2, SCRN: 3, react: 4 };
+  for (const p2 of result.lanes.perf) {
+    const commits = p2.commits.length ? ` · ${commitSpan(p2.commits)}` : "";
+    const text = p2.kind === "frame" ? `long frame ${p2.durationMs}ms (${p2.value ?? 0}ms blocking) → +${p2.end}${p2.label ? " · " + p2.label : ""}${commits}` : p2.kind === "measure" ? `measure ${p2.label} → +${p2.end} (${p2.durationMs}ms)` : p2.kind === "mark" ? `mark ${p2.label}` : p2.kind === "shift" ? `layout shift ${p2.value}${p2.label ? " · " + p2.label : ""}` : p2.kind === "event" ? `slow ${p2.label} ${p2.durationMs}ms (input delay ${p2.value ?? 0}ms)` : `LCP${p2.label ? " " + p2.label : ""}`;
+    rows.push({ t: p2.start, lane: p2.kind === "frame" ? "frame" : "perf", text });
+  }
+  const order = { input: 0, net: 1, wait: 2, SCRN: 3, react: 4, frame: 5, perf: 6 };
   rows.sort((a, b) => a.t - b.t || order[a.lane] - order[b.lane]);
   const width = Math.max(...rows.map((r) => String(r.t).length), 1);
   return [...header, "", ...rows.map((r) => `+${String(r.t).padStart(width)}  ${r.lane.padEnd(5)}  ${r.text}`)].join("\n");
@@ -7449,8 +7803,8 @@ function renderCommit(view) {
     if (list) list.push(change);
     else groups.set(change.at, [change]);
   }
-  for (const [at, changes] of groups) {
-    lines.push(`  ${at}`);
+  for (const [at2, changes] of groups) {
+    lines.push(`  ${at2}`);
     for (const change of changes) lines.push(`    ${formatDomChange(change)}`);
   }
   return lines;
@@ -7528,18 +7882,6 @@ function tupleToStats(tuple) {
   }
   return out;
 }
-function compactNetwork(network, maxItems) {
-  const rows = (items) => items.slice(0, maxItems);
-  return {
-    landedBefore: rows((network == null ? void 0 : network.landedBefore) ?? []),
-    landedBeforeTotal: (network == null ? void 0 : network.landedBefore.length) ?? 0,
-    startedAfter: rows((network == null ? void 0 : network.startedAfter) ?? []),
-    startedAfterTotal: (network == null ? void 0 : network.startedAfter.length) ?? 0,
-    startedDuringRender: rows((network == null ? void 0 : network.startedDuringRender) ?? []),
-    startedDuringRenderTotal: (network == null ? void 0 : network.startedDuringRender.length) ?? 0,
-    inFlight: (network == null ? void 0 : network.inFlight) ?? 0
-  };
-}
 function compactLatestAction(action) {
   if (!action || typeof action !== "object") return action ?? null;
   const location = action.location && typeof action.location === "object" ? action.location : {};
@@ -7562,6 +7904,270 @@ function compactLatestAction(action) {
       ownerNames: ownerStack.map((entry) => entry && typeof entry.name === "string" ? entry.name : null).filter(Boolean).slice(0, 10),
       ownerCount: ownerStack.length
     } : null
+  };
+}
+const DEFAULT_PERF_TOP = 20;
+const MAX_LINKED_COMMITS = 10;
+const round$2 = (value) => Math.round(value * 10) / 10;
+function commitStarts(report) {
+  return Object.entries(report.commitTimings ?? {}).map(([id, timing]) => ({ id: Number(id), start: Number(timing == null ? void 0 : timing.startTime) })).filter((c) => Number.isFinite(c.id) && Number.isFinite(c.start)).sort((a, b) => a.start - b.start);
+}
+function linkPerfEntries(report, entries = report.perfEntries ?? []) {
+  const commits = commitStarts(report);
+  return entries.map((entry) => {
+    const from = entry.startTime;
+    const to = entry.startTime + (entry.duration || 0);
+    const during = [];
+    let before = null;
+    for (const c of commits) {
+      if (c.start <= from) before = c;
+      if (c.start >= from && c.start <= to) during.push(c.id);
+      if (c.start > to) break;
+    }
+    return {
+      ...entry,
+      commits: {
+        during: during.slice(0, MAX_LINKED_COMMITS),
+        duringCount: during.length,
+        before: before ? { commitId: before.id, gapMs: round$2(from - before.start) } : null
+      }
+    };
+  });
+}
+function cumulativeLayoutShift(shifts) {
+  let best = 0;
+  let current = 0;
+  let first = null;
+  let last = null;
+  for (const s of [...shifts].sort((a, b) => a.startTime - b.startTime)) {
+    if (s.hadRecentInput) continue;
+    if (first !== null && last !== null && s.startTime - last < 1e3 && s.startTime - first < 5e3) current += s.value ?? 0;
+    else {
+      current = s.value ?? 0;
+      first = s.startTime;
+    }
+    last = s.startTime;
+    best = Math.max(best, current);
+  }
+  return Math.round(best * 1e4) / 1e4;
+}
+function perfSummary(report, entries = report.perfEntries ?? []) {
+  const of = (type) => entries.filter((e) => e.entryType === type);
+  const frames = of("long-animation-frame");
+  const tasks = of("longtask");
+  const events = of("event");
+  const measures = of("measure");
+  const lcp = of("largest-contentful-paint").sort((a, b) => a.startTime - b.startTime).at(-1);
+  const fcp = of("paint").find((e) => e.name === "first-contentful-paint");
+  const navigation = of("navigation")[0];
+  const worst = frames.reduce((best, e) => !best || (e.blockingDuration ?? 0) > (best.blockingDuration ?? 0) ? e : best, null);
+  const worstLinked = worst ? linkPerfEntries(report, [worst])[0] : null;
+  const perInteraction = /* @__PURE__ */ new Map();
+  for (const e of events) {
+    if (!e.interactionId) continue;
+    perInteraction.set(e.interactionId, Math.max(perInteraction.get(e.interactionId) ?? 0, e.duration));
+  }
+  const longest = measures.reduce((best, e) => !best || e.duration > best.duration ? e : best, null);
+  const blocking = frames.length ? frames.reduce((sum, e) => sum + (e.blockingDuration ?? 0), 0) : tasks.reduce((sum, e) => sum + Math.max(0, e.duration - 50), 0);
+  return {
+    cls: cumulativeLayoutShift(of("layout-shift")),
+    layoutShifts: of("layout-shift").length,
+    longFrames: frames.length || tasks.length,
+    totalBlockingMs: round$2(blocking),
+    worstFrame: worstLinked ? {
+      id: worstLinked.id,
+      startTime: worstLinked.startTime,
+      duration: worstLinked.duration,
+      blockingDuration: worstLinked.blockingDuration ?? 0,
+      commits: worstLinked.commits.during
+    } : null,
+    interactions: perInteraction.size,
+    worstInteractionMs: perInteraction.size ? Math.max(...perInteraction.values()) : null,
+    lcpMs: lcp ? lcp.startTime : null,
+    fcpMs: fcp ? fcp.startTime : null,
+    ttfbMs: (navigation == null ? void 0 : navigation.ttfb) ?? null,
+    marks: of("mark").length,
+    measures: measures.length,
+    longestMeasure: longest ? { name: longest.name, startTime: longest.startTime, duration: longest.duration } : null
+  };
+}
+const RANK = {
+  "layout-shift": (e) => e.value ?? 0,
+  "long-animation-frame": (e) => e.blockingDuration ?? 0,
+  longtask: (e) => e.duration,
+  event: (e) => e.duration,
+  measure: (e) => e.duration
+};
+function commitStart(report, id) {
+  var _a2, _b2;
+  const n = Number(id);
+  if (id === void 0 || id === null || id === "" || !Number.isFinite(n)) return null;
+  const start = Number((_b2 = (_a2 = report.commitTimings) == null ? void 0 : _a2[String(n)]) == null ? void 0 : _b2.startTime);
+  return Number.isFinite(start) ? start : null;
+}
+function perfView(report, options = {}) {
+  var _a2, _b2;
+  const status = ((_a2 = report.meta) == null ? void 0 : _a2.perf) ?? null;
+  if (!Array.isArray(report.perfEntries)) {
+    return {
+      error: status && !status.enabled ? "performance entry capture is switched off for this detector" : "this report has no perfEntries: it was recorded before report version 9, or by a runtime without performance capture"
+    };
+  }
+  const top = Number(options.top) > 0 ? Math.floor(Number(options.top)) : DEFAULT_PERF_TOP;
+  const requested2 = Array.isArray(options.types) ? options.types.map(String) : typeof options.types === "string" && options.types ? options.types.split(",").map((t) => t.trim()).filter(Boolean) : null;
+  let match = null;
+  if (typeof options.match === "string" && options.match) {
+    try {
+      match = new RegExp(options.match, "i");
+    } catch (error) {
+      return { error: `invalid match pattern: ${error.message}` };
+    }
+  }
+  const from = commitStart(report, options.fromCommit);
+  const last = commitStart(report, options.toCommit);
+  const next = last === null ? null : ((_b2 = commitStarts(report).find((c) => c.start > last)) == null ? void 0 : _b2.start) ?? Infinity;
+  const selected = report.perfEntries.filter((e) => (!requested2 || requested2.includes(e.entryType)) && (!match || match.test(e.name)) && (from === null || e.startTime + (e.duration || 0) >= from) && (next === null || e.startTime < next));
+  const byType = {};
+  for (const type of new Set(selected.map((e) => e.entryType))) {
+    const list = selected.filter((e) => e.entryType === type);
+    const rank = RANK[type];
+    const ordered = rank ? [...list].sort((a, b) => rank(b) - rank(a)) : [...list].sort((a, b) => b.startTime - a.startTime);
+    byType[type] = { count: list.length, items: linkPerfEntries(report, ordered.slice(0, top)) };
+  }
+  return {
+    payload: {
+      status,
+      summary: perfSummary(report, selected),
+      entries: byType
+    }
+  };
+}
+function perfForCommit(report, commitId, maxItems = DEFAULT_PERF_TOP) {
+  const near = linkPerfEntries(report).filter((e) => {
+    var _a2;
+    return e.commits.during.includes(commitId) || ((_a2 = e.commits.before) == null ? void 0 : _a2.commitId) === commitId;
+  });
+  near.sort((a, b) => b.duration - a.duration || a.startTime - b.startTime);
+  return { total: near.length, items: near.slice(0, maxItems) };
+}
+const SUMMARY_DEFAULT_TOP = 5;
+const SUMMARY_DEFAULT_MAX_ITEMS = 3;
+function positive(value, fallback) {
+  const n = Number(value);
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : fallback;
+}
+function finite(value) {
+  const n = Number(value);
+  return value != null && Number.isFinite(n) ? n : null;
+}
+function ms(value) {
+  return Math.round(value) || 0;
+}
+function at(map, id) {
+  return (map == null ? void 0 : map[id]) ?? (map == null ? void 0 : map[String(id)]);
+}
+function sameContent(a, b) {
+  if (a === b) return true;
+  try {
+    return JSON.stringify(a) === JSON.stringify(b);
+  } catch {
+    return false;
+  }
+}
+function sourceRows(entries, maxItems) {
+  return entries.slice(0, maxItems).map((entry) => {
+    const e = entry && typeof entry === "object" ? entry : { sourceId: entry };
+    return {
+      sourceId: e.sourceId ?? null,
+      collateralAtCommit: finite(e.collateral),
+      changedHooks: (Array.isArray(e.trashers) ? e.trashers : []).map((t) => ({
+        index: (t == null ? void 0 : t.index) ?? null,
+        sameContent: sameContent(t == null ? void 0 : t.prevValue, t == null ? void 0 : t.currentValue)
+      }))
+    };
+  });
+}
+function frameOf(frames, commitId, origin) {
+  const frame2 = frames.find((f) => f.commits.during.includes(commitId));
+  if (!frame2) return null;
+  return {
+    atMs: origin === null ? null : ms(frame2.startTime - origin),
+    durationMs: ms(frame2.duration),
+    blockingMs: ms(frame2.blockingDuration ?? 0),
+    commits: frame2.commits.during
+  };
+}
+function compactTimeline(report) {
+  const timeline = buildTimeline(report);
+  if ("error" in timeline) return { error: timeline.error };
+  const { ok: _ok, lanes: _lanes, mermaid: _mermaid, ...rest } = timeline;
+  return rest;
+}
+function buildSummaryView(report, options = {}) {
+  var _a2;
+  const top = positive(options.top, SUMMARY_DEFAULT_TOP);
+  const maxItems = positive(options.maxItems, SUMMARY_DEFAULT_MAX_ITEMS);
+  const commitStats = report.commitStats ?? {};
+  const ids = Object.keys(commitStats).map(Number).filter(Number.isFinite).sort((a, b) => a - b);
+  const totals = Object.fromEntries(UPSTREAM_COMMIT_STAT_KEYS.map((key) => [key, 0]));
+  const statsById = /* @__PURE__ */ new Map();
+  for (const id of ids) {
+    const stats = tupleToStats(at(commitStats, id));
+    statsById.set(id, stats);
+    if (stats) for (const key of UPSTREAM_COMMIT_STAT_KEYS) totals[key] += stats[key];
+  }
+  const timeline = compactTimeline(report);
+  const origin = "origin" in timeline ? finite((_a2 = timeline.origin) == null ? void 0 : _a2.at) : null;
+  const frames = Array.isArray(report.perfEntries) ? linkPerfEntries(report, report.perfEntries.filter((e) => e.entryType === "long-animation-frame" || e.entryType === "longtask")) : [];
+  const topCommits = ids.slice().sort((a, b) => {
+    var _a3, _b2;
+    return (((_a3 = statsById.get(b)) == null ? void 0 : _a3.collateral) ?? 0) - (((_b2 = statsById.get(a)) == null ? void 0 : _b2.collateral) ?? 0) || a - b;
+  }).slice(0, top).map((commitId) => {
+    var _a3;
+    const timing = at(report.commitTimings, commitId);
+    const start = finite(timing == null ? void 0 : timing.startTime);
+    const end = finite(timing == null ? void 0 : timing.endTime);
+    const paint = finite(timing == null ? void 0 : timing.paintAt);
+    const entries = at(report.sourcesByCommit, commitId);
+    const list = Array.isArray(entries) ? entries : [];
+    const actions = at(report.interactionsByCommit, commitId);
+    return {
+      commitId,
+      stat: statsById.get(commitId) ?? null,
+      atMs: start !== null && origin !== null ? ms(start - origin) : null,
+      renderMs: finite((_a3 = timing == null ? void 0 : timing.render) == null ? void 0 : _a3.workMs),
+      ticks: finite(timing == null ? void 0 : timing.ticks),
+      paintDelayMs: paint !== null && end !== null && paint >= end ? ms(paint - end) : null,
+      sourcesTotal: list.length,
+      sources: sourceRows(list, maxItems),
+      latestAction: Array.isArray(actions) && actions.length ? compactLatestAction(actions[actions.length - 1]) : null,
+      hooks: hookStepsAt(report.hooks, commitId),
+      longFrame: frameOf(frames, commitId, origin)
+    };
+  });
+  return {
+    commits: ids.length,
+    firstCommitId: ids[0] ?? null,
+    lastCommitId: ids.at(-1) ?? null,
+    sources: Array.isArray(report.sources) ? report.sources.length : 0,
+    totals,
+    timeline,
+    topCommits,
+    hooks: summarizeHookResults(report.hooks),
+    perf: Array.isArray(report.perfEntries) ? perfSummary(report) : null,
+    meta: report.meta ?? null
+  };
+}
+function compactNetwork(network, maxItems) {
+  const rows = (items) => items.slice(0, maxItems);
+  return {
+    landedBefore: rows((network == null ? void 0 : network.landedBefore) ?? []),
+    landedBeforeTotal: (network == null ? void 0 : network.landedBefore.length) ?? 0,
+    startedAfter: rows((network == null ? void 0 : network.startedAfter) ?? []),
+    startedAfterTotal: (network == null ? void 0 : network.startedAfter.length) ?? 0,
+    startedDuringRender: rows((network == null ? void 0 : network.startedDuringRender) ?? []),
+    startedDuringRenderTotal: (network == null ? void 0 : network.startedDuringRender.length) ?? 0,
+    inFlight: (network == null ? void 0 : network.inFlight) ?? 0
   };
 }
 const REPORT_ALL_SOURCES = Number.POSITIVE_INFINITY;
@@ -7677,7 +8283,7 @@ function evalAvalanche(command, api2, mod) {
           return { ok: false, available: true, action, error: "commit-peek requires numeric commitId" };
         }
         const include = Array.isArray(command == null ? void 0 : command.include) && command.include.length ? command.include : ["stats", "sources", "timing", "metrics", "hooks"];
-        const allowedInclude = ["stats", "sources", "timing", "metrics", "hooks", "unmounts", "actions", "rendered", "network", "dom"];
+        const allowedInclude = ["stats", "sources", "timing", "metrics", "hooks", "unmounts", "actions", "rendered", "network", "dom", "perf"];
         const invalidInclude = include.filter((key) => !allowedInclude.includes(key));
         if (invalidInclude.length) {
           return {
@@ -7752,6 +8358,11 @@ function evalAvalanche(command, api2, mod) {
         }
         if (include.includes("network")) {
           out.network = compactNetwork(networkByCommit(ser, command == null ? void 0 : command.window).get(commitId), maxItems);
+        }
+        if (include.includes("perf")) {
+          const perf = perfForCommit(ser, commitId, maxItems);
+          out.perf = perf.items;
+          out.perfTotal = perf.total;
         }
         if (include.includes("unmounts")) {
           const raw = r.raw || {};
@@ -7857,6 +8468,21 @@ function evalAvalanche(command, api2, mod) {
         if ("error" in view) return { ok: false, available: true, action, error: view.error, ...view.validBy && { validBy: [...view.validBy] } };
         return { ok: true, available: true, action, payload: view.payload };
       }
+      case "perf": {
+        const r = getReport(api2);
+        if (!r || "error" in r) {
+          return { ok: false, available: true, action, error: r && "error" in r ? r.error : "report() unavailable" };
+        }
+        const view = perfView(r.serial, {
+          types: command == null ? void 0 : command.types,
+          top: command == null ? void 0 : command.top,
+          match: command == null ? void 0 : command.match,
+          fromCommit: command == null ? void 0 : command.fromCommit,
+          toCommit: command == null ? void 0 : command.toCommit
+        });
+        if ("error" in view) return { ok: false, available: true, action, error: view.error };
+        return { ok: true, available: true, action, payload: view.payload };
+      }
       case "timeline": {
         const r = getReport(api2);
         if (!r || "error" in r) {
@@ -7889,6 +8515,13 @@ function evalAvalanche(command, api2, mod) {
         if ("error" in view) return { ok: false, available: true, action, error: view.error };
         return { ok: true, available: true, action, payload: view };
       }
+      case "summary": {
+        const r = getReport(api2);
+        if (!r || "error" in r) {
+          return { ok: false, available: true, action, error: r && "error" in r ? r.error : "report() unavailable" };
+        }
+        return { ok: true, available: true, action, payload: buildSummaryView(r.serial, { top: command == null ? void 0 : command.top, maxItems: command == null ? void 0 : command.maxItems }) };
+      }
       // Removed: start, stop, metrics, help — not present on the current public surface.
       default:
         return { ok: false, available: true, action, error: "Unknown avalanche action: " + action };
@@ -7905,7 +8538,7 @@ function nameBudgetFor(command) {
   if (!WHOLE_CAPTURE_ACTIONS.has(action) || !Number.isFinite(timeoutMs)) return AVALANCHE_NAME_BUDGET_MS;
   return Math.min(AVALANCHE_EXPORT_NAME_BUDGET_MS, Math.max(AVALANCHE_NAME_BUDGET_MS, timeoutMs / 2));
 }
-const NAME_FREE_ACTIONS = /* @__PURE__ */ new Set(["install", "uninstall", "reset", "clear", "status", "debug-hook", "network", "timeline", "dom-diff"]);
+const NAME_FREE_ACTIONS = /* @__PURE__ */ new Set(["install", "uninstall", "reset", "clear", "status", "debug-hook", "network", "perf", "timeline", "dom-diff"]);
 const SOURCE_ID = /^[^\s#@]+#\d+@-?\d+$/;
 const WHOLE_CAPTURE_ACTIONS = /* @__PURE__ */ new Set(["export", "export-last"]);
 const MAX_SOURCE_IDS = 2e3;
@@ -8070,17 +8703,17 @@ function hookSlots(fiber) {
   while (node && typeof node === "object" && !seen.has(node) && "next" in node) {
     seen.add(node);
     const tag = classifyHook(node, index).tag;
-    const ms = node.memoizedState;
+    const ms2 = node.memoizedState;
     const label = "hook[" + index + ":" + tag + "]";
     if (tag === "Effect") {
-      const deps = ms == null ? void 0 : ms.deps;
+      const deps = ms2 == null ? void 0 : ms2.deps;
       if (Array.isArray(deps)) out.push([label + ".deps", deps]);
     } else if (tag === "Ref") {
-      out.push([label + ".current", ms.current]);
+      out.push([label + ".current", ms2.current]);
     } else if (tag === "Memo") {
-      out.push([label, ms[0]]);
+      out.push([label, ms2[0]]);
     } else {
-      out.push([label, ms]);
+      out.push([label, ms2]);
     }
     node = node.next;
     index += 1;
@@ -9488,12 +10121,12 @@ const DEFAULT_SCRIPT_TIMEOUT_MS = 5e3;
 const MAX_SCRIPT_TIMEOUT_MS = 12e4;
 const MIN_SCRIPT_TIMEOUT_MS = 50;
 function clampScriptTimeout(value) {
-  const ms = Number(value) || DEFAULT_SCRIPT_TIMEOUT_MS;
-  return Math.min(MAX_SCRIPT_TIMEOUT_MS, Math.max(MIN_SCRIPT_TIMEOUT_MS, ms));
+  const ms2 = Number(value) || DEFAULT_SCRIPT_TIMEOUT_MS;
+  return Math.min(MAX_SCRIPT_TIMEOUT_MS, Math.max(MIN_SCRIPT_TIMEOUT_MS, ms2));
 }
 class ScriptTimeout extends Error {
-  constructor(ms) {
-    super(`script timeout after ${ms}ms; the script may still be running in the page`);
+  constructor(ms2) {
+    super(`script timeout after ${ms2}ms; the script may still be running in the page`);
     this.name = "ScriptTimeout";
   }
 }
@@ -9566,7 +10199,7 @@ let state = null;
 const domWatchDeps = {
   measure: (options) => measureComponentArea(options),
   now: () => performance.now(),
-  setTimeout: (fn, ms) => globalThis.setTimeout(fn, ms),
+  setTimeout: (fn, ms2) => globalThis.setTimeout(fn, ms2),
   clearTimeout: (handle) => globalThis.clearTimeout(handle),
   frame: (fn) => {
     if (typeof requestAnimationFrame === "function" && !(typeof document !== "undefined" && document.hidden)) requestAnimationFrame(() => fn());
@@ -9632,13 +10265,13 @@ function stopAreaWatch() {
   }
   return summarize(state);
 }
-function startPoll(s, ms) {
+function startPoll(s, ms2) {
   const tick = () => {
     if (!s.active) return;
     schedule(s);
-    s.poll = s.deps.setTimeout(tick, ms);
+    s.poll = s.deps.setTimeout(tick, ms2);
   };
-  s.poll = s.deps.setTimeout(tick, ms);
+  s.poll = s.deps.setTimeout(tick, ms2);
 }
 function schedule(s) {
   if (!s.active || s.pending) return;
@@ -9804,7 +10437,7 @@ function inspectFiberOwners(fiber, fiberId, helpers) {
     (candidate, kind) => kind === "owners" || isComponentFiber(candidate),
     100
   );
-  const owners = fibers.map((owner, idx) => ({ ownerIndex: idx, ...helpers.fiberInfo(owner) || {} }));
+  const owners = fibers.map((owner2, idx) => ({ ownerIndex: idx, ...helpers.fiberInfo(owner2) || {} }));
   return { fiberId: String(fiberId), ownerStackKind, count: owners.length, items: owners };
 }
 function inspectFiberStructure(fiber, fiberId, hookIndex, windowSize, replayComponentHooks2, evalFiberHooks2) {
@@ -10686,12 +11319,13 @@ const api = {
     }
     let commitCount = 0;
     let networkRequests = 0;
+    let perfEntries = 0;
     let renderedEvidence = null;
     let paused = false;
     let pausedAt = null;
     try {
       const counts = detector ? detector.counts() : null;
-      if (counts) ({ commits: commitCount, networkRequests, renderedEvidence, capture: { paused, pausedAt } } = counts);
+      if (counts) ({ commits: commitCount, networkRequests, perfEntries, renderedEvidence, capture: { paused, pausedAt } } = counts);
     } catch (_) {
     }
     const integrationMode = detector ? ((_b2 = detector.getIntegrationMode) == null ? void 0 : _b2.call(detector)) ?? "none" : "none";
@@ -10702,7 +11336,7 @@ const api = {
       hooks = summarizeHookResults(detector == null ? void 0 : detector.hookResults());
     } catch (_) {
     }
-    return { installed, paused, pausedAt, hasMetricsGlobal, commitCount, integrationMode, metricsAdapter, networkRequests, renderedEvidence, packs: packs2, hooks };
+    return { installed, paused, pausedAt, hasMetricsGlobal, commitCount, integrationMode, metricsAdapter, networkRequests, perfEntries, renderedEvidence, packs: packs2, hooks };
   },
   registerCommitMetricsAdapter,
   enablePlugins,

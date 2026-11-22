@@ -38,6 +38,7 @@ import type { AvalancheHookResult } from './avalanche-hooks';
 import type { CommitMetricsDelta, IntegrationMode } from './commit-metrics-adapter';
 import type { InputEventDetails } from './input-details';
 import type { NetworkCaptureStatus, NetworkRequest } from './network-capture';
+import type { PerfCaptureStatus, PerfEntry } from './perf-capture';
 import type { ScreenChange } from './screen-changes';
 import type { DomCommitDiff } from './dom-diff';
 import type { SuspenseLocation } from './suspense-location';
@@ -131,6 +132,8 @@ export interface ReportMetaDTO {
   renderTicks?: { available: boolean; sources: string[]; reason: string | null };
   /** Resource Timing capture behind `networkRequests`. Absent before report v8. */
   network?: NetworkCaptureStatus;
+  /** Browser performance entry capture behind `perfEntries`. Absent before report v9. */
+  perf?: PerfCaptureStatus;
   /** `renderedByCommit` budget and what it dropped. Absent before the budget existed. */
   renderedEvidence?: RenderedEvidenceStatus;
   /** `domByCommit` budget and what it dropped. Absent when DOM diff capture is off. */
@@ -292,6 +295,8 @@ export interface ReportDTO {
   commitTimings?: Record<number, CommitTimingDTO>;
   /** Requests that finished during the capture. Absent before report v8. */
   networkRequests?: NetworkRequestDTO[];
+  /** Browser performance entries recorded during the capture. Absent before report v9. */
+  perfEntries?: PerfEntry[];
   /** Screen area each commit changed. Absent when screen capture is off. */
   screenByCommit?: Record<number, ScreenChange>;
   /** DOM changes each commit made. Absent when DOM diff capture is off. */
@@ -344,6 +349,7 @@ export function serializeReport(report: {
   metricsByCommit?: Record<number, CommitMetricsDeltaDTO>;
   commitTimings?: Record<number, CommitTimingDTO>;
   networkRequests?: NetworkRequestDTO[];
+  perfEntries?: PerfEntry[];
   screenByCommit?: Record<number, ScreenChange>;
   domByCommit?: Record<number, DomCommitDiff>;
   hooks?: Record<string, AvalancheHookResult>;
@@ -403,6 +409,7 @@ export function serializeReport(report: {
     ...(report.metricsByCommit && { metricsByCommit: report.metricsByCommit }),
     ...(report.commitTimings && { commitTimings: report.commitTimings }),
     ...(report.networkRequests && { networkRequests: report.networkRequests.map((request) => ({ ...request })) }),
+    ...(report.perfEntries && { perfEntries: report.perfEntries.map((entry) => ({ ...entry })) }),
     ...(report.screenByCommit && { screenByCommit: report.screenByCommit }),
     ...(report.domByCommit && { domByCommit: report.domByCommit }),
     ...(report.hooks && { hooks: report.hooks }),

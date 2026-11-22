@@ -3,10 +3,10 @@
  *
  * A saved export is the `ReportDTO` returned by the live `export` action. The
  * offline commands run the same dispatcher as the live page, so `commit-list`,
- * `commit-peek`, and `hot-sources` return identical shapes online and offline.
+ * `commit-peek`, `hot-sources`, and `perf` return identical shapes online and offline.
  */
-import { summarizeHookResults } from './avalanche-hooks';
-import { evalAvalanche, tupleToStats, UPSTREAM_COMMIT_STAT_KEYS, type AvalancheCommand } from '../chippy-bridge/avalanche-commands';
+import { buildSummaryView, type SummaryOptions } from './summary-view';
+import { evalAvalanche, type AvalancheCommand } from '../chippy-bridge/avalanche-commands';
 
 type SavedReport = {
   meta: Record<string, unknown>;
@@ -66,25 +66,9 @@ function dispatch(report: SavedReport, command: AvalancheCommand) {
   return rest;
 }
 
-export function summary(report: SavedReport) {
-  const totals: Record<string, number> = Object.fromEntries(UPSTREAM_COMMIT_STAT_KEYS.map((key) => [key, 0]));
-  for (const tuple of Object.values(report.commitStats)) {
-    const stats = tupleToStats(tuple);
-    if (!stats) continue;
-    for (const key of UPSTREAM_COMMIT_STAT_KEYS) totals[key] += stats[key];
-  }
-  const ids = commitIds(report);
-  return {
-    ok: true,
-    action: 'summary',
-    commits: ids.length,
-    firstCommitId: ids[0] ?? null,
-    lastCommitId: ids.at(-1) ?? null,
-    sources: report.sources?.length ?? 0,
-    totals,
-    hooks: summarizeHookResults(report.hooks as Parameters<typeof summarizeHookResults>[0]),
-    meta: report.meta,
-  };
+// Flat for older callers: the digest fields sit at the top level, beside `ok` and `action`.
+export function summary(report: SavedReport, options: SummaryOptions = {}) {
+  return { ok: true, action: 'summary', ...buildSummaryView(report, options) };
 }
 
 // Finds components by name across aggregate sources and per-commit render
@@ -136,7 +120,7 @@ export function analyzeSavedReport(report: SavedReport, command: string, args: {
   };
   switch (command) {
     case 'summary':
-      return summary(report);
+      return summary(report, { top: number('top', 0), maxItems: number('maxItems', 1) });
     case 'commit-list':
       return dispatch(report, { action: 'commit-list', top: number('top', 0), by: String(args.by ?? positional[1] ?? 'collateral') });
     case 'commit-peek': {
@@ -162,6 +146,18 @@ export function analyzeSavedReport(report: SavedReport, command: string, args: {
         ...(typeof match === 'string' && match && { match }),
         ...(initiators && { initiators: initiators.split(',').map((item) => item.trim()).filter(Boolean) }),
         window: number('window', 4),
+      });
+    }
+    case 'perf': {
+      const types = args.types ?? positional[0];
+      const match = args.match ?? positional[2];
+      return dispatch(report, {
+        action: 'perf',
+        ...(typeof types === 'string' && types && { types }),
+        top: number('top', 1),
+        ...(typeof match === 'string' && match && { match }),
+        fromCommit: number('fromCommit', 3),
+        toCommit: number('toCommit', 4),
       });
     }
     case 'timeline': {

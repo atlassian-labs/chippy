@@ -24,165 +24,191 @@ function hookStepsAt(results, commitId) {
   return out;
 }
 
-// src/chippy-bridge/source-map.ts
-var DIGITS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-var VALUE_OF = new Int8Array(128).fill(-1);
-for (let index = 0; index < DIGITS.length; index += 1) {
-  VALUE_OF[DIGITS.charCodeAt(index)] = index;
-}
-
-// src/chippy-bridge/component-occurrence.ts
-var IDENTIFIER = "[A-Za-z_$][\\w$]*";
-var OWN_FUNCTION_NAME = new RegExp(`^(?:async\\s*)?function\\s*\\*?\\s*(${IDENTIFIER})\\s*\\(`);
-var OWN_CLASS_NAME = new RegExp(`^class\\s+(${IDENTIFIER})(?=[\\s{])`);
-var AUTHORED_OWN_NAME = new RegExp(
-  `^(?:export\\s+(?:default\\s+)?)?(?:async\\s+)?(?:function\\s*\\*?\\s*|class\\s+)(${IDENTIFIER})`
-);
-var CALLEE = `(?:\\(\\s*0\\s*,\\s*${IDENTIFIER}(?:\\.${IDENTIFIER})*\\s*\\)|${IDENTIFIER}(?:\\.${IDENTIFIER})*)`;
-var GENERATED_BINDING = new RegExp(`(${IDENTIFIER})\\s*[=:]\\s*(?:${CALLEE}\\s*\\(\\s*)*$`);
-var AUTHORED_BINDING = new RegExp(
-  `(?:^|[^\\w$.])(${IDENTIFIER})\\s*(?::[^=;{}()]*)?=\\s*(?:${CALLEE}\\s*(?:<[^()]*>)?\\s*\\(\\s*)*$`
-);
-var LEADING_IDENTIFIER = new RegExp(`^${IDENTIFIER}`);
-
-// src/chippy-bridge/component-origin.ts
-var FORWARD_REF = Symbol.for("react.forward_ref");
-var MEMO = Symbol.for("react.memo");
-
-// src/avalanche/network-signals.ts
-var DEFAULT_NETWORK_WINDOW_MS = 250;
-var NETWORK_SORT_KEYS = ["start", "end", "duration"];
-var round = (value) => Math.round(value * 10) / 10;
-function commitAnchors(commitTimings) {
-  const anchors = [];
-  for (const [id, timing] of Object.entries(commitTimings ?? {})) {
-    const commitStart2 = Number(timing?.startTime);
-    const commitEnd = Number(timing?.endTime);
-    if (!Number.isFinite(commitStart2) || !Number.isFinite(commitEnd)) continue;
-    const renderStart = Number(timing?.render?.renderStart);
-    const renderStartKnown = Number.isFinite(renderStart) && renderStart <= commitStart2;
-    anchors.push({
-      commitId: Number(id),
-      renderStart: renderStartKnown ? renderStart : commitStart2,
-      renderStartKnown,
-      commitStart: commitStart2,
-      commitEnd
-    });
-  }
-  return anchors.sort((a, b) => a.commitStart - b.commitStart);
-}
-function firstAtOrAfter(anchors, value, key) {
-  let lo = 0;
-  let hi = anchors.length;
-  while (lo < hi) {
-    const mid = lo + hi >> 1;
-    if (anchors[mid][key] < value) lo = mid + 1;
-    else hi = mid;
-  }
-  return lo;
-}
-function linkRequest(request, anchors, windowMs) {
-  const { startTime, endTime } = request;
-  const afterIndex = firstAtOrAfter(anchors, startTime, "commitEnd") - 1;
-  const after = afterIndex >= 0 ? anchors[afterIndex] : null;
-  const startedAfter = after && startTime - after.commitEnd <= windowMs ? { commitId: after.commitId, gapMs: round(startTime - after.commitEnd) } : null;
-  const rendering = anchors[firstAtOrAfter(anchors, startTime, "commitStart")];
-  const startedDuringRender = rendering && rendering.renderStartKnown && rendering.renderStart <= startTime ? rendering.commitId : null;
-  let landedBefore = null;
-  for (let i = firstAtOrAfter(anchors, endTime, "commitStart"); i < anchors.length; i++) {
-    const anchor = anchors[i];
-    if (anchor.renderStart - endTime > windowMs) break;
-    if (anchor.renderStart >= endTime) {
-      landedBefore = { commitId: anchor.commitId, gapMs: round(anchor.renderStart - endTime) };
-      break;
-    }
-  }
-  const commitsInFlight = firstAtOrAfter(anchors, endTime, "commitStart") - firstAtOrAfter(anchors, startTime, "commitStart");
-  return { startedAfter, startedDuringRender, landedBefore, commitsInFlight: Math.max(0, commitsInFlight) };
-}
-function requestsOf(report) {
-  return Array.isArray(report.networkRequests) ? report.networkRequests : [];
-}
-function windowOf(windowMs) {
-  const value = Number(windowMs);
-  return Number.isFinite(value) && value >= 0 ? value : DEFAULT_NETWORK_WINDOW_MS;
-}
-function linkNetworkRequests(report, windowMs) {
-  const anchors = commitAnchors(report.commitTimings);
-  const window2 = windowOf(windowMs);
-  return requestsOf(report).map((request) => ({ ...request, ...linkRequest(request, anchors, window2) }));
-}
-function networkView(report, options = {}) {
-  const by = String(options.by || "start");
-  if (!NETWORK_SORT_KEYS.includes(by)) {
-    return { ok: false, error: "unsupported network sort key: " + by, validBy: NETWORK_SORT_KEYS };
-  }
-  let pattern = null;
-  if (typeof options.match === "string" && options.match) {
-    try {
-      pattern = new RegExp(options.match, "i");
-    } catch (error) {
-      return { ok: false, error: "invalid match pattern: " + error.message };
-    }
-  }
-  const initiators = Array.isArray(options.initiators) ? options.initiators.map((value) => String(value).trim().toLowerCase()).filter(Boolean) : [];
-  const top = Number.isFinite(Number(options.top)) && Number(options.top) > 0 ? Math.floor(Number(options.top)) : 20;
-  const windowMs = windowOf(options.window);
-  const linked = linkNetworkRequests(report, windowMs).filter((request) => (!pattern || pattern.test(request.url)) && (initiators.length === 0 || initiators.includes(request.initiatorType.toLowerCase())));
-  const byInitiator = {};
-  let landedBeforeCommit = 0;
-  let startedAfterCommit = 0;
-  let startedDuringRender = 0;
-  let longest = null;
-  for (const request of linked) {
-    byInitiator[request.initiatorType] = (byInitiator[request.initiatorType] || 0) + 1;
-    if (request.landedBefore) landedBeforeCommit += 1;
-    if (request.startedAfter) startedAfterCommit += 1;
-    if (request.startedDuringRender !== null) startedDuringRender += 1;
-    if (!longest || request.duration > longest.duration) longest = request;
-  }
-  const sorted = linked.slice().sort((a, b) => by === "duration" ? b.duration - a.duration : by === "end" ? a.endTime - b.endTime : a.startTime - b.startTime);
-  return {
-    ok: true,
-    payload: {
-      available: Array.isArray(report.networkRequests),
-      capture: report.meta?.network ?? null,
-      windowMs,
-      by,
-      total: linked.length,
-      summary: {
-        byInitiator,
-        landedBeforeCommit,
-        startedAfterCommit,
-        startedDuringRender,
-        longest: longest ? { id: longest.id, url: longest.url, duration: longest.duration } : null
-      },
-      rows: sorted.slice(0, top)
-    }
-  };
-}
-function networkByCommit(report, windowMs) {
-  const out = /* @__PURE__ */ new Map();
-  const entry = (commitId) => {
-    let value = out.get(commitId);
-    if (!value) {
-      value = { landedBefore: [], startedAfter: [], startedDuringRender: [], inFlight: 0 };
-      out.set(commitId, value);
-    }
-    return value;
-  };
-  const linked = linkNetworkRequests(report, windowMs);
-  for (const request of linked) {
-    if (request.landedBefore) entry(request.landedBefore.commitId).landedBefore.push(request);
-    if (request.startedAfter) entry(request.startedAfter.commitId).startedAfter.push(request);
-    if (request.startedDuringRender !== null) entry(request.startedDuringRender).startedDuringRender.push(request);
-  }
-  const anchors = commitAnchors(report.commitTimings);
-  for (const anchor of anchors) {
-    const inFlight = linked.filter((request) => request.startTime <= anchor.commitStart && request.endTime >= anchor.commitStart).length;
-    if (inFlight > 0) entry(anchor.commitId).inFlight = inFlight;
+// src/avalanche/commit-stats.ts
+var UPSTREAM_COMMIT_STAT_KEYS = [
+  "collateral",
+  "sources",
+  "restarts",
+  "performedWork",
+  "effects",
+  "memos",
+  "callbacks",
+  "contextUpdates",
+  "unmountedComponents",
+  "unmountedSubtrees"
+];
+function tupleToStats(tuple) {
+  if (!Array.isArray(tuple)) return null;
+  const out = {};
+  for (let i = 0; i < UPSTREAM_COMMIT_STAT_KEYS.length; i++) {
+    out[UPSTREAM_COMMIT_STAT_KEYS[i]] = Number(tuple[i] || 0);
   }
   return out;
+}
+function compactLatestAction(action) {
+  if (!action || typeof action !== "object") return action ?? null;
+  const location = action.location && typeof action.location === "object" ? action.location : {};
+  const dom = location.dom && typeof location.dom === "object" ? location.dom : {};
+  const targetFiber = location.targetFiber && typeof location.targetFiber === "object" ? location.targetFiber : null;
+  const ownerStack = Array.isArray(targetFiber?.ownerStack) ? targetFiber.ownerStack : [];
+  return {
+    lastCommitId: Number(action.lastCommitId ?? 0),
+    deltaTime: Number(action.deltaTime ?? 0),
+    action: typeof action.action === "string" ? action.action : null,
+    dom: {
+      tag: typeof dom.tag === "string" ? dom.tag : null,
+      text: typeof dom.text === "string" ? dom.text : "",
+      nearestTestId: typeof dom.nearestTestId === "string" ? dom.nearestTestId : null
+    },
+    targetFiber: targetFiber ? {
+      name: typeof targetFiber.name === "string" ? targetFiber.name : null,
+      key: targetFiber.key ?? null,
+      ownerStackKind: targetFiber.ownerStackKind === "parents" ? "parents" : "owners",
+      ownerNames: ownerStack.map((entry) => entry && typeof entry.name === "string" ? entry.name : null).filter(Boolean).slice(0, 10),
+      ownerCount: ownerStack.length
+    } : null
+  };
+}
+
+// src/avalanche/perf-signals.ts
+var DEFAULT_PERF_TOP = 20;
+var MAX_LINKED_COMMITS = 10;
+var round = (value) => Math.round(value * 10) / 10;
+function commitStarts(report) {
+  return Object.entries(report.commitTimings ?? {}).map(([id, timing]) => ({ id: Number(id), start: Number(timing?.startTime) })).filter((c) => Number.isFinite(c.id) && Number.isFinite(c.start)).sort((a, b) => a.start - b.start);
+}
+function linkPerfEntries(report, entries = report.perfEntries ?? []) {
+  const commits = commitStarts(report);
+  return entries.map((entry) => {
+    const from = entry.startTime;
+    const to = entry.startTime + (entry.duration || 0);
+    const during = [];
+    let before = null;
+    for (const c of commits) {
+      if (c.start <= from) before = c;
+      if (c.start >= from && c.start <= to) during.push(c.id);
+      if (c.start > to) break;
+    }
+    return {
+      ...entry,
+      commits: {
+        during: during.slice(0, MAX_LINKED_COMMITS),
+        duringCount: during.length,
+        before: before ? { commitId: before.id, gapMs: round(from - before.start) } : null
+      }
+    };
+  });
+}
+function cumulativeLayoutShift(shifts) {
+  let best = 0;
+  let current = 0;
+  let first = null;
+  let last = null;
+  for (const s of [...shifts].sort((a, b) => a.startTime - b.startTime)) {
+    if (s.hadRecentInput) continue;
+    if (first !== null && last !== null && s.startTime - last < 1e3 && s.startTime - first < 5e3) current += s.value ?? 0;
+    else {
+      current = s.value ?? 0;
+      first = s.startTime;
+    }
+    last = s.startTime;
+    best = Math.max(best, current);
+  }
+  return Math.round(best * 1e4) / 1e4;
+}
+function perfSummary(report, entries = report.perfEntries ?? []) {
+  const of = (type) => entries.filter((e) => e.entryType === type);
+  const frames = of("long-animation-frame");
+  const tasks = of("longtask");
+  const events = of("event");
+  const measures = of("measure");
+  const lcp = of("largest-contentful-paint").sort((a, b) => a.startTime - b.startTime).at(-1);
+  const fcp = of("paint").find((e) => e.name === "first-contentful-paint");
+  const navigation = of("navigation")[0];
+  const worst = frames.reduce((best, e) => !best || (e.blockingDuration ?? 0) > (best.blockingDuration ?? 0) ? e : best, null);
+  const worstLinked = worst ? linkPerfEntries(report, [worst])[0] : null;
+  const perInteraction = /* @__PURE__ */ new Map();
+  for (const e of events) {
+    if (!e.interactionId) continue;
+    perInteraction.set(e.interactionId, Math.max(perInteraction.get(e.interactionId) ?? 0, e.duration));
+  }
+  const longest = measures.reduce((best, e) => !best || e.duration > best.duration ? e : best, null);
+  const blocking = frames.length ? frames.reduce((sum, e) => sum + (e.blockingDuration ?? 0), 0) : tasks.reduce((sum, e) => sum + Math.max(0, e.duration - 50), 0);
+  return {
+    cls: cumulativeLayoutShift(of("layout-shift")),
+    layoutShifts: of("layout-shift").length,
+    longFrames: frames.length || tasks.length,
+    totalBlockingMs: round(blocking),
+    worstFrame: worstLinked ? {
+      id: worstLinked.id,
+      startTime: worstLinked.startTime,
+      duration: worstLinked.duration,
+      blockingDuration: worstLinked.blockingDuration ?? 0,
+      commits: worstLinked.commits.during
+    } : null,
+    interactions: perInteraction.size,
+    worstInteractionMs: perInteraction.size ? Math.max(...perInteraction.values()) : null,
+    lcpMs: lcp ? lcp.startTime : null,
+    fcpMs: fcp ? fcp.startTime : null,
+    ttfbMs: navigation?.ttfb ?? null,
+    marks: of("mark").length,
+    measures: measures.length,
+    longestMeasure: longest ? { name: longest.name, startTime: longest.startTime, duration: longest.duration } : null
+  };
+}
+var RANK = {
+  "layout-shift": (e) => e.value ?? 0,
+  "long-animation-frame": (e) => e.blockingDuration ?? 0,
+  longtask: (e) => e.duration,
+  event: (e) => e.duration,
+  measure: (e) => e.duration
+};
+function commitStart(report, id) {
+  const n = Number(id);
+  if (id === void 0 || id === null || id === "" || !Number.isFinite(n)) return null;
+  const start = Number(report.commitTimings?.[String(n)]?.startTime);
+  return Number.isFinite(start) ? start : null;
+}
+function perfView(report, options = {}) {
+  const status = report.meta?.perf ?? null;
+  if (!Array.isArray(report.perfEntries)) {
+    return {
+      error: status && !status.enabled ? "performance entry capture is switched off for this detector" : "this report has no perfEntries: it was recorded before report version 9, or by a runtime without performance capture"
+    };
+  }
+  const top = Number(options.top) > 0 ? Math.floor(Number(options.top)) : DEFAULT_PERF_TOP;
+  const requested = Array.isArray(options.types) ? options.types.map(String) : typeof options.types === "string" && options.types ? options.types.split(",").map((t) => t.trim()).filter(Boolean) : null;
+  let match = null;
+  if (typeof options.match === "string" && options.match) {
+    try {
+      match = new RegExp(options.match, "i");
+    } catch (error) {
+      return { error: `invalid match pattern: ${error.message}` };
+    }
+  }
+  const from = commitStart(report, options.fromCommit);
+  const last = commitStart(report, options.toCommit);
+  const next = last === null ? null : commitStarts(report).find((c) => c.start > last)?.start ?? Infinity;
+  const selected = report.perfEntries.filter((e) => (!requested || requested.includes(e.entryType)) && (!match || match.test(e.name)) && (from === null || e.startTime + (e.duration || 0) >= from) && (next === null || e.startTime < next));
+  const byType = {};
+  for (const type of new Set(selected.map((e) => e.entryType))) {
+    const list = selected.filter((e) => e.entryType === type);
+    const rank = RANK[type];
+    const ordered = rank ? [...list].sort((a, b) => rank(b) - rank(a)) : [...list].sort((a, b) => b.startTime - a.startTime);
+    byType[type] = { count: list.length, items: linkPerfEntries(report, ordered.slice(0, top)) };
+  }
+  return {
+    payload: {
+      status,
+      summary: perfSummary(report, selected),
+      entries: byType
+    }
+  };
+}
+function perfForCommit(report, commitId, maxItems = DEFAULT_PERF_TOP) {
+  const near = linkPerfEntries(report).filter((e) => e.commits.during.includes(commitId) || e.commits.before?.commitId === commitId);
+  near.sort((a, b) => b.duration - a.duration || a.startTime - b.startTime);
+  return { total: near.length, items: near.slice(0, maxItems) };
 }
 
 // src/avalanche/screen-stability.ts
@@ -290,6 +316,31 @@ function settleMapSvg(frames, title = "When each part of the screen last changed
   return parts.join("");
 }
 
+// src/chippy-bridge/source-map.ts
+var DIGITS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+var VALUE_OF = new Int8Array(128).fill(-1);
+for (let index = 0; index < DIGITS.length; index += 1) {
+  VALUE_OF[DIGITS.charCodeAt(index)] = index;
+}
+
+// src/chippy-bridge/component-occurrence.ts
+var IDENTIFIER = "[A-Za-z_$][\\w$]*";
+var OWN_FUNCTION_NAME = new RegExp(`^(?:async\\s*)?function\\s*\\*?\\s*(${IDENTIFIER})\\s*\\(`);
+var OWN_CLASS_NAME = new RegExp(`^class\\s+(${IDENTIFIER})(?=[\\s{])`);
+var AUTHORED_OWN_NAME = new RegExp(
+  `^(?:export\\s+(?:default\\s+)?)?(?:async\\s+)?(?:function\\s*\\*?\\s*|class\\s+)(${IDENTIFIER})`
+);
+var CALLEE = `(?:\\(\\s*0\\s*,\\s*${IDENTIFIER}(?:\\.${IDENTIFIER})*\\s*\\)|${IDENTIFIER}(?:\\.${IDENTIFIER})*)`;
+var GENERATED_BINDING = new RegExp(`(${IDENTIFIER})\\s*[=:]\\s*(?:${CALLEE}\\s*\\(\\s*)*$`);
+var AUTHORED_BINDING = new RegExp(
+  `(?:^|[^\\w$.])(${IDENTIFIER})\\s*(?::[^=;{}()]*)?=\\s*(?:${CALLEE}\\s*(?:<[^()]*>)?\\s*\\(\\s*)*$`
+);
+var LEADING_IDENTIFIER = new RegExp(`^${IDENTIFIER}`);
+
+// src/chippy-bridge/component-origin.ts
+var FORWARD_REF = Symbol.for("react.forward_ref");
+var MEMO = Symbol.for("react.memo");
+
 // src/avalanche/internals.tsx
 var Placement = 2;
 var ChildDeletion = 16;
@@ -347,7 +398,7 @@ function requestLabel(url) {
     return url.slice(0, 60);
   }
 }
-function commitStart(report, id) {
+function commitStart2(report, id) {
   const start = Number(report.commitTimings?.[String(id)]?.startTime);
   return Number.isFinite(start) ? start : null;
 }
@@ -374,9 +425,9 @@ function kindOf(events) {
   return enters && leaves ? "swap" : enters ? "lock" : leaves ? "unlock" : "update";
 }
 function buildTimeline(report, options = {}) {
-  const ids = Object.keys(report.commitTimings ?? {}).map(Number).filter((id) => Number.isFinite(id) && commitStart(report, id) !== null).sort((a, b) => a - b);
+  const ids = Object.keys(report.commitTimings ?? {}).map(Number).filter((id) => Number.isFinite(id) && commitStart2(report, id) !== null).sort((a, b) => a - b);
   if (ids.length === 0) return { ok: false, error: "report has no commit timings (report version 6 or later is required)" };
-  const startOf = (id) => commitStart(report, id);
+  const startOf = (id) => commitStart2(report, id);
   const shownOf = (id) => commitPaint(report, id, startOf(id)) ?? startOf(id);
   const interactions = /* @__PURE__ */ new Map();
   for (const list of Object.values(report.interactionsByCommit ?? {})) {
@@ -421,6 +472,7 @@ function buildTimeline(report, options = {}) {
   const drawable = inWindow.filter((r) => r.duration >= minRequestMs);
   const kept = [...drawable].sort((a, b) => b.duration - a.duration).slice(0, options.maxRequests ?? 30).sort((a, b) => a.startTime - b.startTime);
   const network = kept.map(toRequest);
+  const perfLane = perfLaneOf(report.perfEntries ?? [], origin, windowEnd, ids.map((id) => ({ id, start: startOf(id) })), rel, options.maxMarks ?? 40);
   const boundaryKey = (event) => typeof event.boundary === "number" ? "b" + event.boundary : "@" + Number(event.depth);
   const open = /* @__PURE__ */ new Map();
   const suspense = [];
@@ -526,8 +578,8 @@ function buildTimeline(report, options = {}) {
     boundaries: boundaryKeys.map((key) => ({ boundary: key, depth: boundaryInfo.get(key).depth, label: labelByKey.get(key) ?? null, location: boundaryInfo.get(key).location })),
     screen: screenStability(frames),
     ...options.settleMap && { settleMapSvg: settleMapSvg(frames) },
-    lanes: { input, network, suspense, commits },
-    omitted: { requests: inWindow.length - kept.length, commits: allCommits.length - commits.length },
+    lanes: { input, network, suspense, commits, perf: perfLane.lane },
+    omitted: { requests: inWindow.length - kept.length, commits: allCommits.length - commits.length, marks: perfLane.omittedMarks },
     mermaid: "",
     text: ""
   };
@@ -535,6 +587,59 @@ function buildTimeline(report, options = {}) {
   result.text = renderText(result);
   return result;
 }
+var SHIFT_MIN = 1e-3;
+var EVENT_MIN_MS = 50;
+function perfLaneOf(entries, origin, windowEnd, commitStarts2, rel, maxMarks) {
+  const lane = [];
+  let marks = 0;
+  let omittedMarks = 0;
+  const sorted = entries.filter((e) => e.startTime + (e.duration || 0) >= origin && e.startTime <= windowEnd).sort((a, b) => a.startTime - b.startTime);
+  for (const e of sorted) {
+    let kind = null;
+    let label = e.name;
+    let value = null;
+    if (e.entryType === "long-animation-frame" || e.entryType === "longtask") {
+      kind = "frame";
+      value = e.entryType === "longtask" ? round2(Math.max(0, e.duration - 50)) : e.blockingDuration ?? null;
+      const script = e.scripts?.[0];
+      label = script ? [script.invoker, script.sourceFunctionName, script.sourceURL?.split("/").pop()].filter(Boolean).join(" ") : "";
+    } else if (e.entryType === "measure" && e.duration >= 1) kind = "measure";
+    else if (e.entryType === "measure" || e.entryType === "mark") {
+      if (marks >= maxMarks) {
+        omittedMarks += 1;
+        continue;
+      }
+      marks += 1;
+      kind = "mark";
+    } else if (e.entryType === "layout-shift" && (e.value ?? 0) >= SHIFT_MIN && !e.hadRecentInput) {
+      kind = "shift";
+      value = e.value ?? null;
+      const source = e.sources?.find((s) => s.component || s.testId);
+      label = source ? source.component || source.testId || "" : "";
+    } else if (e.entryType === "event" && e.duration >= EVENT_MIN_MS) {
+      kind = "event";
+      value = e.inputDelay ?? null;
+      label = e.name + (e.target ? " " + (e.target.testId || e.target.component || e.target.element || "") : "");
+    } else if (e.entryType === "largest-contentful-paint") {
+      kind = "lcp";
+      label = e.element ? e.element.testId || e.element.component || e.element.element || "" : "";
+    }
+    if (!kind) continue;
+    const end = e.startTime + (e.duration || 0);
+    lane.push({
+      id: e.id,
+      kind,
+      label: label.trim(),
+      start: rel(e.startTime),
+      end: rel(end),
+      durationMs: round2(e.duration || 0),
+      value,
+      commits: commitStarts2.filter((c) => c.start >= e.startTime && c.start <= end).map((c) => c.id)
+    });
+  }
+  return { lane, omittedMarks };
+}
+var commitSpan = (ids) => ids.length === 0 ? "" : ids.length === 1 ? `c${ids[0]}` : `c${ids[0]}\u2013c${ids[ids.length - 1]}`;
 var GANTT_KEYWORDS = /^(click|call|href|section|title|dateformat|axisformat|tickinterval|excludes|includes|todaymarker|weekday|weekend|inclusiveenddates|topaxis|acctitle|accdescr|displaymode|gantt)\b/i;
 function ganttTaskName(raw) {
   const name = raw.replace(/[:#;]/g, " ").replace(/%%/g, "% %").replace(/\s+/g, " ").trim() || "unnamed";
@@ -562,6 +667,14 @@ function renderMermaid(result) {
     lines.push("  section Network");
     for (const r of network) lines.push(`  ${safe(r.label)} ${r.durationMs}ms :${slow.has(r.id) ? "crit, " : ""}net${r.id}, ${bar(r.start, r.end)}`);
   }
+  const browser = result.lanes.perf.filter((p) => p.kind === "frame" || p.kind === "measure");
+  if (browser.length) {
+    lines.push("  section Browser (long frames, measures)");
+    for (const p of browser) {
+      const name = p.kind === "frame" ? `long frame ${p.durationMs}ms${p.commits.length ? " " + commitSpan(p.commits) : ""}` : `${p.label} ${p.durationMs}ms`;
+      lines.push(`  ${safe(name)} :${p.kind === "frame" ? "crit, " : ""}perf${p.id}, ${bar(p.start, p.end)}`);
+    }
+  }
   if (suspense.length) {
     lines.push("  section User waits (fallback shown)");
     suspense.forEach((s, n) => {
@@ -579,8 +692,8 @@ function renderMermaid(result) {
   if (result.screen) {
     lines.push("  section Screen changed (share of viewport)");
     for (const c of visible) {
-      const at = c.paintAt ?? c.t;
-      lines.push(`  c${c.commitId} ${percent(c.screen.share)}${c.screen.region ? " " + safe(c.screen.region) : ""} :milestone, sc${c.commitId}, ${at}, ${at}`);
+      const at2 = c.paintAt ?? c.t;
+      lines.push(`  c${c.commitId} ${percent(c.screen.share)}${c.screen.region ? " " + safe(c.screen.region) : ""} :milestone, sc${c.commitId}, ${at2}, ${at2}`);
     }
     lines.push(`  VC90 +${result.screen.vc90} :crit, milestone, vc90, ${result.screen.vc90}, ${result.screen.vc90}`);
   }
@@ -617,6 +730,11 @@ function renderText(result) {
     const worst = [...delayed].sort((a, b) => b.paintAt - b.t - (a.paintAt - a.t)).slice(0, 5);
     header.push(`Painted late (the commit's task kept running): ${worst.map((c) => `c${c.commitId} +${c.t} \u2192 painted +${c.paintAt} (${c.paintAt - c.t}ms)`).join(", ")}.`);
   }
+  const frames = result.lanes.perf.filter((p2) => p2.kind === "frame");
+  if (frames.length) {
+    const worst = [...frames].sort((a, b) => b.durationMs - a.durationMs).slice(0, 3);
+    header.push(`Long frames (no paint inside): ${frames.length}, ${Math.round(frames.reduce((sum, p2) => sum + (p2.value ?? 0), 0))}ms blocking; longest ${worst.map((p2) => `+${p2.start} ${p2.durationMs}ms${p2.commits.length ? " (" + commitSpan(p2.commits) + ")" : ""}`).join(", ")}.`);
+  }
   const rows = [];
   for (const i of result.lanes.input) rows.push({ t: i.t, lane: "input", text: inputLabel(i) });
   for (const r of result.lanes.network) rows.push({ t: r.start, lane: "net", text: `${r.label}  \u2192 +${r.end} (${r.durationMs}ms${r.cached ? ", cached" : ""})` });
@@ -629,10 +747,256 @@ function renderText(result) {
     const paint = c.paintAt !== null && c.paintAt - c.t >= PAINT_NOTE_MS ? ` \xB7 painted +${c.paintAt}` : "";
     rows.push({ t: c.t, lane, text: `c${c.commitId} ${c.kind === "update" ? "" : c.kind + " "}${c.rendered} rendered${seen}${c.sources.length ? " \xB7 " + c.sources.join(", ") : ""}${c.suspense.length ? " \xB7 " + c.suspense.join(", ") : ""}${paint}` });
   }
-  const order = { input: 0, net: 1, wait: 2, SCRN: 3, react: 4 };
+  for (const p2 of result.lanes.perf) {
+    const commits = p2.commits.length ? ` \xB7 ${commitSpan(p2.commits)}` : "";
+    const text = p2.kind === "frame" ? `long frame ${p2.durationMs}ms (${p2.value ?? 0}ms blocking) \u2192 +${p2.end}${p2.label ? " \xB7 " + p2.label : ""}${commits}` : p2.kind === "measure" ? `measure ${p2.label} \u2192 +${p2.end} (${p2.durationMs}ms)` : p2.kind === "mark" ? `mark ${p2.label}` : p2.kind === "shift" ? `layout shift ${p2.value}${p2.label ? " \xB7 " + p2.label : ""}` : p2.kind === "event" ? `slow ${p2.label} ${p2.durationMs}ms (input delay ${p2.value ?? 0}ms)` : `LCP${p2.label ? " " + p2.label : ""}`;
+    rows.push({ t: p2.start, lane: p2.kind === "frame" ? "frame" : "perf", text });
+  }
+  const order = { input: 0, net: 1, wait: 2, SCRN: 3, react: 4, frame: 5, perf: 6 };
   rows.sort((a, b) => a.t - b.t || order[a.lane] - order[b.lane]);
   const width = Math.max(...rows.map((r) => String(r.t).length), 1);
   return [...header, "", ...rows.map((r) => `+${String(r.t).padStart(width)}  ${r.lane.padEnd(5)}  ${r.text}`)].join("\n");
+}
+
+// src/avalanche/summary-view.ts
+var SUMMARY_DEFAULT_TOP = 5;
+var SUMMARY_DEFAULT_MAX_ITEMS = 3;
+function positive(value, fallback) {
+  const n = Number(value);
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : fallback;
+}
+function finite(value) {
+  const n = Number(value);
+  return value != null && Number.isFinite(n) ? n : null;
+}
+function ms(value) {
+  return Math.round(value) || 0;
+}
+function at(map, id) {
+  return map?.[id] ?? map?.[String(id)];
+}
+function sameContent(a, b) {
+  if (a === b) return true;
+  try {
+    return JSON.stringify(a) === JSON.stringify(b);
+  } catch {
+    return false;
+  }
+}
+function sourceRows(entries, maxItems) {
+  return entries.slice(0, maxItems).map((entry) => {
+    const e = entry && typeof entry === "object" ? entry : { sourceId: entry };
+    return {
+      sourceId: e.sourceId ?? null,
+      collateralAtCommit: finite(e.collateral),
+      changedHooks: (Array.isArray(e.trashers) ? e.trashers : []).map((t) => ({
+        index: t?.index ?? null,
+        sameContent: sameContent(t?.prevValue, t?.currentValue)
+      }))
+    };
+  });
+}
+function frameOf(frames, commitId, origin) {
+  const frame = frames.find((f) => f.commits.during.includes(commitId));
+  if (!frame) return null;
+  return {
+    atMs: origin === null ? null : ms(frame.startTime - origin),
+    durationMs: ms(frame.duration),
+    blockingMs: ms(frame.blockingDuration ?? 0),
+    commits: frame.commits.during
+  };
+}
+function compactTimeline(report) {
+  const timeline = buildTimeline(report);
+  if ("error" in timeline) return { error: timeline.error };
+  const { ok: _ok, lanes: _lanes, mermaid: _mermaid, ...rest } = timeline;
+  return rest;
+}
+function buildSummaryView(report, options = {}) {
+  const top = positive(options.top, SUMMARY_DEFAULT_TOP);
+  const maxItems = positive(options.maxItems, SUMMARY_DEFAULT_MAX_ITEMS);
+  const commitStats = report.commitStats ?? {};
+  const ids = Object.keys(commitStats).map(Number).filter(Number.isFinite).sort((a, b) => a - b);
+  const totals = Object.fromEntries(UPSTREAM_COMMIT_STAT_KEYS.map((key) => [key, 0]));
+  const statsById = /* @__PURE__ */ new Map();
+  for (const id of ids) {
+    const stats = tupleToStats(at(commitStats, id));
+    statsById.set(id, stats);
+    if (stats) for (const key of UPSTREAM_COMMIT_STAT_KEYS) totals[key] += stats[key];
+  }
+  const timeline = compactTimeline(report);
+  const origin = "origin" in timeline ? finite(timeline.origin?.at) : null;
+  const frames = Array.isArray(report.perfEntries) ? linkPerfEntries(report, report.perfEntries.filter((e) => e.entryType === "long-animation-frame" || e.entryType === "longtask")) : [];
+  const topCommits = ids.slice().sort((a, b) => (statsById.get(b)?.collateral ?? 0) - (statsById.get(a)?.collateral ?? 0) || a - b).slice(0, top).map((commitId) => {
+    const timing = at(report.commitTimings, commitId);
+    const start = finite(timing?.startTime);
+    const end = finite(timing?.endTime);
+    const paint = finite(timing?.paintAt);
+    const entries = at(report.sourcesByCommit, commitId);
+    const list = Array.isArray(entries) ? entries : [];
+    const actions = at(report.interactionsByCommit, commitId);
+    return {
+      commitId,
+      stat: statsById.get(commitId) ?? null,
+      atMs: start !== null && origin !== null ? ms(start - origin) : null,
+      renderMs: finite(timing?.render?.workMs),
+      ticks: finite(timing?.ticks),
+      paintDelayMs: paint !== null && end !== null && paint >= end ? ms(paint - end) : null,
+      sourcesTotal: list.length,
+      sources: sourceRows(list, maxItems),
+      latestAction: Array.isArray(actions) && actions.length ? compactLatestAction(actions[actions.length - 1]) : null,
+      hooks: hookStepsAt(report.hooks, commitId),
+      longFrame: frameOf(frames, commitId, origin)
+    };
+  });
+  return {
+    commits: ids.length,
+    firstCommitId: ids[0] ?? null,
+    lastCommitId: ids.at(-1) ?? null,
+    sources: Array.isArray(report.sources) ? report.sources.length : 0,
+    totals,
+    timeline,
+    topCommits,
+    hooks: summarizeHookResults(report.hooks),
+    perf: Array.isArray(report.perfEntries) ? perfSummary(report) : null,
+    meta: report.meta ?? null
+  };
+}
+
+// src/avalanche/network-signals.ts
+var DEFAULT_NETWORK_WINDOW_MS = 250;
+var NETWORK_SORT_KEYS = ["start", "end", "duration"];
+var round3 = (value) => Math.round(value * 10) / 10;
+function commitAnchors(commitTimings) {
+  const anchors = [];
+  for (const [id, timing] of Object.entries(commitTimings ?? {})) {
+    const commitStart3 = Number(timing?.startTime);
+    const commitEnd = Number(timing?.endTime);
+    if (!Number.isFinite(commitStart3) || !Number.isFinite(commitEnd)) continue;
+    const renderStart = Number(timing?.render?.renderStart);
+    const renderStartKnown = Number.isFinite(renderStart) && renderStart <= commitStart3;
+    anchors.push({
+      commitId: Number(id),
+      renderStart: renderStartKnown ? renderStart : commitStart3,
+      renderStartKnown,
+      commitStart: commitStart3,
+      commitEnd
+    });
+  }
+  return anchors.sort((a, b) => a.commitStart - b.commitStart);
+}
+function firstAtOrAfter(anchors, value, key) {
+  let lo = 0;
+  let hi = anchors.length;
+  while (lo < hi) {
+    const mid = lo + hi >> 1;
+    if (anchors[mid][key] < value) lo = mid + 1;
+    else hi = mid;
+  }
+  return lo;
+}
+function linkRequest(request, anchors, windowMs) {
+  const { startTime, endTime } = request;
+  const afterIndex = firstAtOrAfter(anchors, startTime, "commitEnd") - 1;
+  const after = afterIndex >= 0 ? anchors[afterIndex] : null;
+  const startedAfter = after && startTime - after.commitEnd <= windowMs ? { commitId: after.commitId, gapMs: round3(startTime - after.commitEnd) } : null;
+  const rendering = anchors[firstAtOrAfter(anchors, startTime, "commitStart")];
+  const startedDuringRender = rendering && rendering.renderStartKnown && rendering.renderStart <= startTime ? rendering.commitId : null;
+  let landedBefore = null;
+  for (let i = firstAtOrAfter(anchors, endTime, "commitStart"); i < anchors.length; i++) {
+    const anchor = anchors[i];
+    if (anchor.renderStart - endTime > windowMs) break;
+    if (anchor.renderStart >= endTime) {
+      landedBefore = { commitId: anchor.commitId, gapMs: round3(anchor.renderStart - endTime) };
+      break;
+    }
+  }
+  const commitsInFlight = firstAtOrAfter(anchors, endTime, "commitStart") - firstAtOrAfter(anchors, startTime, "commitStart");
+  return { startedAfter, startedDuringRender, landedBefore, commitsInFlight: Math.max(0, commitsInFlight) };
+}
+function requestsOf(report) {
+  return Array.isArray(report.networkRequests) ? report.networkRequests : [];
+}
+function windowOf(windowMs) {
+  const value = Number(windowMs);
+  return Number.isFinite(value) && value >= 0 ? value : DEFAULT_NETWORK_WINDOW_MS;
+}
+function linkNetworkRequests(report, windowMs) {
+  const anchors = commitAnchors(report.commitTimings);
+  const window2 = windowOf(windowMs);
+  return requestsOf(report).map((request) => ({ ...request, ...linkRequest(request, anchors, window2) }));
+}
+function networkView(report, options = {}) {
+  const by = String(options.by || "start");
+  if (!NETWORK_SORT_KEYS.includes(by)) {
+    return { ok: false, error: "unsupported network sort key: " + by, validBy: NETWORK_SORT_KEYS };
+  }
+  let pattern = null;
+  if (typeof options.match === "string" && options.match) {
+    try {
+      pattern = new RegExp(options.match, "i");
+    } catch (error) {
+      return { ok: false, error: "invalid match pattern: " + error.message };
+    }
+  }
+  const initiators = Array.isArray(options.initiators) ? options.initiators.map((value) => String(value).trim().toLowerCase()).filter(Boolean) : [];
+  const top = Number.isFinite(Number(options.top)) && Number(options.top) > 0 ? Math.floor(Number(options.top)) : 20;
+  const windowMs = windowOf(options.window);
+  const linked = linkNetworkRequests(report, windowMs).filter((request) => (!pattern || pattern.test(request.url)) && (initiators.length === 0 || initiators.includes(request.initiatorType.toLowerCase())));
+  const byInitiator = {};
+  let landedBeforeCommit = 0;
+  let startedAfterCommit = 0;
+  let startedDuringRender = 0;
+  let longest = null;
+  for (const request of linked) {
+    byInitiator[request.initiatorType] = (byInitiator[request.initiatorType] || 0) + 1;
+    if (request.landedBefore) landedBeforeCommit += 1;
+    if (request.startedAfter) startedAfterCommit += 1;
+    if (request.startedDuringRender !== null) startedDuringRender += 1;
+    if (!longest || request.duration > longest.duration) longest = request;
+  }
+  const sorted = linked.slice().sort((a, b) => by === "duration" ? b.duration - a.duration : by === "end" ? a.endTime - b.endTime : a.startTime - b.startTime);
+  return {
+    ok: true,
+    payload: {
+      available: Array.isArray(report.networkRequests),
+      capture: report.meta?.network ?? null,
+      windowMs,
+      by,
+      total: linked.length,
+      summary: {
+        byInitiator,
+        landedBeforeCommit,
+        startedAfterCommit,
+        startedDuringRender,
+        longest: longest ? { id: longest.id, url: longest.url, duration: longest.duration } : null
+      },
+      rows: sorted.slice(0, top)
+    }
+  };
+}
+function networkByCommit(report, windowMs) {
+  const out = /* @__PURE__ */ new Map();
+  const entry = (commitId) => {
+    let value = out.get(commitId);
+    if (!value) {
+      value = { landedBefore: [], startedAfter: [], startedDuringRender: [], inFlight: 0 };
+      out.set(commitId, value);
+    }
+    return value;
+  };
+  const linked = linkNetworkRequests(report, windowMs);
+  for (const request of linked) {
+    if (request.landedBefore) entry(request.landedBefore.commitId).landedBefore.push(request);
+    if (request.startedAfter) entry(request.startedAfter.commitId).startedAfter.push(request);
+    if (request.startedDuringRender !== null) entry(request.startedDuringRender).startedDuringRender.push(request);
+  }
+  const anchors = commitAnchors(report.commitTimings);
+  for (const anchor of anchors) {
+    const inFlight = linked.filter((request) => request.startTime <= anchor.commitStart && request.endTime >= anchor.commitStart).length;
+    if (inFlight > 0) entry(anchor.commitId).inFlight = inFlight;
+  }
+  return out;
 }
 
 // src/avalanche/screen-changes.ts
@@ -668,8 +1032,8 @@ function renderCommit(view) {
     if (list) list.push(change);
     else groups.set(change.at, [change]);
   }
-  for (const [at, changes] of groups) {
-    lines.push(`  ${at}`);
+  for (const [at2, changes] of groups) {
+    lines.push(`  ${at2}`);
     for (const change of changes) lines.push(`    ${formatDomChange(change)}`);
   }
   return lines;
@@ -727,26 +1091,6 @@ function buildDomDiffView(report, options = {}) {
 }
 
 // src/chippy-bridge/avalanche-commands.ts
-var UPSTREAM_COMMIT_STAT_KEYS = [
-  "collateral",
-  "sources",
-  "restarts",
-  "performedWork",
-  "effects",
-  "memos",
-  "callbacks",
-  "contextUpdates",
-  "unmountedComponents",
-  "unmountedSubtrees"
-];
-function tupleToStats(tuple) {
-  if (!Array.isArray(tuple)) return null;
-  const out = {};
-  for (let i = 0; i < UPSTREAM_COMMIT_STAT_KEYS.length; i++) {
-    out[UPSTREAM_COMMIT_STAT_KEYS[i]] = Number(tuple[i] || 0);
-  }
-  return out;
-}
 function compactNetwork(network, maxItems) {
   const rows = (items) => items.slice(0, maxItems);
   return {
@@ -757,30 +1101,6 @@ function compactNetwork(network, maxItems) {
     startedDuringRender: rows(network?.startedDuringRender ?? []),
     startedDuringRenderTotal: network?.startedDuringRender.length ?? 0,
     inFlight: network?.inFlight ?? 0
-  };
-}
-function compactLatestAction(action) {
-  if (!action || typeof action !== "object") return action ?? null;
-  const location = action.location && typeof action.location === "object" ? action.location : {};
-  const dom = location.dom && typeof location.dom === "object" ? location.dom : {};
-  const targetFiber = location.targetFiber && typeof location.targetFiber === "object" ? location.targetFiber : null;
-  const ownerStack = Array.isArray(targetFiber?.ownerStack) ? targetFiber.ownerStack : [];
-  return {
-    lastCommitId: Number(action.lastCommitId ?? 0),
-    deltaTime: Number(action.deltaTime ?? 0),
-    action: typeof action.action === "string" ? action.action : null,
-    dom: {
-      tag: typeof dom.tag === "string" ? dom.tag : null,
-      text: typeof dom.text === "string" ? dom.text : "",
-      nearestTestId: typeof dom.nearestTestId === "string" ? dom.nearestTestId : null
-    },
-    targetFiber: targetFiber ? {
-      name: typeof targetFiber.name === "string" ? targetFiber.name : null,
-      key: targetFiber.key ?? null,
-      ownerStackKind: targetFiber.ownerStackKind === "parents" ? "parents" : "owners",
-      ownerNames: ownerStack.map((entry) => entry && typeof entry.name === "string" ? entry.name : null).filter(Boolean).slice(0, 10),
-      ownerCount: ownerStack.length
-    } : null
   };
 }
 var REPORT_ALL_SOURCES = Number.POSITIVE_INFINITY;
@@ -895,7 +1215,7 @@ function evalAvalanche(command, api, mod) {
           return { ok: false, available: true, action, error: "commit-peek requires numeric commitId" };
         }
         const include = Array.isArray(command?.include) && command.include.length ? command.include : ["stats", "sources", "timing", "metrics", "hooks"];
-        const allowedInclude = ["stats", "sources", "timing", "metrics", "hooks", "unmounts", "actions", "rendered", "network", "dom"];
+        const allowedInclude = ["stats", "sources", "timing", "metrics", "hooks", "unmounts", "actions", "rendered", "network", "dom", "perf"];
         const invalidInclude = include.filter((key) => !allowedInclude.includes(key));
         if (invalidInclude.length) {
           return {
@@ -970,6 +1290,11 @@ function evalAvalanche(command, api, mod) {
         }
         if (include.includes("network")) {
           out.network = compactNetwork(networkByCommit(ser, command?.window).get(commitId), maxItems);
+        }
+        if (include.includes("perf")) {
+          const perf = perfForCommit(ser, commitId, maxItems);
+          out.perf = perf.items;
+          out.perfTotal = perf.total;
         }
         if (include.includes("unmounts")) {
           const raw = r.raw || {};
@@ -1073,6 +1398,21 @@ function evalAvalanche(command, api, mod) {
         if ("error" in view) return { ok: false, available: true, action, error: view.error, ...view.validBy && { validBy: [...view.validBy] } };
         return { ok: true, available: true, action, payload: view.payload };
       }
+      case "perf": {
+        const r = getReport(api);
+        if (!r || "error" in r) {
+          return { ok: false, available: true, action, error: r && "error" in r ? r.error : "report() unavailable" };
+        }
+        const view = perfView(r.serial, {
+          types: command?.types,
+          top: command?.top,
+          match: command?.match,
+          fromCommit: command?.fromCommit,
+          toCommit: command?.toCommit
+        });
+        if ("error" in view) return { ok: false, available: true, action, error: view.error };
+        return { ok: true, available: true, action, payload: view.payload };
+      }
       case "timeline": {
         const r = getReport(api);
         if (!r || "error" in r) {
@@ -1104,6 +1444,13 @@ function evalAvalanche(command, api, mod) {
         });
         if ("error" in view) return { ok: false, available: true, action, error: view.error };
         return { ok: true, available: true, action, payload: view };
+      }
+      case "summary": {
+        const r = getReport(api);
+        if (!r || "error" in r) {
+          return { ok: false, available: true, action, error: r && "error" in r ? r.error : "report() unavailable" };
+        }
+        return { ok: true, available: true, action, payload: buildSummaryView(r.serial, { top: command?.top, maxItems: command?.maxItems }) };
       }
       // Removed: start, stop, metrics, help — not present on the current public surface.
       default:
@@ -1163,25 +1510,8 @@ function dispatch(report, command) {
   const { available: _available, ...rest } = result;
   return rest;
 }
-function summary(report) {
-  const totals = Object.fromEntries(UPSTREAM_COMMIT_STAT_KEYS.map((key) => [key, 0]));
-  for (const tuple of Object.values(report.commitStats)) {
-    const stats = tupleToStats(tuple);
-    if (!stats) continue;
-    for (const key of UPSTREAM_COMMIT_STAT_KEYS) totals[key] += stats[key];
-  }
-  const ids = commitIds(report);
-  return {
-    ok: true,
-    action: "summary",
-    commits: ids.length,
-    firstCommitId: ids[0] ?? null,
-    lastCommitId: ids.at(-1) ?? null,
-    sources: report.sources?.length ?? 0,
-    totals,
-    hooks: summarizeHookResults(report.hooks),
-    meta: report.meta
-  };
+function summary(report, options = {}) {
+  return { ok: true, action: "summary", ...buildSummaryView(report, options) };
 }
 function sourceSearch(report, options) {
   let pattern;
@@ -1226,7 +1556,7 @@ function analyzeSavedReport(report, command, args) {
   };
   switch (command) {
     case "summary":
-      return summary(report);
+      return summary(report, { top: number("top", 0), maxItems: number("maxItems", 1) });
     case "commit-list":
       return dispatch(report, { action: "commit-list", top: number("top", 0), by: String(args.by ?? positional[1] ?? "collateral") });
     case "commit-peek": {
@@ -1252,6 +1582,18 @@ function analyzeSavedReport(report, command, args) {
         ...typeof match === "string" && match && { match },
         ...initiators && { initiators: initiators.split(",").map((item) => item.trim()).filter(Boolean) },
         window: number("window", 4)
+      });
+    }
+    case "perf": {
+      const types = args.types ?? positional[0];
+      const match = args.match ?? positional[2];
+      return dispatch(report, {
+        action: "perf",
+        ...typeof types === "string" && types && { types },
+        top: number("top", 1),
+        ...typeof match === "string" && match && { match },
+        fromCommit: number("fromCommit", 3),
+        toCommit: number("toCommit", 4)
       });
     }
     case "timeline": {
@@ -1298,6 +1640,8 @@ Commands:
   describe-action <actionId>
   network       [top] [by] [match] [initiators] [windowMs]
                 (--top N --by start|end|duration --match regex --initiators csv --window ms)
+  perf          [types] [top] [match] [fromCommit] [toCommit]
+                (--types csv --top N --match regex --fromCommit N --toCommit N)
   timeline      [fromCommit] [toCommit] [minRequestMs] [exclude]
                 (--fromCommit N --toCommit N --minRequestMs ms --top N --exclude regex --format summary|map|full)
   dom-diff      [fromCommit] [toCommit] [match] [maxItems]
@@ -1306,7 +1650,9 @@ Commands:
 
 commit-list sort keys: collateral sources restarts performedWork effects memos
   callbacks contextUpdates unmountedComponents unmountedSubtrees ticks network
-commit-peek include values: stats,sources,timing,metrics,hooks,actions,rendered,network,dom
+commit-peek include values: stats,sources,timing,metrics,hooks,actions,rendered,network,dom,perf
+perf types: mark measure long-animation-frame layout-shift event
+  largest-contentful-paint paint navigation longtask
 `;
 function fail(message) {
   process.stderr.write(`avalanche-analyze: ${message}

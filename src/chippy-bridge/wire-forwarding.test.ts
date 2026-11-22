@@ -97,6 +97,12 @@ describe('buildAvalancheCommand — wire forwarding contract', () => {
     expect(buildAvalancheCommand({ initiators: ['fetch', 'img'] }, 'r').initiators).toEqual(['fetch', 'img']);
   });
 
+  it('forwards perf types as an array of strings or a comma-separated string', () => {
+    expect(buildAvalancheCommand({ types: ['mark', 'measure'] }, 'r').types).toEqual(['mark', 'measure']);
+    expect(buildAvalancheCommand({ types: 'mark,measure' }, 'r').types).toBe('mark,measure');
+    expect(buildAvalancheCommand({ types: 3 as never }, 'r').types).toBeUndefined();
+  });
+
   it('does not forward non-array initiators', () => {
     expect(buildAvalancheCommand({ initiators: 'fetch' as never }, 'r').initiators).toBeUndefined();
   });

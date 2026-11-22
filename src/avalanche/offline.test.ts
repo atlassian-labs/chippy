@@ -114,6 +114,56 @@ describe('offline Avalanche analysis', () => {
     expect(analyzeSavedReport(trimmed, 'summary', { _: [] })).toMatchObject({ commits: 2, firstCommitId: 3, lastCommitId: 4 });
   });
 
+  it('returns the same summary digest as the live page', () => {
+    const { api, saved } = capture(4);
+    const live = evalAvalanche({ action: 'summary', top: 2, maxItems: 1 }, api, null) as any;
+    expect(live).toMatchObject({ ok: true, available: true, action: 'summary', payload: { commits: 4 } });
+    expect(live.payload.topCommits).toHaveLength(2);
+    const { ok: _ok, action: _action, ...offline } = analyzeSavedReport(unwrapSavedReport(saved)!, 'summary', { _: ['2', '1'] }) as any;
+    expect(offline).toEqual(JSON.parse(JSON.stringify(live.payload)));
+  });
+
+  it('lists browser performance entries from a saved export like the live page', () => {
+    const { api, saved } = capture(2);
+    const live = evalAvalanche({ action: 'perf', types: 'mark', top: 3 }, api, null) as any;
+    expect(live).toMatchObject({ ok: true, action: 'perf', payload: { summary: { marks: expect.any(Number) } } });
+    const { ok: _ok, action: _action, ...offline } = analyzeSavedReport(unwrapSavedReport(saved)!, 'perf', { _: ['mark', '3'] }) as any;
+    expect(offline).toEqual(JSON.parse(JSON.stringify({ payload: live.payload })));
+  });
+
+  it('carries entries the browser emitted during capture into the export', () => {
+    const observers: Array<{ type: unknown; emit: (entries: unknown[]) => void }> = [];
+    class FakeObserver {
+      static supportedEntryTypes = ['mark', 'long-animation-frame'];
+      constructor(private callback: (list: { getEntries(): unknown[] }) => void) {}
+      observe(options: { type: unknown }) { observers.push({ type: options.type, emit: (entries) => this.callback({ getEntries: () => entries }) }); }
+      disconnect() {}
+      takeRecords() { return []; }
+    }
+    const previous = runtime.PerformanceObserver;
+    runtime.PerformanceObserver = FakeObserver;
+    try {
+      const start = performance.now();
+      runtime.__REACT_DEVTOOLS_GLOBAL_HOOK__ = { onCommitFiberRoot() {} };
+      detector = createAvalancheDetector({ detectionMode: 'full' });
+      detector.install();
+      observers.find((o) => o.type === 'mark')!.emit([{ entryType: 'mark', name: 'ready', startTime: start + 5, duration: 0 }]);
+      const exported = evalAvalanche({ action: 'export' }, { report: () => detector!.report() as any }, null) as any;
+      expect(exported.payload.perfEntries).toEqual([expect.objectContaining({ id: 1, entryType: 'mark', name: 'ready' })]);
+      expect(exported.payload.meta.perf).toMatchObject({ enabled: true, observed: ['mark', 'long-animation-frame'], entries: 1 });
+      expect(exported.payload.meta.version).toBe(9);
+    } finally {
+      runtime.PerformanceObserver = previous;
+    }
+  });
+
+  it('explains a saved export without performance entries', () => {
+    const { saved } = capture(1);
+    const report = unwrapSavedReport(saved)!;
+    delete report.perfEntries;
+    expect(analyzeSavedReport(report, 'perf', { _: [] })).toMatchObject({ ok: false, error: expect.stringContaining('report version 9') });
+  });
+
   it('serves pack hook results through status summary, commit-peek, and saved captures', () => {
     registerAvalancheHooks({ id: 'demo.count', onStart: () => 'go', onStep: (ctx) => ({ n: ctx.commits }), onEnd: (ctx) => ({ total: ctx.commits }) });
     try {
