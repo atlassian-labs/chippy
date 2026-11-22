@@ -31,7 +31,8 @@ standard React DOM.
 
 Branch from `dev` and open pull requests against `dev`. `main` is what users
 install with `npx skills add`, so it also carries the generated bundles; it moves
-only when a maintainer runs the Release workflow and merges its pull request. See
+only when a maintainer runs the Release workflow and merges its pull request. A
+pull request opened against `main` is moved to `dev` automatically. See
 [Releasing](docs/releasing.md#branches).
 
 ## Find the change owner

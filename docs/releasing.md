@@ -33,6 +33,9 @@ Users install the skill from `main` with `npx skills add atlassian-labs/chippy`,
 which runs no build, so `main` must carry the generated bundles listed in
 `scripts/shipped-artifacts.mjs`. Development happens on `dev`, which does not
 commit them: pull requests target `dev`, and CI builds the bundles before testing.
+GitHub offers `main`, the default branch, as the base for new pull requests, so the
+[Retarget](../.github/workflows/retarget-to-dev.yml) workflow moves any pull request
+opened against `main` to `dev`, except the Release workflow's `release/*` ones.
 
 To release `dev` to `main`:
 
