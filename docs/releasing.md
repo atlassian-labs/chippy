@@ -27,8 +27,30 @@ updates local assets; publication is a separate step.
    stale committed output. The library version is the `version` in the root
    `package.json`.
 
-Before pushing, `yarn shipped:check` confirms the committed bundles match a fresh
-build; the pre-push hook and CI run it too.
+## Branches
+
+Users install the skill from `main` with `npx skills add atlassian-labs/chippy`,
+which runs no build, so `main` must carry the generated bundles listed in
+`scripts/shipped-artifacts.mjs`. Development happens on `dev`, which does not
+commit them: pull requests target `dev`, and CI builds the bundles before testing.
+GitHub offers `main`, the default branch, as the base for new pull requests, so the
+[Retarget](../.github/workflows/retarget-to-dev.yml) workflow moves any pull request
+opened against `main` to `dev`, except the Release workflow's `release/*` ones.
+
+To release `dev` to `main`:
+
+1. Run the [Release](../.github/workflows/release.yml) workflow from the Actions
+   tab on `dev`. It builds the bundles, commits `dev`'s tree with them on a
+   `release/<sha>` branch whose parents are `main` and `dev`, opens a pull request
+   into `main`, and dispatches CI on it.
+2. Review the pull request, which lists the `dev` commits since the last release,
+   and wait for CI.
+3. Merge it with **Create a merge commit**. Squash or rebase would drop `dev`'s
+   history from `main`.
+
+On `main` and release branches, `yarn shipped:check` confirms the committed
+bundles match a fresh build. The workflow needs **Allow GitHub Actions to create
+and approve pull requests** enabled in the repository's Actions settings.
 
 The skill archive contains `SKILL.md`, references, scripts, browser support,
 snippets, and extension assets. Keep external project links, credentials, local
@@ -45,7 +67,8 @@ The npm package is published to npmjs through Atlassian's Artifactory
 `npm-public` forwarder by the [Publish npm package](../.github/workflows/publish.yml)
 workflow:
 
-1. Bump the version in the root `package.json` and merge it to `main`.
+1. Bump the version in the root `package.json`, merge it to `dev`, and release
+   `dev` to `main`.
    A version that is already published is rejected.
 2. Run the workflow from the Actions tab on `main`. Without the `publish` input
    it only builds the tarball and checks that its `chippy` bin runs and that it

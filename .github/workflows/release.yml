@@ -1,0 +1,92 @@
+name: Release
+
+# Users install the skill from `main` without building it, so `main` must carry
+# the bundles built from its sources. Development lands on `dev`, which does not
+# commit them. Run this workflow on `dev` to build them and open a pull request
+# that moves `main` to `dev` plus the built bundles. Merge that pull request with
+# a merge commit so `main` keeps `dev`'s history.
+on:
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: ${{ github.workflow }}
+
+jobs:
+  release:
+    name: Open release pull request
+    if: github.ref == 'refs/heads/dev'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # push the release branch
+      pull-requests: write # open the pull request into main
+      actions: write # dispatch CI, which pushes made with GITHUB_TOKEN do not trigger
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: corepack enable
+      - run: yarn install --immutable
+
+      # The release commit's tree is dev's tree plus the freshly built bundles.
+      # Its parents are the current main and dev, so merging it into main never
+      # conflicts and main's history contains every dev commit.
+      - name: Commit dev with built bundles
+        id: commit
+        run: |
+          git add --force $(node scripts/build-shipped-artifacts.mjs)
+          tree=$(git write-tree)
+          main=$(git rev-parse origin/main)
+          dev=$(git rev-parse HEAD)
+          if [ "$tree" = "$(git rev-parse "origin/main^{tree}")" ]; then
+            echo "main already matches dev with built bundles; nothing to release." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          short=$(git rev-parse --short=12 "$dev")
+          commit=$(
+            GIT_AUTHOR_NAME='github-actions[bot]' \
+            GIT_AUTHOR_EMAIL='41898282+github-actions[bot]@users.noreply.github.com' \
+            GIT_COMMITTER_NAME='github-actions[bot]' \
+            GIT_COMMITTER_EMAIL='41898282+github-actions[bot]@users.noreply.github.com' \
+            git commit-tree "$tree" -p "$main" -p "$dev" -m "Release dev@$short"
+          )
+          branch="release/$short"
+          git push --force origin "$commit:refs/heads/$branch"
+          {
+            echo "branch=$branch"
+            echo "short=$short"
+          } >> "$GITHUB_OUTPUT"
+          {
+            echo "## Changes since the last release"
+            echo
+            git log --no-merges --format='- %s (%h)' "$main..$dev"
+          } > "$RUNNER_TEMP/release-body.md"
+
+      - name: Open the pull request
+        if: steps.commit.outputs.branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BRANCH: ${{ steps.commit.outputs.branch }}
+          SHORT: ${{ steps.commit.outputs.short }}
+        run: |
+          {
+            cat "$RUNNER_TEMP/release-body.md"
+            echo
+            echo "Merge with **Create a merge commit**. Squash or rebase would drop dev's history from main."
+          } > "$RUNNER_TEMP/pr-body.md"
+          if [ -z "$(gh pr list --head "$BRANCH" --base main --state open --json number --jq '.[].number')" ]; then
+            gh pr create --base main --head "$BRANCH" --title "Release dev@$SHORT" --body-file "$RUNNER_TEMP/pr-body.md"
+          fi
+          gh pr view "$BRANCH" --json url --jq '"Release pull request: " + .url' >> "$GITHUB_STEP_SUMMARY"
+
+      # Report CI on the release commit so main's required checks can pass.
+      - name: Run CI on the release branch
+        if: steps.commit.outputs.branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BRANCH: ${{ steps.commit.outputs.branch }}
+        run: gh workflow run ci.yml --ref "$BRANCH"

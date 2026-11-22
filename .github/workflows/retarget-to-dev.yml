@@ -1,0 +1,34 @@
+name: Retarget pull requests to dev
+
+# main stays the default branch because users install the skill from it, so
+# GitHub offers main as the base for new pull requests. Development lands on dev;
+# only the Release workflow's release/* pull requests merge into main. This moves
+# any other pull request opened against main to dev.
+#
+# pull_request_target runs this file from main with a write token, so it must
+# never check out or run code from the pull request.
+on:
+  pull_request_target:
+    types: [opened, reopened]
+    branches: [main]
+
+permissions: {}
+
+jobs:
+  retarget:
+    if: >-
+      !(startsWith(github.head_ref, 'release/')
+      && github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - name: Change the base to dev
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          gh pr edit "$PR" --repo "$REPO" --base dev
+          gh pr comment "$PR" --repo "$REPO" --body "Moved this pull request to \`dev\`, where development lands. \`main\` receives changes only through the Release workflow; see [Releasing](https://github.com/$REPO/blob/main/docs/releasing.md#branches). If your branch was cut from \`main\`, it may need a rebase onto \`dev\`."
