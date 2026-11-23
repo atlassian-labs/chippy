@@ -61,6 +61,7 @@
     "chippy:library:build": "node scripts/build-chippy-library.mjs",
     "chippy:mcp:build": "node scripts/build-chippy-mcp.mjs",
     "chippy:mcp": "node .agents/skills/chippy/scripts/chippy-mcp.cjs",
+    "shipped:build": "node scripts/build-shipped-artifacts.mjs",
     "shipped:check": "node scripts/check-shipped-artifacts.mjs"
   },
   "peerDependencies": {
