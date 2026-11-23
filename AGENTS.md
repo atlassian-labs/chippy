@@ -12,9 +12,10 @@ validation skill.
 
 ## Work via pull requests
 
-`main` is protected. Make every change on a branch and open a pull request that
-fills in the [PR template](.github/pull_request_template.md): what changes and
-why.
+Branch from `dev` and open every pull request against `dev`, filling in the
+[PR template](.github/pull_request_template.md): what changes and why. `main` is
+what users install; only the Release workflow's pull requests merge into it. See
+[Releasing](docs/releasing.md#branches).
 
 ## Local responsibilities
 
