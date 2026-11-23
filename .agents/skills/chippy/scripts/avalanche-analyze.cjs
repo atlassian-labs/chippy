@@ -70,6 +70,17 @@ function compactLatestAction(action) {
   };
 }
 
+// src/avalanche/own-work.ts
+function isOwnFrame(frame, own) {
+  const scripts = frame.scripts ?? [];
+  const pageScriptMs = scripts.reduce((sum, script) => sum + (script.chippy ? 0 : script.duration || 0), 0);
+  if (pageScriptMs * 2 >= frame.duration) return false;
+  if (scripts.some((script) => script.chippy)) return true;
+  const from = frame.startTime;
+  const to = frame.startTime + frame.duration;
+  return !!own?.some((span) => span.start < to && span.end > from);
+}
+
 // src/avalanche/perf-signals.ts
 var DEFAULT_PERF_TOP = 20;
 var MAX_LINKED_COMMITS = 10;
@@ -118,8 +129,12 @@ function cumulativeLayoutShift(shifts) {
 }
 function perfSummary(report, entries = report.perfEntries ?? []) {
   const of = (type) => entries.filter((e) => e.entryType === type);
-  const frames = of("long-animation-frame");
-  const tasks = of("longtask");
+  const own = (e) => isOwnFrame(e, report.ownWork);
+  const blockingOf = (e) => e.entryType === "longtask" ? Math.max(0, e.duration - 50) : e.blockingDuration ?? 0;
+  const allLong = [...of("long-animation-frame"), ...of("long-animation-frame").length ? [] : of("longtask")];
+  const chippyLong = allLong.filter(own);
+  const frames = of("long-animation-frame").filter((e) => !own(e));
+  const tasks = of("longtask").filter((e) => !own(e));
   const events = of("event");
   const measures = of("measure");
   const lcp = of("largest-contentful-paint").sort((a, b) => a.startTime - b.startTime).at(-1);
@@ -133,12 +148,13 @@ function perfSummary(report, entries = report.perfEntries ?? []) {
     perInteraction.set(e.interactionId, Math.max(perInteraction.get(e.interactionId) ?? 0, e.duration));
   }
   const longest = measures.reduce((best, e) => !best || e.duration > best.duration ? e : best, null);
-  const blocking = frames.length ? frames.reduce((sum, e) => sum + (e.blockingDuration ?? 0), 0) : tasks.reduce((sum, e) => sum + Math.max(0, e.duration - 50), 0);
+  const blocking = of("long-animation-frame").length ? frames.reduce((sum, e) => sum + (e.blockingDuration ?? 0), 0) : tasks.reduce((sum, e) => sum + Math.max(0, e.duration - 50), 0);
   return {
     cls: cumulativeLayoutShift(of("layout-shift")),
     layoutShifts: of("layout-shift").length,
     longFrames: frames.length || tasks.length,
     totalBlockingMs: round(blocking),
+    chippyFrames: { count: chippyLong.length, blockingMs: round(chippyLong.reduce((sum, e) => sum + blockingOf(e), 0)) },
     worstFrame: worstLinked ? {
       id: worstLinked.id,
       startTime: worstLinked.startTime,
@@ -472,7 +488,7 @@ function buildTimeline(report, options = {}) {
   const drawable = inWindow.filter((r) => r.duration >= minRequestMs);
   const kept = [...drawable].sort((a, b) => b.duration - a.duration).slice(0, options.maxRequests ?? 30).sort((a, b) => a.startTime - b.startTime);
   const network = kept.map(toRequest);
-  const perfLane = perfLaneOf(report.perfEntries ?? [], origin, windowEnd, ids.map((id) => ({ id, start: startOf(id) })), rel, options.maxMarks ?? 40);
+  const perfLane = perfLaneOf(report.perfEntries ?? [], report.ownWork, origin, windowEnd, ids.map((id) => ({ id, start: startOf(id) })), rel, options.maxMarks ?? 40);
   const boundaryKey = (event) => typeof event.boundary === "number" ? "b" + event.boundary : "@" + Number(event.depth);
   const open = /* @__PURE__ */ new Map();
   const suspense = [];
@@ -589,7 +605,7 @@ function buildTimeline(report, options = {}) {
 }
 var SHIFT_MIN = 1e-3;
 var EVENT_MIN_MS = 50;
-function perfLaneOf(entries, origin, windowEnd, commitStarts2, rel, maxMarks) {
+function perfLaneOf(entries, ownWork, origin, windowEnd, commitStarts2, rel, maxMarks) {
   const lane = [];
   let marks = 0;
   let omittedMarks = 0;
@@ -598,11 +614,14 @@ function perfLaneOf(entries, origin, windowEnd, commitStarts2, rel, maxMarks) {
     let kind = null;
     let label = e.name;
     let value = null;
+    let chippy = false;
     if (e.entryType === "long-animation-frame" || e.entryType === "longtask") {
       kind = "frame";
       value = e.entryType === "longtask" ? round2(Math.max(0, e.duration - 50)) : e.blockingDuration ?? null;
       const script = e.scripts?.[0];
       label = script ? [script.invoker, script.sourceFunctionName, script.sourceURL?.split("/").pop()].filter(Boolean).join(" ") : "";
+      chippy = isOwnFrame(e, ownWork);
+      if (chippy) label = "Chippy";
     } else if (e.entryType === "measure" && e.duration >= 1) kind = "measure";
     else if (e.entryType === "measure" || e.entryType === "mark") {
       if (marks >= maxMarks) {
@@ -634,7 +653,8 @@ function perfLaneOf(entries, origin, windowEnd, commitStarts2, rel, maxMarks) {
       end: rel(end),
       durationMs: round2(e.duration || 0),
       value,
-      commits: commitStarts2.filter((c) => c.start >= e.startTime && c.start <= end).map((c) => c.id)
+      commits: commitStarts2.filter((c) => c.start >= e.startTime && c.start <= end).map((c) => c.id),
+      ...chippy && { chippy: true }
     });
   }
   return { lane, omittedMarks };
@@ -730,10 +750,14 @@ function renderText(result) {
     const worst = [...delayed].sort((a, b) => b.paintAt - b.t - (a.paintAt - a.t)).slice(0, 5);
     header.push(`Painted late (the commit's task kept running): ${worst.map((c) => `c${c.commitId} +${c.t} \u2192 painted +${c.paintAt} (${c.paintAt - c.t}ms)`).join(", ")}.`);
   }
-  const frames = result.lanes.perf.filter((p2) => p2.kind === "frame");
+  const frames = result.lanes.perf.filter((p2) => p2.kind === "frame" && !p2.chippy);
+  const ownFrames = result.lanes.perf.filter((p2) => p2.kind === "frame" && p2.chippy);
   if (frames.length) {
     const worst = [...frames].sort((a, b) => b.durationMs - a.durationMs).slice(0, 3);
     header.push(`Long frames (no paint inside): ${frames.length}, ${Math.round(frames.reduce((sum, p2) => sum + (p2.value ?? 0), 0))}ms blocking; longest ${worst.map((p2) => `+${p2.start} ${p2.durationMs}ms${p2.commits.length ? " (" + commitSpan(p2.commits) + ")" : ""}`).join(", ")}.`);
+  }
+  if (ownFrames.length) {
+    header.push(`Chippy's own long frames, left out of the totals: ${ownFrames.length}, ${Math.round(ownFrames.reduce((sum, p2) => sum + (p2.value ?? 0), 0))}ms blocking.`);
   }
   const rows = [];
   for (const i of result.lanes.input) rows.push({ t: i.t, lane: "input", text: inputLabel(i) });
@@ -809,8 +833,14 @@ function frameOf(frames, commitId, origin) {
 function compactTimeline(report) {
   const timeline = buildTimeline(report);
   if ("error" in timeline) return { error: timeline.error };
-  const { ok: _ok, lanes: _lanes, mermaid: _mermaid, ...rest } = timeline;
-  return rest;
+  const { origin, window: window2, omitted, text } = timeline;
+  return { origin, window: window2, omitted, text };
+}
+function nonZero(stats) {
+  return stats ? Object.fromEntries(Object.entries(stats).filter(([, value]) => value !== 0)) : null;
+}
+function tenths(value) {
+  return value === null ? null : Math.round(value * 10) / 10;
 }
 function buildSummaryView(report, options = {}) {
   const top = positive(options.top, SUMMARY_DEFAULT_TOP);
@@ -825,7 +855,7 @@ function buildSummaryView(report, options = {}) {
     if (stats) for (const key of UPSTREAM_COMMIT_STAT_KEYS) totals[key] += stats[key];
   }
   const timeline = compactTimeline(report);
-  const origin = "origin" in timeline ? finite(timeline.origin?.at) : null;
+  const origin = "origin" in timeline ? finite(timeline.origin.at) : null;
   const frames = Array.isArray(report.perfEntries) ? linkPerfEntries(report, report.perfEntries.filter((e) => e.entryType === "long-animation-frame" || e.entryType === "longtask")) : [];
   const topCommits = ids.slice().sort((a, b) => (statsById.get(b)?.collateral ?? 0) - (statsById.get(a)?.collateral ?? 0) || a - b).slice(0, top).map((commitId) => {
     const timing = at(report.commitTimings, commitId);
@@ -837,9 +867,9 @@ function buildSummaryView(report, options = {}) {
     const actions = at(report.interactionsByCommit, commitId);
     return {
       commitId,
-      stat: statsById.get(commitId) ?? null,
+      stat: nonZero(statsById.get(commitId)),
       atMs: start !== null && origin !== null ? ms(start - origin) : null,
-      renderMs: finite(timing?.render?.workMs),
+      renderMs: tenths(finite(timing?.render?.workMs)),
       ticks: finite(timing?.ticks),
       paintDelayMs: paint !== null && end !== null && paint >= end ? ms(paint - end) : null,
       sourcesTotal: list.length,

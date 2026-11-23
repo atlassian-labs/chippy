@@ -2081,6 +2081,11 @@ export function createAvalancheDetector(options: DetectorOptions = {}) {
       return integrationMode;
     },
 
+    /** Detection level this detector records at: `stats`, `sources`, `amplifierMetrics`, `amplifiers`, or `full`. */
+    getDetectionLevel(): string | null {
+      return detectionLevel ?? null;
+    },
+
     /** Id of the commit metrics adapter resolved on install, or null. */
     getMetricsAdapterId(): string | null {
       return metricsAdapter?.id ?? null;

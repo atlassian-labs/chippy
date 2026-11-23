@@ -10,6 +10,7 @@
 
 import type { RenderedEvidenceStatus } from './avalanche/rendered-evidence-store';
 import { createAvalancheDetector, DETECTION_LEVEL } from './avalanche/detector';
+import { noteOwnWork } from './avalanche/own-work';
 import { type AvalancheHookSummary, summarizeHookResults } from './avalanche/avalanche-hooks';
 import {
   type IntegrationMode,
@@ -244,6 +245,8 @@ type AvalancheApi = {
     hasMetricsGlobal: boolean;
     commitCount: number;
     integrationMode: IntegrationMode;
+    /** Detection level of the running capture (`sources`, `full`, ...); null when not installed. */
+    detectionMode: string | null;
     metricsAdapter: string | null;
     /** Network requests captured so far (Resource Timing). */
     networkRequests: number;
@@ -333,6 +336,8 @@ type AvalancheApi = {
     safeJson: typeof safeJsonImpl;
     scriptResultJson: typeof scriptResultJson;
     runChippyScript: typeof runChippyScript;
+    /** Records a span of Chippy's own work so long frames it caused stay out of page metrics. */
+    noteOwnWork: typeof noteOwnWork;
     clearScriptOverlay: typeof clearOverlay;
     measureComponentArea: (options?: Parameters<typeof measureComponentArea>[0]) => ReturnType<typeof measureComponentArea>;
     areaWatch: { start: (options?: Parameters<typeof startAreaWatch>[0]) => ReturnType<typeof startAreaWatch>; read: typeof readAreaWatch; stop: typeof stopAreaWatch };
@@ -435,6 +440,7 @@ const api: AvalancheApi = {
     const integrationMode = detector
       ? (detector as any).getIntegrationMode?.() ?? 'none'
       : 'none';
+    const detectionMode: string | null = installed && detector ? detector.getDetectionLevel() : null;
     const metricsAdapter = detector
       ? (detector as any).getMetricsAdapterId?.() ?? null
       : getCommitMetricsAdapter()?.id ?? null;
@@ -442,7 +448,7 @@ const api: AvalancheApi = {
     const packs = listPacks().map(({ id, label, instructions, extensions, compileErrors, initErrors }) => ({ id, label, instructions, extensions, compileErrors, initErrors }));
     let hooks: Record<string, AvalancheHookSummary> | null = null;
     try { hooks = summarizeHookResults(detector?.hookResults()); } catch (_) {}
-    return { installed, paused, pausedAt, hasMetricsGlobal, commitCount, integrationMode, metricsAdapter, networkRequests, perfEntries, renderedEvidence, packs, hooks };
+    return { installed, paused, pausedAt, hasMetricsGlobal, commitCount, integrationMode, detectionMode, metricsAdapter, networkRequests, perfEntries, renderedEvidence, packs, hooks };
   },
   registerCommitMetricsAdapter,
   enablePlugins,
@@ -518,6 +524,7 @@ const api: AvalancheApi = {
     safeJson: safeJsonImpl,
     scriptResultJson,
     runChippyScript,
+    noteOwnWork,
     clearScriptOverlay: clearOverlay,
     measureComponentArea: (options) => measureComponentArea(options),
     areaWatch: { start: (options) => startAreaWatch(options), read: readAreaWatch, stop: stopAreaWatch },

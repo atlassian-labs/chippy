@@ -153,12 +153,36 @@ async function requestEvalScript(clientId, body = {}) {
   };
 }
 
+// Production hook frames are mapped here, in the helper, through each
+// script's source map: maps can be tens of megabytes, and decoding them in the
+// page would block it. Loaded on the first debug-hook that carries frames.
+let stackSymbolicator = null;
+function getStackSymbolicator() {
+  if (stackSymbolicator) return stackSymbolicator;
+  const symbolication = require('./stack-symbolication.cjs');
+  stackSymbolicator = { symbolication, instance: symbolication.createStackSymbolicator(symbolication.nodeFetchText) };
+  return stackSymbolicator;
+}
+
+async function symbolicateAvalancheResult(body, result) {
+  if (body.action !== 'debug-hook' || body.sourceMaps === false) return;
+  const payload = result?.result?.payload;
+  if (!payload || !Array.isArray(payload.parents)) return;
+  try {
+    const { symbolication, instance } = getStackSymbolicator();
+    await symbolication.symbolicateDebugHookPayload(payload, instance);
+  } catch (error) {
+    payload.sourceMaps = { status: 'none', error: String(error?.message || error) };
+  }
+}
+
 async function requestAvalanche(clientId, body = {}) {
   const timeoutMs = body.timeoutMs != null ? Number(body.timeoutMs) : 5000;
   const command = buildAvalancheCommand(body);
   const delivered = sendToClient(clientId, command);
   if (!delivered.ok) return { ok: false, code: delivered.code, payload: { ok: false, error: delivered.error } };
   const result = await waitForPendingResult(pendingAvalanche, command.requestId, timeoutMs, 'Timeout waiting for avalanche result');
+  await symbolicateAvalancheResult(body, result);
   return {
     ok: result.ok,
     code: result.ok ? 200 : 504,

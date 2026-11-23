@@ -22,6 +22,16 @@ links/
 # Build intermediates (avalanche:sync copies the bundles into the extension)
 /dist/
 
+# Shipped bundles: built by `yarn shipped:build`, committed only on main by the
+# Release workflow. Keep in sync with scripts/shipped-artifacts.mjs.
+/.agents/skills/chippy/extension/avalanche.iife.js
+/.agents/skills/chippy/extension/avalanche.iife.js.map
+/.agents/skills/chippy/extension/avalanche.es.js
+/.agents/skills/chippy/extension/avalanche.es.js.map
+/.agents/skills/chippy/scripts/chippy-mcp.cjs
+/.agents/skills/chippy/scripts/avalanche-analyze.cjs
+/.agents/skills/chippy/scripts/stack-symbolication.cjs
+
 # Built npm library and its packaged skill
 /lib/
 /skills/

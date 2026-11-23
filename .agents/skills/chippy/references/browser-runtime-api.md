@@ -128,7 +128,7 @@ Always surface `key` when present.
 
 Prefer the `avalanche-*` shell commands. Read the page global directly only when the helper cannot reach the page, for example right after a reload in [mode-a-injection](mode-a-injection.md).
 
-- `status()` — `{ installed, hasMetricsGlobal, commitCount, integrationMode, metricsAdapter, networkRequests, renderedEvidence, packs, hooks }`; `renderedEvidence` is the `renderedByCommit` entry budget and what it dropped (null before install); each pack entry is `{ id, label, instructions, extensions: [{ name, reportKey, scripts }], compileErrors, initErrors }`
+- `status()` — `{ installed, hasMetricsGlobal, commitCount, integrationMode, detectionMode, metricsAdapter, networkRequests, renderedEvidence, packs, hooks }`; `detectionMode` is the level the capture runs at (`stats`, `sources`, `amplifierMetrics`, `amplifiers`, or `full`; null when not installed); `renderedEvidence` is the `renderedByCommit` entry budget and what it dropped (null before install); each pack entry is `{ id, label, instructions, extensions: [{ name, reportKey, scripts }], compileErrors, initErrors }`
 - `registerPack(pack)`, `unregisterPack(id)`, `listPacks()` — load a JSON pack into the current page; a pack loaded during a recording steps from the next commit without `onStart`, so `reset()` first for a full run; each of a pack's `avalancheExtensions` reports under `hooks["<pack id>.<extension name>"]`
 - `exportLast(n?)` — same as `report()` with every source included; `n` currently has no effect. Use `chippy.sh avalanche-save <clientId> <file> N` to keep only the last N commits
 - `report(topN?, sortBy?)` — live report; `topN` defaults to 10 and `sortBy` is `effect` (default), `callback`, `memo`, or `total`
@@ -199,7 +199,7 @@ Read-only inspection. Reads `memoizedProps[propName]` from the remembered fiber 
 ```js
 { type: 'fiber-invoke', requestId, fiberId, propName, args? }
 ```
-Active stimulus. Reads `memoizedProps[propName]` from the remembered fiber and invokes it if it is a function. Use only after `fiber-prop-contract` and source inspection prove the callback argument contract. Returns `{ ok, fiberId, fiberName, propName, propType, fnLength, invoked, args, async, returnValue }` or a refusal/throw/rejection payload.
+Active stimulus. Reads `memoizedProps[propName]` from the remembered fiber and invokes it if it is a function. Use only after `fiber-prop-contract` and source inspection prove the callback argument contract. An `args` entry `{ $event: type, ...fields }` is replaced with a synthetic event targeting the fiber's first element (see [active-stimulus](active-stimulus.md#event-arguments)). Returns `{ ok, fiberId, fiberName, propName, propType, fnLength, invoked, args, async, returnValue, event? }` or a refusal/throw/rejection payload; a throw may carry a `hint`.
 
 ### `fiber-schedule-update`
 

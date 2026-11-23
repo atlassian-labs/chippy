@@ -166,6 +166,19 @@ describe('src/iife.ts startup behavior', () => {
     expect(adapter.prePage).toHaveBeenCalledWith(config);
   });
 
+  it('reports the detection level of the running capture in status', async () => {
+    delete (globalThis as any).__AVALANCHE__;
+    delete (globalThis as any).__CHIPPY_STARTUP_CONFIG;
+    const mod = await import('../iife');
+    expect(mod.default.status().detectionMode).toBeNull();
+    mod.default.install({ detectionMode: 'full' });
+    expect(mod.default.status().detectionMode).toBe('full');
+    mod.default.install({ detectionMode: 'sources' });
+    expect(mod.default.status().detectionMode).toBe('sources');
+    mod.default.uninstall();
+    expect(mod.default.status().detectionMode).toBeNull();
+  });
+
   it('skips auto-install when __AVALANCHE__ is already present on globalThis', async () => {
     delete (globalThis as any)[TEST_METRICS_SLOT];
     delete (globalThis as any).__REACT_DEVTOOLS_GLOBAL_HOOK__;

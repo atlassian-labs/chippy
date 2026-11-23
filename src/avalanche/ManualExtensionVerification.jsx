@@ -3,6 +3,7 @@ import React, { Component, useCallback, useEffect, useMemo, useRef, useState } f
 function FunctionInvokePanel() {
   const [happyCount, setHappyCount] = useState(0);
   const [asyncCount, setAsyncCount] = useState(0);
+  const [eventCount, setEventCount] = useState(0);
   const [lastAction, setLastAction] = useState('none');
 
   const onHappy = useCallback(() => {
@@ -16,6 +17,15 @@ function FunctionInvokePanel() {
     throw new Error('manual-fixture-boom');
   }, []);
 
+  // Reads its event the way real handlers do, so fiber-invoke must pass one.
+  const onEvent = useCallback((event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    setEventCount((n) => n + 1);
+    setLastAction(`event:${event.type}:${event.currentTarget.dataset.manualStep}`);
+    return event.defaultPrevented;
+  }, []);
+
   const onAsync = useCallback(async () => {
     await new Promise((resolve) => setTimeout(resolve, 25));
     setAsyncCount((n) => n + 1);
@@ -27,7 +37,7 @@ function FunctionInvokePanel() {
     <section data-testid="fiber-invoke-function-panel">
       <h2>fiber-invoke · function component</h2>
       <p data-testid="manual-fixture-status">
-        happy={happyCount} async={asyncCount} last={lastAction}
+        happy={happyCount} async={asyncCount} event={eventCount} last={lastAction}
       </p>
       <button data-testid="manual-on-happy" onClick={onHappy} data-manual-label="non-callable-string">
         happy callback
@@ -37,6 +47,9 @@ function FunctionInvokePanel() {
       </button>
       <button data-testid="manual-on-async" onClick={onAsync}>
         async callback
+      </button>
+      <button data-testid="manual-on-event" data-manual-step="save" onClick={onEvent}>
+        event-reading callback
       </button>
     </section>
   );
