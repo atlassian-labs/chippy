@@ -252,7 +252,7 @@ describe('serializeReport — DTO field parity', () => {
           depth: 2,
           parentSourceId: 'Parent#1@1',
           ownerSourceId: 'Parent#1@1',
-          propChanges: [{ name: 'onClick', kind: 'ref-changed', current: 'function onClick' }],
+          propChanges: [{ name: 'onClick', kind: 'ref-changed', current: 'function onClick' }, { name: 'state', kind: 'ref-changed', current: 'object{a,b}', changedKeys: [{ key: 'a', kind: 'scalar-changed', prev: '1', current: '2' }], changedKeyCount: 1 }],
           trasherCounts: { effects: 1, callbacks: 2, memos: 3 },
         }],
       },
@@ -264,7 +264,7 @@ describe('serializeReport — DTO field parity', () => {
     expect(rendered.parentSourceId).toBe('Parent#1@1');
     expect(rendered.ownerSourceId).toBe('Parent#1@1');
     expect(rendered.isSelfSource).toBeUndefined();
-    expect(rendered.propChanges).toEqual([{ name: 'onClick', kind: 'ref-changed', current: 'function onClick' }]);
+    expect(rendered.propChanges).toEqual([{ name: 'onClick', kind: 'ref-changed', current: 'function onClick' }, { name: 'state', kind: 'ref-changed', current: 'object{a,b}', changedKeys: [{ key: 'a', kind: 'scalar-changed', prev: '1', current: '2' }], changedKeyCount: 1 }]);
     expect(rendered.trasherCounts).toEqual({ effects: 1, callbacks: 2, memos: 3 });
   });
 

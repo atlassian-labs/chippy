@@ -19,6 +19,7 @@ import { getComponentName } from './internals';
 import type { ReportDTO } from './report-serializer';
 import { serializeReport } from './report-serializer';
 import type { InputEventDetails } from './input-details';
+import type { PropKeyDiff } from './prop-key-diff';
 import type { AvalancheHookResult } from './avalanche-hooks';
 import {
   type CommitMetricsAdapter,
@@ -395,9 +396,12 @@ export type PropValueSummary = string;
 /**
  * One changed prop. `removed` has only `prev`; `added` only `current`;
  * `scalar-changed` has both. `ref-changed` has `current`, plus `prev` only
- * when the previous value's summary differs (its shape changed).
+ * when the previous value's summary differs (its shape changed). A
+ * `ref-changed` plain object or array also carries its shallow key diff
+ * (`sameShallow`, `changedKeys`, ...; see `prop-key-diff.ts`), except in
+ * `stats` mode.
  */
-export interface PropChangeEvidence {
+export interface PropChangeEvidence extends PropKeyDiff {
   name: string;
   kind: PropChangeKind;
   prev?: PropValueSummary;
