@@ -73,7 +73,7 @@ export function registerChippyTools(server: McpServer, helper: HelperConnection)
   tool('chippy_interact', 'Apply one explicit stimulus. Name the exact target and stimulus first. invoke requires source inspection and a proven callback contract; schedule-update runs render/effect code without changing props/hooks.', {
     clientId: id, action: z.enum(['click', 'prop-contract', 'invoke', 'schedule-update']), target: id,
     targetKind: z.enum(['selector', 'probeId', 'fiberId']).default('selector'),
-    propName: id.optional(), args: z.array(z.unknown()).optional(), ownerIndex: index.optional(), timeoutMs: timeout,
+    propName: id.optional(), args: z.array(z.unknown()).optional().describe('invoke arguments; an entry {"$event":"click"} passes a synthetic event targeting the fiber\'s element'), ownerIndex: index.optional(), timeoutMs: timeout,
   }, ({ clientId, action, target, targetKind, propName, args, ownerIndex, timeoutMs }, signal) => {
     if (['prop-contract', 'invoke'].includes(action) && !propName) throw new Error('propName is required for this action');
     const route = { click: 'page-click', 'prop-contract': 'fiber-prop-contract', invoke: 'fiber-invoke', 'schedule-update': 'fiber-schedule-update' }[action];

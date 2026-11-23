@@ -40,7 +40,7 @@ opened against `main` to `dev`, except the Release workflow's `release/*` ones.
 To release `dev` to `main`:
 
 1. Run the [Release](../.github/workflows/release.yml) workflow from the Actions
-   tab on `dev`. It builds the bundles, commits `dev`'s tree with them on a
+   tab. It always releases `dev`, whichever branch you start it from. It builds the bundles, commits `dev`'s tree with them on a
    `release/<sha>` branch whose parents are `main` and `dev`, opens a pull request
    into `main`, and dispatches CI on it.
 2. Review the pull request, which lists the `dev` commits since the last release,

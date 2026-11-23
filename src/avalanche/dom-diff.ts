@@ -166,7 +166,7 @@ export function markup(node: Node): string {
  * is detached from its parent, so the walk continues from `parent`, the fiber
  * that listed the deletion.
  */
-export function anchorOf(fiber: Fiber, parent?: Fiber): string {
+export function anchorOf(fiber: Fiber, parent?: Fiber, nameOf: (fiber: Fiber) => string = getComponentName): string {
   const names: string[] = [];
   let f: Fiber | null = fiber.return;
   let resumed = false;
@@ -177,7 +177,7 @@ export function anchorOf(fiber: Fiber, parent?: Fiber): string {
       resumed = true;
       continue;
     }
-    if (isComponentFiber(f.tag)) names.push(getComponentName(f));
+    if (isComponentFiber(f.tag)) names.push(nameOf(f));
     f = f.return;
   }
   return names.length ? names.reverse().join(' › ') : '(root)';
@@ -196,20 +196,29 @@ function propChanges(found: Found): DomPropChange[] {
   return out;
 }
 
-export function toDomChange(found: Found): DomChange {
+export function toDomChange(found: Found, nameOf: (fiber: Fiber) => string = getComponentName): DomChange {
   const op = OPS[found.kind];
-  const base = { op, node: describeNode(found.node), at: anchorOf(found.fiber, found.parent) };
+  const base = { op, node: describeNode(found.node), at: anchorOf(found.fiber, found.parent, nameOf) };
   if (op === '~') return { ...base, props: propChanges(found) };
   return { ...base, html: markup(found.node), elements: countElements(found.node) };
 }
 
 /** Changes one commit made, in tree order. Exported for tests. */
-export function diffCommit(root: Fiber, limit = MAX_DOM_CHANGES_PER_COMMIT): { changes: DomChange[]; truncated: boolean } {
+export function diffCommit(
+  root: Fiber,
+  limit = MAX_DOM_CHANGES_PER_COMMIT,
+  nameOf: (fiber: Fiber) => string = getComponentName,
+): { changes: DomChange[]; truncated: boolean } {
   const { found, truncated } = findChangedHosts(root, { limit, descendUpdated: true, detectMoves: true });
-  return { changes: found.map(toDomChange), truncated };
+  return { changes: found.map((item) => toDomChange(item, nameOf)), truncated };
 }
 
-export function createDomDiffCapture(options: DomDiffOptions = {}, now: () => number = () => performance.now()) {
+/** `nameOf` names the components in each change's `at`; the detector records them for renaming. */
+export function createDomDiffCapture(
+  options: DomDiffOptions = {},
+  now: () => number = () => performance.now(),
+  nameOf: (fiber: Fiber) => string = getComponentName,
+) {
   const enabled = options.domDiff !== false && typeof document !== 'undefined';
   const byCommit: Record<number, DomCommitDiff> = {};
   const store = createCommitBudgetStore(byCommit, options.maxDomChanges ?? DEFAULT_MAX_DOM_CHANGES, (diff) => diff.changes.length, DEFAULT_MAX_DOM_CHANGES);
@@ -217,7 +226,7 @@ export function createDomDiffCapture(options: DomDiffOptions = {}, now: () => nu
   function record(commitId: number, root: Fiber): void {
     if (!enabled) return;
     const started = now();
-    const { changes, truncated } = diffCommit(root);
+    const { changes, truncated } = diffCommit(root, MAX_DOM_CHANGES_PER_COMMIT, nameOf);
     if (changes.length === 0) return;
     store.add(commitId, {
       changes,

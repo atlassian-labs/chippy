@@ -179,11 +179,63 @@ describe('createAvalancheDetector — structural render evidence', () => {
       const report = detector.report(20, 'effect') as any;
       const entry = (Object.values(report.renderedByCommit || {}).flat() as any[]).find((e) => e.name === 'Child');
       const change = (name: string) => entry.propChanges.find((p: any) => p.name === name);
-      expect(change('style')).toEqual({ name: 'style', kind: 'ref-changed', current: 'object{color}' });
-      expect(change('other')).toEqual({ name: 'other', kind: 'ref-changed', prev: 'object{color}', current: 'object{color,size}' });
-      expect(change('a,b')).toEqual({ name: 'a,b', kind: 'ref-changed', prev: 'object{"a,b"}', current: 'object{a,b}' });
+      // The key diff is taken at commit time too: `width` was added afterwards.
+      expect(change('style')).toEqual({ name: 'style', kind: 'ref-changed', current: 'object{color}', sameShallow: true, changedKeys: [], changedKeyCount: 0 });
+      expect(change('other')).toEqual({
+        name: 'other', kind: 'ref-changed', prev: 'object{color}', current: 'object{color,size}',
+        changedKeys: [
+          { key: 'color', kind: 'scalar-changed', prev: '"blue"', current: '"green"' },
+          { key: 'size', kind: 'added', current: '1' },
+        ],
+        changedKeyCount: 2,
+      });
+      expect(change('a,b')).toEqual({
+        name: 'a,b', kind: 'ref-changed', prev: 'object{"a,b"}', current: 'object{a,b}',
+        changedKeys: [
+          { key: 'a,b', kind: 'removed', prev: '1' },
+          { key: 'a', kind: 'added', current: '1' },
+          { key: 'b', kind: 'added', current: '2' },
+        ],
+        changedKeyCount: 3,
+      });
       expect(change('onPing')).toEqual({ name: 'onPing', kind: 'ref-changed', current: 'function onPing' });
     } finally { detector.uninstall(); }
+  });
+
+  it('records which keys of a rebuilt object prop changed, except in stats mode', () => {
+    function Parent() { return null; }
+    function Child() { return null; }
+    const collaborators = new Map();
+    const fiberFor = (props: Record<string, unknown>, alternate: Fiber | null) => ({ tag: 0, type: Child, flags: alternate ? PerformedWork : 0, subtreeFlags: 0, child: null, sibling: null, return: null, memoizedState: null, memoizedProps: props, alternate }) as unknown as Fiber;
+    const prevChild = fiberFor({ appState: { theme: 'light', zoom: 1, collaborators }, items: [1, 2] }, null);
+    const child = fiberFor({ appState: { theme: 'light', zoom: 1, collaborators }, items: [1, 3] }, prevChild);
+    const parent = { tag: 0, type: Parent, flags: PerformedWork, subtreeFlags: PerformedWork, child, sibling: null, return: null, memoizedState: null, memoizedProps: {}, alternate: null } as unknown as Fiber;
+    child.return = parent;
+    prevChild.return = parent;
+
+    const propChangesIn = (detectionMode: 'stats' | 'sources') => {
+      const hook = installDevtoolsShim();
+      const detector = createAvalancheDetector({ historySize: 20, detectionMode });
+      detector.install();
+      try {
+        hook.onCommitFiberRoot(1, { current: parent, memoizedUpdaters: new Set([parent]) });
+        const report = detector.report(20, 'effect') as any;
+        return (Object.values(report.renderedByCommit || {}).flat() as any[]).find((e) => e.name === 'Child').propChanges;
+      } finally { detector.uninstall(); }
+    };
+
+    expect(propChangesIn('sources')).toEqual([
+      { name: 'appState', kind: 'ref-changed', current: 'object{theme,zoom,collaborators}', sameShallow: true, changedKeys: [], changedKeyCount: 0 },
+      {
+        name: 'items', kind: 'ref-changed', current: 'array(2)[1, 3]', prev: 'array(2)[1, 2]',
+        changedKeys: [{ key: '1', kind: 'scalar-changed', prev: '2', current: '3' }],
+        changedKeyCount: 1,
+      },
+    ]);
+    expect(propChangesIn('stats')).toEqual([
+      { name: 'appState', kind: 'ref-changed', current: 'object{theme,zoom,collaborators}' },
+      { name: 'items', kind: 'ref-changed', prev: 'array(2)[1, 2]', current: 'array(2)[1, 3]' },
+    ]);
   });
 
   // Rendered evidence comes from the commit walk in every mode; the mode only

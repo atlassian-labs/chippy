@@ -12,15 +12,15 @@ version declared in `package.json`), and Chromium for browser tests.
 ```sh
 nvm use
 yarn install --immutable
-git config core.hooksPath .githooks
+yarn shipped:build
 yarn exec playwright install chromium
 yarn storybook --ci -p 6007
 ```
 
-The pre-push hook in `.githooks/` runs `yarn shipped:check`. It rebuilds the
-bundles in `.agents/skills/chippy` from `src/` and rejects the push when they
-differ from the commit. The rebuilt files stay in the working tree, ready to commit.
-CI runs the same check.
+`yarn shipped:build` builds the extension's Avalanche bundles and the skill's MCP
+and offline-analyzer executables from `src/`. `dev` does not commit them, and the
+extension, helper, and tests need them, so rebuild after pulling or changing
+`src/`. If you used the old pre-push hook, run `git config --unset core.hooksPath`.
 
 Storybook runs at `http://127.0.0.1:6007/`. Start the helper separately with
 `.agents/skills/chippy/scripts/chippy.sh start`; it listens on port 7823.

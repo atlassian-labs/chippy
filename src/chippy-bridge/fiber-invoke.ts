@@ -20,6 +20,7 @@
  */
 
 import { getFiberSource as readFiberSource } from './fiber-source';
+import { createSyntheticEvent, isEventPlaceholder, type SyntheticEventReport } from './synthetic-event';
 
 export type Fiber = {
   tag?: number;
@@ -165,13 +166,38 @@ export async function evalFiberInvoke(
       propType: typeof value,
     };
   }
-  const invokeArgs = Array.isArray(args) ? args : [];
+  const requestedArgs = Array.isArray(args) ? args : [];
+  const placeholders = requestedArgs.filter(isEventPlaceholder).length;
+  if (placeholders > 1) {
+    return {
+      ok: false,
+      error: `pass at most one {"$event": type} argument; got ${placeholders}`,
+      fiberId: read.fiberId,
+      fiberName: getFiberDisplayName(read.fiber),
+      propName: read.propName,
+    };
+  }
+  let eventReport: SyntheticEventReport | null = null;
+  const invokeArgs = requestedArgs.map((arg) => {
+    if (!isEventPlaceholder(arg)) return arg;
+    const built = createSyntheticEvent(arg, read.fiber);
+    eventReport = built.report;
+    return built.event;
+  });
+  // Serialize what was asked for: the event holds DOM nodes and a proxy.
+  const serializedArgs = () => deps.safeSerialize(requestedArgs, 0, new Set());
+  const fnLength = Number.isFinite((value as { length: number }).length) ? (value as { length: number }).length : null;
+  const eventFields = () => (eventReport ? { event: eventReport } : {});
   const thisArg = pickThisArg(read.fiber);
   let result: unknown;
   try {
     result = (value as (...a: unknown[]) => unknown).apply(thisArg, invokeArgs);
   } catch (e) {
     const err = e as { message?: string; stack?: string };
+    // A handler that reads its event throws a TypeError when it gets none.
+    const hint = !eventReport && fnLength !== null && fnLength > 0 && e instanceof TypeError
+      ? 'The callback may expect an event. If its source reads one, pass --args \'[{"$event":"click"}]\'.'
+      : null;
     return {
       ok: false,
       error: err?.message || String(e),
@@ -181,7 +207,9 @@ export async function evalFiberInvoke(
       fiberName: getFiberDisplayName(read.fiber),
       propName: read.propName,
       propType: 'function',
-      args: deps.safeSerialize(invokeArgs, 0, new Set()),
+      args: serializedArgs(),
+      ...eventFields(),
+      ...(hint && { hint }),
     };
   }
 
@@ -191,9 +219,9 @@ export async function evalFiberInvoke(
     fiberName: getFiberDisplayName(read.fiber),
     propName: read.propName,
     propType: 'function' as const,
-    fnLength: Number.isFinite((value as { length: number }).length) ? (value as { length: number }).length : null,
+    fnLength,
     invoked: true as const,
-    args: deps.safeSerialize(invokeArgs, 0, new Set()),
+    args: serializedArgs(),
   };
 
   if (isThenable(result)) {
@@ -203,7 +231,7 @@ export async function evalFiberInvoke(
         Promise.resolve(result),
         new Promise<never>((_, reject) => setTimeout(() => reject(new Error(`async callback did not resolve within ${timeoutMs}ms`)), timeoutMs)),
       ]);
-      return { ...base, async: true, returnValue: deps.safeSerialize(resolved, 0, new Set()) };
+      return { ...base, async: true, returnValue: deps.safeSerialize(resolved, 0, new Set()), ...eventFields() };
     } catch (e) {
       const err = e as { message?: string; stack?: string };
       return {
@@ -217,10 +245,11 @@ export async function evalFiberInvoke(
         fiberName: getFiberDisplayName(read.fiber),
         propName: read.propName,
         propType: 'function',
-        args: deps.safeSerialize(invokeArgs, 0, new Set()),
+        args: serializedArgs(),
+        ...eventFields(),
       };
     }
   }
 
-  return { ...base, async: false, returnValue: deps.safeSerialize(result, 0, new Set()) };
+  return { ...base, async: false, returnValue: deps.safeSerialize(result, 0, new Set()), ...eventFields() };
 }

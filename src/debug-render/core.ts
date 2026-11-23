@@ -39,7 +39,12 @@ import {
 // Types
 // ---------------------------------------------------------------------------
 
-export type StackFrame = { name: string; loc: string };
+/**
+ * One parsed call-stack frame. `loc` is `line:column` in the script; `url` is
+ * that script, kept so the helper can map production frames through the
+ * script's source map. It is absent when the frame names no script.
+ */
+export type StackFrame = { name: string; loc: string; url?: string };
 
 export type HookCallEvent = {
   primitive: string;
@@ -85,8 +90,10 @@ function parseStackLine(line: string): StackFrame | null {
   const name = (m[1] || '').trim();
   const locRaw = (m[2] || '').trim();
   const tail = locRaw.match(/:(\d+):(\d+)\)?$/);
-  const loc = tail ? `${tail[1]}:${tail[2]}` : locRaw;
-  return name ? { name, loc } : null;
+  if (!name) return null;
+  if (!tail) return { name, loc: locRaw };
+  const url = locRaw.slice(0, tail.index);
+  return url ? { name, loc: `${tail[1]}:${tail[2]}`, url } : { name, loc: `${tail[1]}:${tail[2]}` };
 }
 
 export function parseStackFrames(stack: string): StackFrame[] {

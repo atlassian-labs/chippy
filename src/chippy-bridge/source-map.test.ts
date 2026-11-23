@@ -104,4 +104,15 @@ describe('React 19 source-map decoding', () => {
     expect(mappingAt(map, 1, 8)).toMatchObject({ column: 6, name: 'Bar', exact: false });
     expect(originalPositionFor(map, 1, 8)).toEqual({ source: 'a.tsx', line: 1, column: 6 });
   });
+
+  it('decodes lines in any order with the state carried from earlier lines', () => {
+    const inOrder = parseSourceMap(VITE_MAP);
+    const outOfOrder = parseSourceMap(VITE_MAP);
+    const lines = [24, 4, 23, 1, 30];
+    const expected = [...lines].sort((a, b) => a - b).map((line) => originalPositionFor(inOrder, line, 5));
+    const actual = lines.map((line) => originalPositionFor(outOfOrder, line, 5));
+    expect([...lines].map((line, index) => [line, actual[index]]).sort((a, b) => (a[0] as number) - (b[0] as number)).map(([, value]) => value)).toEqual(expected);
+    expect(inOrder[0]?.lines.length).toBe(VITE_MAP.split(';').length);
+  });
 });
+

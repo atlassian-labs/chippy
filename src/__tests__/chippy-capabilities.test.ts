@@ -18,6 +18,7 @@ const STORY_IDS = {
   mixedStability: 'avalanche-churnlab--mixed-stability',
   stabilityChain: 'stability-stabilitychain--default',
   stabilityChainFixed: 'stability-stabilitychainfixed--default',
+  manualVerification: 'avalanche-manualextensionverification--default',
 } as const;
 
 type StoryId = (typeof STORY_IDS)[keyof typeof STORY_IDS];
@@ -641,6 +642,38 @@ describe('Chippy browser capabilities from scenario matrix', () => {
     await page.waitForFunction(
       (expected) => document.querySelector('[data-testid="debug-hook-value"]')?.textContent === expected,
       `${before + 1} approvals`
+    );
+    await page.close();
+  }, 30000);
+
+  it('invokes an event handler with a synthetic event through Chippy', async () => {
+    const page = await openInjectedPage(STORY_IDS.manualVerification);
+    const connected = await waitForConnectedPage(STORY_IDS.manualVerification);
+
+    const found = await cliJson(['find-fibers', connected.clientId, '--testid', 'manual-on-event', '--prop', 'onClick', '--max', '5']);
+    expect(found.ok).toBe(true);
+    const fiberId = String(found.result?.items?.[0]?.fiberId || '');
+    expect(fiberId).toBeTruthy();
+
+    const bare = await cliJson(['fiber-invoke', connected.clientId, fiberId, 'onClick', '--args', '[]']);
+    const bareResult = bare.result || bare;
+    expect(bareResult.threw).toBe(true);
+    expect(String(bareResult.hint || '')).toContain('$event');
+
+    const response = await cliJson(['fiber-invoke', connected.clientId, fiberId, 'onClick', '--args', '[{"$event":"click"}]']);
+    const invoke = response.result || response;
+    expect(response.ok).toBe(true);
+    expect(invoke.returnValue).toBe(true);
+    expect(invoke.event).toMatchObject({
+      synthetic: true,
+      type: 'click',
+      target: 'button[data-testid="manual-on-event"]',
+      calls: ['preventDefault', 'stopPropagation'],
+      defaultPrevented: true,
+    });
+
+    await page.waitForFunction(
+      () => document.querySelector('[data-testid="manual-fixture-status"]')?.textContent?.includes('last=event:click:save'),
     );
     await page.close();
   }, 30000);

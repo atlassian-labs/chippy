@@ -1168,6 +1168,28 @@ A synchronously thrown callback returns:
 
 For a class component, invocation binds `this` to `fiber.stateNode`. Function components receive no synthetic `this` binding.
 
+With an event argument (`--args '[{"$event":"click"}]'`), `args` echoes the request and the result adds `event`:
+
+```json
+{
+  "ok": true,
+  "propName": "onClick",
+  "args": [{ "$event": "click" }],
+  "returnValue": null,
+  "event": {
+    "synthetic": true,
+    "type": "click",
+    "target": "button[data-testid=\"save\"]",
+    "calls": ["preventDefault"],
+    "defaultPrevented": true,
+    "propagationStopped": false,
+    "missing": []
+  }
+}
+```
+
+`target` is the element used as `target` and `currentTarget` (`tag[data-testid="…"]`, `tag#id`, or `tag`), or `null` when the fiber renders no element. `missing` lists the fields the handler read that the event does not have. A throw from a handler that declares parameters but got no event adds `"hint"`, which suggests passing one.
+
 Refusal on non-function prop:
 ```json
 {

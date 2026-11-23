@@ -11,6 +11,8 @@
 
 import { hookStepsAt } from '../avalanche/avalanche-hooks';
 import { warmComponentTypes, type NameRecoveryStats } from './component-origin';
+import { componentNamesIn, nameTokensIn } from './component-name-tokens';
+import type { ComponentRename } from '../avalanche/rendered-names';
 import { networkByCommit, networkView, type CommitNetwork } from '../avalanche/network-signals';
 import { buildTimeline } from '../avalanche/timeline';
 import { buildDomDiffView } from '../avalanche/dom-diff-view';
@@ -91,6 +93,8 @@ export type AvalancheApi = {
   componentTypesFor?: (sourceIds: Iterable<string>) => unknown[];
   /** Component types of rendered entries still recorded as `Anonymous`. */
   unnamedRenderedTypes?: () => unknown[];
+  /** Component types the capture named with any of `names`, or every named type. */
+  componentTypesNamed?: (names?: Iterable<string>) => unknown[];
   debugHook?: (sourceId: string, hookIndex: number, windowSize?: number) => unknown;
   [key: string]: unknown;
 };
@@ -101,6 +105,11 @@ export type EvalAvalancheResult = {
   ok: boolean;
   /** Production builds: names recovered for the components this result names. */
   nameRecovery?: NameRecoveryStats;
+  /**
+   * Production builds: authored names in this result that replaced a
+   * minified runtime name, with that name. Absent when none apply.
+   */
+  componentNames?: ComponentRename[];
   available: boolean;
   action: string;
   status?: AvalancheApiStatus;
@@ -183,6 +192,26 @@ export function evalAvalanche(
   api: AvalancheApi | null | undefined,
   mod: AvalancheModule | null | undefined,
 ): EvalAvalancheResult {
+  let slice: ReportSlice | undefined;
+  const report = () => (slice === undefined ? (slice = getReport(api)) : slice);
+  const result = runAvalanche(command, api, mod, report);
+  return slice ? withComponentNames(result, slice) : result;
+}
+
+/** Lists the renames that apply to a result; exports carry them in `meta`. */
+function withComponentNames(result: EvalAvalancheResult, slice: NonNullable<ReportSlice>): EvalAvalancheResult {
+  if (!result.ok || 'error' in slice || WHOLE_CAPTURE_ACTIONS.has(result.action)) return result;
+  const meta = (slice.serial as { meta?: { componentNames?: unknown } }).meta;
+  const componentNames = componentNamesIn(result, meta?.componentNames);
+  return componentNames.length > 0 ? { ...result, componentNames } : result;
+}
+
+function runAvalanche(
+  command: AvalancheCommand | null | undefined,
+  api: AvalancheApi | null | undefined,
+  mod: AvalancheModule | null | undefined,
+  report: () => ReportSlice,
+): EvalAvalancheResult {
   const action = String(command?.action || 'status');
   if (!api) {
     return { ok: false, available: false, action, error: '__AVALANCHE__ not available' };
@@ -204,7 +233,7 @@ export function evalAvalanche(
       case 'status':
         return { ok: true, available: true, action, status: readAvalancheStatus(api, mod).status };
       case 'export': {
-        const r = getReport(api);
+        const r = report();
         if (!r) return { ok: false, available: true, action, error: 'report() unavailable' };
         if ('error' in r) return { ok: false, available: true, action, error: r.error };
         return { ok: true, available: true, action, payload: r.serial };
@@ -243,7 +272,7 @@ export function evalAvalanche(
       case 'hot-sources': {
         const limit = Number(command?.limit);
         const n = Number.isFinite(limit) && limit > 0 ? Math.floor(limit) : 20;
-        const r = getReport(api);
+        const r = report();
         if (!r || 'error' in r) {
           return { ok: false, available: true, action, error: (r && 'error' in r ? r.error : 'report() unavailable') };
         }
@@ -287,7 +316,7 @@ export function evalAvalanche(
         const maxItems = Number.isFinite(Number(command?.maxItems))
           ? Math.max(1, Math.floor(Number(command!.maxItems)))
           : 50;
-        const r = getReport(api);
+        const r = report();
         if (!r || 'error' in r) {
           return { ok: false, available: true, action, error: (r && 'error' in r ? r.error : 'report() unavailable') };
         }
@@ -382,7 +411,7 @@ export function evalAvalanche(
         if (!Number.isFinite(actionId)) {
           return { ok: false, available: true, action, error: 'describe-action requires numeric actionId' };
         }
-        const r = getReport(api);
+        const r = report();
         if (!r || 'error' in r) {
           return { ok: false, available: true, action, error: (r && 'error' in r ? r.error : 'report() unavailable') };
         }
@@ -416,7 +445,7 @@ export function evalAvalanche(
           };
         }
         const sortKey = by;
-        const r = getReport(api);
+        const r = report();
         if (!r || 'error' in r) {
           return { ok: false, available: true, action, error: (r && 'error' in r ? r.error : 'report() unavailable') };
         }
@@ -462,7 +491,7 @@ export function evalAvalanche(
         return { ok: true, available: true, action, by: sortKey, total: rows.length, rows: rows.slice(0, top) };
       }
       case 'network': {
-        const r = getReport(api);
+        const r = report();
         if (!r || 'error' in r) {
           return { ok: false, available: true, action, error: (r && 'error' in r ? r.error : 'report() unavailable') };
         }
@@ -477,7 +506,7 @@ export function evalAvalanche(
         return { ok: true, available: true, action, payload: view.payload };
       }
       case 'perf': {
-        const r = getReport(api);
+        const r = report();
         if (!r || 'error' in r) {
           return { ok: false, available: true, action, error: (r && 'error' in r ? r.error : 'report() unavailable') };
         }
@@ -492,7 +521,7 @@ export function evalAvalanche(
         return { ok: true, available: true, action, payload: view.payload };
       }
       case 'timeline': {
-        const r = getReport(api);
+        const r = report();
         if (!r || 'error' in r) {
           return { ok: false, available: true, action, error: (r && 'error' in r ? r.error : 'report() unavailable') };
         }
@@ -509,7 +538,7 @@ export function evalAvalanche(
         return { ok: true, available: true, action, payload: command?.format === 'full' ? { ...rest, lanes } : rest };
       }
       case 'dom-diff': {
-        const r = getReport(api);
+        const r = report();
         if (!r || 'error' in r) {
           return { ok: false, available: true, action, error: (r && 'error' in r ? r.error : 'report() unavailable') };
         }
@@ -524,7 +553,7 @@ export function evalAvalanche(
         return { ok: true, available: true, action, payload: view };
       }
       case 'summary': {
-        const r = getReport(api);
+        const r = report();
         if (!r || 'error' in r) {
           return { ok: false, available: true, action, error: (r && 'error' in r ? r.error : 'report() unavailable') };
         }
@@ -559,8 +588,8 @@ export function nameBudgetFor(command: AvalancheCommand | null | undefined): num
   return Math.min(AVALANCHE_EXPORT_NAME_BUDGET_MS, Math.max(AVALANCHE_NAME_BUDGET_MS, timeoutMs / 2));
 }
 
-/** Actions whose results carry no component source ids, or that change state. */
-const NAME_FREE_ACTIONS = new Set(['install', 'uninstall', 'reset', 'clear', 'status', 'debug-hook', 'network', 'perf', 'timeline', 'dom-diff']);
+/** Actions whose results name no components, or that change state. */
+const NAME_FREE_ACTIONS = new Set(['install', 'uninstall', 'reset', 'clear', 'status', 'debug-hook', 'network']);
 const SOURCE_ID = /^[^\s#@]+#\d+@-?\d+$/;
 /** Actions that return every rendered entry, more ids than `sourceIdsIn` collects. */
 const WHOLE_CAPTURE_ACTIONS = new Set(['export', 'export-last']);
@@ -593,9 +622,10 @@ export function sourceIdsIn(value: unknown, limit = MAX_SOURCE_IDS): string[] {
 
 /**
  * Production builds: run the command, recover authored names for only the
- * components whose source ids it returned, and run it again when that
- * changed a name, so ids read `ProjectList#1@3` instead of `cp#1@3`.
- * Development pages and state-changing actions run once.
+ * components it mentions (by source id or by name), and run it again when
+ * that changed a name, so ids read `ProjectList#1@3` instead of `cp#1@3` and
+ * names in rendered entries, DOM anchors, and summaries read `Item`, not
+ * `Qr`. Development pages and state-changing actions run once.
  */
 export async function evalAvalancheWithNames(
   command: AvalancheCommand | null | undefined,
@@ -608,14 +638,17 @@ export async function evalAvalancheWithNames(
   if (!first.ok || NAME_FREE_ACTIONS.has(action) || typeof api?.componentTypesFor !== 'function') return first;
   const ids = sourceIdsIn(first);
   const wholeCapture = WHOLE_CAPTURE_ACTIONS.has(action);
-  if (ids.length === 0 && !wholeCapture) return first;
+  const named = typeof api.componentTypesNamed === 'function' ? api.componentTypesNamed.bind(api) : null;
   let types: unknown[];
   try {
     types = ids.length > 0 ? api.componentTypesFor(ids) : [];
     if (wholeCapture && typeof api.unnamedRenderedTypes === 'function') types = types.concat(api.unnamedRenderedTypes());
+    // Names written as text (rendered entries, DOM anchors, labels) carry no source id.
+    if (named) types = types.concat(wholeCapture ? named() : named(nameTokensIn(first)));
   } catch {
     return first;
   }
+  if (types.length === 0) return first;
   const stats = await warmComponentTypes(types, budgetMs);
   if (!stats) return first;
   const again = stats.named > 0 ? evalAvalanche(command, api, mod) : first;

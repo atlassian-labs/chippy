@@ -1,64 +1,152 @@
 var _a, _b, _c, _d, _e;
+var __typeError = (msg) => {
+  throw TypeError(msg);
+};
+var __accessCheck = (obj, member, msg) => member.has(obj) || __typeError("Cannot " + msg);
+var __privateGet = (obj, member, getter) => (__accessCheck(obj, member, "read from private field"), getter ? getter.call(obj) : member.get(obj));
+var __privateAdd = (obj, member, value) => member.has(obj) ? __typeError("Cannot add the same private member more than once") : member instanceof WeakSet ? member.add(obj) : member.set(obj, value);
+var __privateSet = (obj, member, value, setter) => (__accessCheck(obj, member, "write to private field"), member.set(obj, value), value);
+var __privateMethod = (obj, member, method) => (__accessCheck(obj, member, "access private method"), method);
+var _mappings, _sourceCount, _starts, _states, _knownLines, _decoded, _MappingLines_instances, lineStarts_fn, lineEnd_fn, stateAt_fn;
 const DIGITS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 const VALUE_OF = new Int8Array(128).fill(-1);
 for (let index = 0; index < DIGITS.length; index += 1) {
   VALUE_OF[DIGITS.charCodeAt(index)] = index;
 }
-function decodeVlq(field) {
-  const values = [];
-  let value = 0;
-  let shift = 0;
-  for (let index = 0; index < field.length; index += 1) {
-    const code = field.charCodeAt(index);
-    const digit = code < 128 ? VALUE_OF[code] : -1;
-    if (digit < 0) return values;
-    const more = (digit & 32) !== 0;
-    value += (digit & 31) << shift;
-    if (more) {
-      shift += 5;
-      continue;
-    }
-    const negative = (value & 1) === 1;
-    const magnitude = value >>> 1;
-    values.push(negative ? magnitude === 0 ? -2147483648 : -magnitude : magnitude);
-    value = 0;
-    shift = 0;
-  }
-  return values;
-}
-function decodeMappings(mappings, sourceCount) {
-  const lines = [];
-  let sourceIndex = 0;
-  let originalLine = 0;
-  let originalColumn = 0;
-  let nameIndex = 0;
-  for (const encodedLine of mappings.split(";")) {
-    const segments = [];
-    let generatedColumn = 0;
-    for (const field of encodedLine === "" ? [] : encodedLine.split(",")) {
-      const values = decodeVlq(field);
-      if (values.length < 4) {
-        if (values.length > 0) {
-          generatedColumn += values[0];
-          segments.push({ generatedColumn, sourceIndex: null, originalLine: null, originalColumn: null, nameIndex: null });
-        }
+function walkLine(mappings, start, end, state2, sourceCount, out) {
+  let generatedColumn = 0;
+  let index = start;
+  while (index < end) {
+    let count = 0;
+    let v0 = 0, v1 = 0, v2 = 0, v3 = 0, v4 = 0;
+    let value = 0;
+    let shift = 0;
+    let broken = false;
+    for (; index < end; index += 1) {
+      const code = mappings.charCodeAt(index);
+      if (code === 44) break;
+      const digit = code < 128 ? VALUE_OF[code] : -1;
+      if (digit < 0 || broken) {
+        broken = true;
         continue;
       }
-      generatedColumn += values[0];
-      sourceIndex += values[1];
-      originalLine += values[2];
-      originalColumn += values[3];
-      const named = values.length >= 5;
-      if (named) nameIndex += values[4];
-      if (sourceIndex >= 0 && sourceIndex < sourceCount) {
-        segments.push({ generatedColumn, sourceIndex, originalLine, originalColumn, nameIndex: named ? nameIndex : null });
+      value += (digit & 31) << shift;
+      if ((digit & 32) !== 0) {
+        shift += 5;
+        continue;
       }
+      const magnitude = value >>> 1;
+      const decoded = (value & 1) === 1 ? magnitude === 0 ? -2147483648 : -magnitude : magnitude;
+      if (count === 0) v0 = decoded;
+      else if (count === 1) v1 = decoded;
+      else if (count === 2) v2 = decoded;
+      else if (count === 3) v3 = decoded;
+      else if (count === 4) v4 = decoded;
+      count += 1;
+      value = 0;
+      shift = 0;
     }
-    segments.sort((left, right) => left.generatedColumn - right.generatedColumn);
-    lines.push(segments);
+    index += 1;
+    if (count === 0) continue;
+    generatedColumn += v0;
+    if (count < 4) {
+      out == null ? void 0 : out.push({ generatedColumn, sourceIndex: null, originalLine: null, originalColumn: null, nameIndex: null });
+      continue;
+    }
+    state2.sourceIndex += v1;
+    state2.originalLine += v2;
+    state2.originalColumn += v3;
+    const named = count >= 5;
+    if (named) state2.nameIndex += v4;
+    if (out && state2.sourceIndex >= 0 && state2.sourceIndex < sourceCount) {
+      out.push({
+        generatedColumn,
+        sourceIndex: state2.sourceIndex,
+        originalLine: state2.originalLine,
+        originalColumn: state2.originalColumn,
+        nameIndex: named ? state2.nameIndex : null
+      });
+    }
   }
-  return lines;
+  out == null ? void 0 : out.sort((left, right) => left.generatedColumn - right.generatedColumn);
 }
+class MappingLines {
+  constructor(mappings, sourceCount) {
+    __privateAdd(this, _MappingLines_instances);
+    __privateAdd(this, _mappings);
+    __privateAdd(this, _sourceCount);
+    __privateAdd(this, _starts, null);
+    __privateAdd(this, _states, new Int32Array(4));
+    __privateAdd(this, _knownLines, 1);
+    __privateAdd(this, _decoded, /* @__PURE__ */ new Map());
+    __privateSet(this, _mappings, mappings);
+    __privateSet(this, _sourceCount, sourceCount);
+  }
+  get length() {
+    return __privateMethod(this, _MappingLines_instances, lineStarts_fn).call(this).length;
+  }
+  /** Segments of the 0-based generated `line`, sorted by column; undefined past the end. */
+  at(line) {
+    const cached = __privateGet(this, _decoded).get(line);
+    if (cached) return cached;
+    const starts = __privateMethod(this, _MappingLines_instances, lineStarts_fn).call(this);
+    if (line < 0 || line >= starts.length) return void 0;
+    const segments = [];
+    walkLine(__privateGet(this, _mappings), starts[line], __privateMethod(this, _MappingLines_instances, lineEnd_fn).call(this, starts, line), __privateMethod(this, _MappingLines_instances, stateAt_fn).call(this, line), __privateGet(this, _sourceCount), segments);
+    __privateGet(this, _decoded).set(line, segments);
+    return segments;
+  }
+}
+_mappings = /* @__PURE__ */ new WeakMap();
+_sourceCount = /* @__PURE__ */ new WeakMap();
+_starts = /* @__PURE__ */ new WeakMap();
+_states = /* @__PURE__ */ new WeakMap();
+_knownLines = /* @__PURE__ */ new WeakMap();
+_decoded = /* @__PURE__ */ new WeakMap();
+_MappingLines_instances = /* @__PURE__ */ new WeakSet();
+lineStarts_fn = function() {
+  if (__privateGet(this, _starts)) return __privateGet(this, _starts);
+  const starts = [0];
+  for (let at2 = __privateGet(this, _mappings).indexOf(";"); at2 !== -1; at2 = __privateGet(this, _mappings).indexOf(";", at2 + 1)) {
+    starts.push(at2 + 1);
+  }
+  __privateSet(this, _starts, starts);
+  return starts;
+};
+lineEnd_fn = function(starts, line) {
+  return line + 1 < starts.length ? starts[line + 1] - 1 : __privateGet(this, _mappings).length;
+};
+stateAt_fn = function(line) {
+  const starts = __privateMethod(this, _MappingLines_instances, lineStarts_fn).call(this);
+  if (__privateGet(this, _states).length < starts.length * 4) {
+    const grown = new Int32Array(starts.length * 4);
+    grown.set(__privateGet(this, _states));
+    __privateSet(this, _states, grown);
+  }
+  const states = __privateGet(this, _states);
+  while (__privateGet(this, _knownLines) <= line) {
+    const previous = __privateGet(this, _knownLines) - 1;
+    const state2 = {
+      sourceIndex: states[previous * 4],
+      originalLine: states[previous * 4 + 1],
+      originalColumn: states[previous * 4 + 2],
+      nameIndex: states[previous * 4 + 3]
+    };
+    walkLine(__privateGet(this, _mappings), starts[previous], __privateMethod(this, _MappingLines_instances, lineEnd_fn).call(this, starts, previous), state2, __privateGet(this, _sourceCount), null);
+    const next = __privateGet(this, _knownLines) * 4;
+    states[next] = state2.sourceIndex;
+    states[next + 1] = state2.originalLine;
+    states[next + 2] = state2.originalColumn;
+    states[next + 3] = state2.nameIndex;
+    __privateSet(this, _knownLines, __privateGet(this, _knownLines) + 1);
+  }
+  return {
+    sourceIndex: states[line * 4],
+    originalLine: states[line * 4 + 1],
+    originalColumn: states[line * 4 + 2],
+    nameIndex: states[line * 4 + 3]
+  };
+};
 function resolveSources(raw) {
   if (!Array.isArray(raw.sources)) return null;
   const root = typeof raw.sourceRoot === "string" ? raw.sourceRoot : "";
@@ -98,7 +186,7 @@ function parseSourceMap(text) {
     sources,
     names,
     sourcesContent,
-    lines: decodeMappings(raw.mappings, sources.length),
+    lines: new MappingLines(raw.mappings, sources.length),
     offset: { line: 0, column: 0 }
   }];
 }
@@ -131,7 +219,7 @@ function mappingAt(maps, line, column) {
   for (const map of sectionsFor(maps, line, column)) {
     const localLine = line - map.offset.line;
     const localColumn = localLine === 1 ? column - map.offset.column : column;
-    const segments = map.lines[localLine - 1];
+    const segments = map.lines.at(localLine - 1);
     if (segments === void 0 || segments.length === 0) continue;
     const found = segmentAt(segments, localColumn - 1);
     if (found === void 0) continue;
@@ -190,7 +278,7 @@ function mappingsInRange(maps, start, end) {
       const line = localLine + map.offset.line;
       if (line < start.line) continue;
       if (line > end.line) break;
-      for (const segment of map.lines[localLine - 1]) {
+      for (const segment of map.lines.at(localLine - 1)) {
         const column = segment.generatedColumn + 1 + (localLine === 1 ? map.offset.column : 0);
         if (before(line, column, start)) continue;
         if (!before(line, column, end)) break;
@@ -317,18 +405,18 @@ async function fetchModuleFromPage(url) {
     if (timeout !== null) clearTimeout(timeout);
   }
 }
-const IDENTIFIER = "[A-Za-z_$][\\w$]*";
-const OWN_FUNCTION_NAME = new RegExp(`^(?:async\\s*)?function\\s*\\*?\\s*(${IDENTIFIER})\\s*\\(`);
-const OWN_CLASS_NAME = new RegExp(`^class\\s+(${IDENTIFIER})(?=[\\s{])`);
+const IDENTIFIER$1 = "[A-Za-z_$][\\w$]*";
+const OWN_FUNCTION_NAME = new RegExp(`^(?:async\\s*)?function\\s*\\*?\\s*(${IDENTIFIER$1})\\s*\\(`);
+const OWN_CLASS_NAME = new RegExp(`^class\\s+(${IDENTIFIER$1})(?=[\\s{])`);
 const AUTHORED_OWN_NAME = new RegExp(
-  `^(?:export\\s+(?:default\\s+)?)?(?:async\\s+)?(?:function\\s*\\*?\\s*|class\\s+)(${IDENTIFIER})`
+  `^(?:export\\s+(?:default\\s+)?)?(?:async\\s+)?(?:function\\s*\\*?\\s*|class\\s+)(${IDENTIFIER$1})`
 );
-const CALLEE = `(?:\\(\\s*0\\s*,\\s*${IDENTIFIER}(?:\\.${IDENTIFIER})*\\s*\\)|${IDENTIFIER}(?:\\.${IDENTIFIER})*)`;
-const GENERATED_BINDING = new RegExp(`(${IDENTIFIER})\\s*[=:]\\s*(?:${CALLEE}\\s*\\(\\s*)*$`);
+const CALLEE = `(?:\\(\\s*0\\s*,\\s*${IDENTIFIER$1}(?:\\.${IDENTIFIER$1})*\\s*\\)|${IDENTIFIER$1}(?:\\.${IDENTIFIER$1})*)`;
+const GENERATED_BINDING = new RegExp(`(${IDENTIFIER$1})\\s*[=:]\\s*(?:${CALLEE}\\s*\\(\\s*)*$`);
 const AUTHORED_BINDING = new RegExp(
-  `(?:^|[^\\w$.])(${IDENTIFIER})\\s*(?::[^=;{}()]*)?=\\s*(?:${CALLEE}\\s*(?:<[^()]*>)?\\s*\\(\\s*)*$`
+  `(?:^|[^\\w$.])(${IDENTIFIER$1})\\s*(?::[^=;{}()]*)?=\\s*(?:${CALLEE}\\s*(?:<[^()]*>)?\\s*\\(\\s*)*$`
 );
-const LEADING_IDENTIFIER = new RegExp(`^${IDENTIFIER}`);
+const LEADING_IDENTIFIER = new RegExp(`^${IDENTIFIER$1}`);
 const GENERATED_LOOKBACK = 160;
 const AUTHORED_LOOKBACK = 240;
 function lineStartsOf(text) {
@@ -1099,6 +1187,8 @@ function resolveFiberSource$1(fiber, resolver = pageResolver()) {
 const UNNAMED_COMPONENT = "Anonymous";
 function createRenderedNames(deps) {
   let unnamed = /* @__PURE__ */ new Set();
+  let renamed = /* @__PURE__ */ new Map();
+  let walkedThrough = -Infinity;
   function note(entry) {
     if (entry.name === UNNAMED_COMPONENT) unnamed.add(entry.sourceId);
   }
@@ -1110,33 +1200,69 @@ function createRenderedNames(deps) {
     }
     return Array.from(types);
   }
-  function refresh(byCommit) {
-    if (unnamed.size === 0) return 0;
-    const renamed = /* @__PURE__ */ new Map();
+  function namedSinceRecorded() {
+    const named = /* @__PURE__ */ new Map();
     for (const sourceId of unnamed) {
       const type = deps.typeOf(sourceId);
       if (type === null) continue;
       const name = deps.nameOf(type);
-      if (name !== UNNAMED_COMPONENT) renamed.set(sourceId, name);
+      if (name !== UNNAMED_COMPONENT) named.set(sourceId, name);
     }
-    if (renamed.size === 0) return 0;
+    return named;
+  }
+  function newlyRenamed() {
+    const fresh = /* @__PURE__ */ new Map();
+    for (const type of deps.types()) {
+      if (renamed.has(type)) continue;
+      const minifiedName = deps.minifiedNameOf(type);
+      if (!minifiedName) continue;
+      const rename = { name: deps.nameOf(type), minifiedName };
+      fresh.set(type, rename);
+      renamed.set(type, rename);
+    }
+    return fresh;
+  }
+  function refresh(byCommit) {
+    const anonymous = unnamed.size > 0 ? namedSinceRecorded() : /* @__PURE__ */ new Map();
+    const fresh = newlyRenamed();
+    if (anonymous.size === 0 && fresh.size === 0 && renamed.size === 0) return 0;
     let changed = 0;
-    for (const entries of Object.values(byCommit)) {
+    let latest = walkedThrough;
+    for (const [key, entries] of Object.entries(byCommit)) {
+      const commitId = Number(key);
+      if (commitId > latest) latest = commitId;
+      const recent = commitId > walkedThrough;
+      const table = recent ? renamed : fresh;
+      if (anonymous.size === 0 && table.size === 0) continue;
       for (const entry of entries) {
-        const name = renamed.get(entry.sourceId);
+        const name = anonymous.get(entry.sourceId);
         if (name !== void 0 && entry.name === UNNAMED_COMPONENT) {
           entry.name = name;
           changed += 1;
         }
+        if (table.size === 0) continue;
+        const type = deps.typeOf(entry.sourceId);
+        const rename = type === null ? void 0 : table.get(type);
+        if (rename && entry.minifiedName !== rename.minifiedName) {
+          entry.name = rename.name;
+          entry.minifiedName = rename.minifiedName;
+          changed += 1;
+        }
       }
     }
-    for (const sourceId of renamed.keys()) unnamed.delete(sourceId);
+    walkedThrough = latest;
+    for (const sourceId of anonymous.keys()) unnamed.delete(sourceId);
     return changed;
+  }
+  function renames() {
+    return Array.from(renamed.values());
   }
   function reset() {
     unnamed = /* @__PURE__ */ new Set();
+    renamed = /* @__PURE__ */ new Map();
+    walkedThrough = -Infinity;
   }
-  return { note, unnamedTypes, refresh, reset };
+  return { note, unnamedTypes, refresh, renames, reset };
 }
 const PerformedWork = 1;
 const Placement = 2;
@@ -1338,10 +1464,31 @@ function didFiberSelfUpdate(fiber) {
 function isDevelopment() {
   return false;
 }
+const MAX_SPANS = 200;
+const spans = [];
+function noteOwnWork(start, end, label = "") {
+  const from = Number(start);
+  const to = Number(end);
+  if (!Number.isFinite(from) || !Number.isFinite(to) || to < from) return;
+  spans.push({ start: Math.round(from * 10) / 10, end: Math.round(to * 10) / 10, label: String(label).slice(0, 60) });
+  if (spans.length > MAX_SPANS) spans.splice(0, spans.length - MAX_SPANS);
+}
+function ownWorkSince(since = -Infinity) {
+  return spans.filter((span) => span.end >= since);
+}
+function isOwnFrame(frame2, own) {
+  const scripts = frame2.scripts ?? [];
+  const pageScriptMs = scripts.reduce((sum, script) => sum + (script.chippy ? 0 : script.duration || 0), 0);
+  if (pageScriptMs * 2 >= frame2.duration) return false;
+  if (scripts.some((script) => script.chippy)) return true;
+  const from = frame2.startTime;
+  const to = frame2.startTime + frame2.duration;
+  return !!(own == null ? void 0 : own.some((span) => span.start < to && span.end > from));
+}
 const CS_RESTARTS = 2;
 const CS_UNMOUNTED_COMPONENTS = 8;
 const CS_UNMOUNTED_SUBTREES = 9;
-const MAX_DEPTH = 2;
+const MAX_DEPTH$1 = 2;
 const MAX_ENTRIES = 8;
 const MAX_STRING$1 = 200;
 function cut$1(text) {
@@ -1417,7 +1564,7 @@ function copy(value, depth, seen) {
   }
   if (marker !== null) return marker;
   if (Array.isArray(object)) {
-    if (depth >= MAX_DEPTH) return `[Array(${object.length})]`;
+    if (depth >= MAX_DEPTH$1) return `[Array(${object.length})]`;
     seen.add(object);
     const items = object.slice(0, MAX_ENTRIES).map((item) => {
       const next = copy(item, depth + 1, seen);
@@ -1434,7 +1581,7 @@ function copy(value, depth, seen) {
     return `[${constructorName(object)}]`;
   }
   const name = constructorName(object);
-  if (depth >= MAX_DEPTH) return `[${name}(${keys.length} keys)]`;
+  if (depth >= MAX_DEPTH$1) return `[${name}(${keys.length} keys)]`;
   seen.add(object);
   const out = {};
   for (const key of keys.slice(0, MAX_ENTRIES)) {
@@ -1757,6 +1904,7 @@ function buildReport(state2, thrashMode, topN, sortBy, options = {}, detectorCon
     renderedByCommit: state2.renderedByCommit,
     networkRequests: state2.networkRequests.slice(),
     ...state2.perfEntries && { perfEntries: state2.perfEntries.slice() },
+    ...ownWorkSince().length > 0 && { ownWork: ownWorkSince() },
     ...state2.screenByCommit && Object.keys(state2.screenByCommit).length > 0 && { screenByCommit: { ...state2.screenByCommit } },
     ...state2.domByCommit && Object.keys(state2.domByCommit).length > 0 && { domByCommit: { ...state2.domByCommit } },
     ...hasMetricsData && { metricsByCommit: state2.metricsByCommit },
@@ -1873,8 +2021,10 @@ function parseStackLine(line) {
   const name = (m[1] || "").trim();
   const locRaw = (m[2] || "").trim();
   const tail = locRaw.match(/:(\d+):(\d+)\)?$/);
-  const loc = tail ? `${tail[1]}:${tail[2]}` : locRaw;
-  return name ? { name, loc } : null;
+  if (!name) return null;
+  if (!tail) return { name, loc: locRaw };
+  const url = locRaw.slice(0, tail.index);
+  return url ? { name, loc: `${tail[1]}:${tail[2]}`, url } : { name, loc: `${tail[1]}:${tail[2]}` };
 }
 function parseStackFrames(stack) {
   return stack.split("\n").slice(1).map(parseStackLine).filter((f) => !!f);
@@ -2426,7 +2576,7 @@ const ALL_INTERACTION_EVENTS = [
   ...NOISY_INTERACTION_EVENTS
 ];
 const MAX_INTERACTION_ACTIONS = 200;
-function createInteractionCapture(options = {}) {
+function createInteractionCapture(options = {}, noteName) {
   const {
     interactionCapture = "explicit",
     interactionEvents = [],
@@ -2477,6 +2627,13 @@ function createInteractionCapture(options = {}) {
     const fiber = nearestComponentFiber(target);
     const describedTarget = describeFiberTarget(fiber, domTarget);
     const describedComponent = describeComponent(fiber);
+    if (describedComponent && fiber && noteName) {
+      if (describedComponent.name) noteName(describedComponent.name, fiber.type);
+      const owners = getOwnerChainFibers(fiber).fibers;
+      describedComponent.owners.forEach((owner2, index) => {
+        if (owner2.name && owners[index]) noteName(owner2.name, owners[index].type);
+      });
+    }
     return {
       dom: {
         tag: (describedTarget == null ? void 0 : describedTarget.domTag) || null,
@@ -2692,7 +2849,7 @@ function hostFiberOf(element) {
   }
   return null;
 }
-function describeNodeOwner(node) {
+function describeNodeOwner(node, nameOf = getComponentName) {
   var _a2, _b2;
   const element = elementOf(node);
   if (!element) return null;
@@ -2700,7 +2857,7 @@ function describeNodeOwner(node) {
   for (let depth = 0; fiber && !isComponentFiber$1(fiber.tag) && depth < MAX_ANCESTORS; depth += 1) fiber = fiber.return ?? null;
   let component = null;
   try {
-    component = fiber && isComponentFiber$1(fiber.tag) ? getComponentName(fiber) : null;
+    component = fiber && isComponentFiber$1(fiber.tag) ? nameOf(fiber) : null;
   } catch {
     component = null;
   }
@@ -2741,9 +2898,9 @@ function detailOf(value) {
 function rectOf(rect) {
   return rect ? [round$6(rect.x), round$6(rect.y), round$6(rect.width), round$6(rect.height)] : null;
 }
-function owner(node) {
+function owner(node, nameOf) {
   try {
-    return describeNodeOwner(node);
+    return describeNodeOwner(node, nameOf);
   } catch {
     return null;
   }
@@ -2764,7 +2921,7 @@ function scriptsOf(raw) {
     };
   });
 }
-function shapePerfEntry(raw) {
+function shapePerfEntry(raw, nameOf) {
   if (!raw || typeof raw.startTime !== "number") return null;
   const entryType = String(raw.entryType || "");
   const base = { entryType, name: cut(String(raw.name ?? "")), startTime: round$6(raw.startTime), duration: round$6(raw.duration) };
@@ -2786,7 +2943,7 @@ function shapePerfEntry(raw) {
         value: Math.round(Number(raw.value || 0) * 1e4) / 1e4,
         hadRecentInput: !!raw.hadRecentInput,
         sources: (Array.isArray(raw.sources) ? raw.sources : []).slice(0, MAX_SHIFT_SOURCES).map((s) => ({
-          ...owner(s == null ? void 0 : s.node) ?? { element: null, testId: null, component: null },
+          ...owner(s == null ? void 0 : s.node, nameOf) ?? { element: null, testId: null, component: null },
           previousRect: rectOf(s == null ? void 0 : s.previousRect),
           currentRect: rectOf(s == null ? void 0 : s.currentRect)
         }))
@@ -2798,7 +2955,7 @@ function shapePerfEntry(raw) {
         inputDelay: round$6(raw.processingStart - raw.startTime),
         processing: round$6(raw.processingEnd - raw.processingStart),
         presentationDelay: round$6(raw.startTime + (raw.duration ?? 0) - raw.processingEnd),
-        target: owner(raw.target)
+        target: owner(raw.target, nameOf)
       };
     case "largest-contentful-paint":
       return {
@@ -2807,7 +2964,7 @@ function shapePerfEntry(raw) {
         loadTime: round$6(raw.loadTime),
         size: Number(raw.size) || 0,
         url: typeof raw.url === "string" && raw.url ? cut(raw.url) : null,
-        element: owner(raw.element)
+        element: owner(raw.element, nameOf)
       };
     case "navigation":
       return {
@@ -2825,7 +2982,7 @@ function shapePerfEntry(raw) {
       return null;
   }
 }
-function createPerfCapture(options = {}) {
+function createPerfCapture(options = {}, nameOf) {
   const enabled = options.perfCapture !== false;
   const limit = Math.max(1, Math.floor(Number(options.maxPerfEntries) || DEFAULT_MAX_PERF_ENTRIES_PER_TYPE));
   const entries = [];
@@ -2861,7 +3018,7 @@ function createPerfCapture(options = {}) {
     if (end < windowStart) return;
     if (pausedAt !== null && entry.startTime >= pausedAt) return;
     if (entry.entryType === "event" && !entry.interactionId && (entry.duration ?? 0) < NON_INTERACTION_EVENT_MIN_MS) return;
-    const shaped = shapePerfEntry(entry);
+    const shaped = shapePerfEntry(entry, nameOf);
     if (!shaped) return;
     entries.push({ id: nextId++, ...shaped });
     kept.set(shaped.entryType, (kept.get(shaped.entryType) ?? 0) + 1);
@@ -3326,13 +3483,13 @@ function findChangedHosts(root, options = {}) {
   }
   return { found, truncated };
 }
-function regionLabel(node, fiber) {
+function regionLabel(node, fiber, nameOf) {
   var _a2, _b2, _c2;
   const element = node.nodeType === 1 ? node : node.parentElement;
   const testId = (_b2 = (_a2 = element == null ? void 0 : element.closest) == null ? void 0 : _a2.call(element, "[data-testid]")) == null ? void 0 : _b2.getAttribute("data-testid");
   if (testId) return testId;
   for (let f = fiber.return; f; f = f.return) {
-    if (isComponentFiber$1(f.tag)) return getComponentName(f);
+    if (isComponentFiber$1(f.tag)) return nameOf(f);
   }
   return ((_c2 = element == null ? void 0 : element.tagName) == null ? void 0 : _c2.toLowerCase()) || "unknown";
 }
@@ -3364,7 +3521,7 @@ function measureVisible(node, geometry) {
   }
   return out;
 }
-function createScreenCapture(options = {}, geometry = domScreenGeometry) {
+function createScreenCapture(options = {}, geometry = domScreenGeometry, nameOf = getComponentName) {
   const enabled = options.screenCapture !== false && typeof document !== "undefined" && typeof window !== "undefined";
   const byCommit = {};
   let lastRects = /* @__PURE__ */ new WeakMap();
@@ -3394,7 +3551,7 @@ function createScreenCapture(options = {}, geometry = domScreenGeometry) {
         const area2 = rectArea(clipped);
         (isRemoved ? removed : changed).add(clipped);
         rects.push({ rect: clipped, area: area2 });
-        const label = regionLabel(measured, fiber);
+        const label = regionLabel(measured, fiber, nameOf);
         regions.set(label, (regions.get(label) || 0) + area2);
       }
     }
@@ -3506,11 +3663,11 @@ function formatValue(value) {
     return "[object]";
   }
 }
-function isElement(node) {
+function isElement$1(node) {
   return node.nodeType === 1;
 }
 function describeNode(node) {
-  if (!isElement(node)) {
+  if (!isElement$1(node)) {
     const parent = node.parentElement;
     return parent ? describeNode(parent) + " #text" : "#text";
   }
@@ -3522,7 +3679,7 @@ function describeNode(node) {
   return role ? `${tag}[role=${role}]` : tag;
 }
 function textHint(node) {
-  if (!isElement(node)) return (node.nodeValue || "").replace(/\s+/g, " ").trim();
+  if (!isElement$1(node)) return (node.nodeValue || "").replace(/\s+/g, " ").trim();
   const doc = node.ownerDocument;
   if (!(doc == null ? void 0 : doc.createTreeWalker)) return "";
   const walker = doc.createTreeWalker(
@@ -3538,7 +3695,7 @@ function textHint(node) {
   return clip(out.replace(/\s+/g, " ").trim(), MAX_TEXT_HINT);
 }
 function countElements(node, cap = MAX_ELEMENT_COUNT) {
-  if (!isElement(node)) return 0;
+  if (!isElement$1(node)) return 0;
   const doc = node.ownerDocument;
   if (!(doc == null ? void 0 : doc.createTreeWalker)) return 1;
   const walker = doc.createTreeWalker(
@@ -3551,7 +3708,7 @@ function countElements(node, cap = MAX_ELEMENT_COUNT) {
   return count;
 }
 function markup(node) {
-  if (!isElement(node)) return clip(JSON.stringify(textHint(node)), MAX_MARKUP);
+  if (!isElement$1(node)) return clip(JSON.stringify(textHint(node)), MAX_MARKUP);
   const tag = node.tagName.toLowerCase();
   let open = "<" + tag;
   for (const attr of Array.from(node.attributes)) {
@@ -3561,7 +3718,7 @@ function markup(node) {
   if (VOID_TAGS.has(tag)) return clip(open, MAX_MARKUP);
   return clip(open + textHint(node), MAX_MARKUP - tag.length - 3) + `</${tag}>`;
 }
-function anchorOf(fiber, parent) {
+function anchorOf(fiber, parent, nameOf = getComponentName) {
   const names = [];
   let f = fiber.return;
   let resumed = false;
@@ -3572,7 +3729,7 @@ function anchorOf(fiber, parent) {
       resumed = true;
       continue;
     }
-    if (isComponentFiber$1(f.tag)) names.push(getComponentName(f));
+    if (isComponentFiber$1(f.tag)) names.push(nameOf(f));
     f = f.return;
   }
   return names.length ? names.reverse().join(" › ") : "(root)";
@@ -3590,24 +3747,24 @@ function propChanges(found) {
   });
   return out;
 }
-function toDomChange(found) {
+function toDomChange(found, nameOf = getComponentName) {
   const op = OPS[found.kind];
-  const base = { op, node: describeNode(found.node), at: anchorOf(found.fiber, found.parent) };
+  const base = { op, node: describeNode(found.node), at: anchorOf(found.fiber, found.parent, nameOf) };
   if (op === "~") return { ...base, props: propChanges(found) };
   return { ...base, html: markup(found.node), elements: countElements(found.node) };
 }
-function diffCommit(root, limit = MAX_DOM_CHANGES_PER_COMMIT) {
+function diffCommit(root, limit = MAX_DOM_CHANGES_PER_COMMIT, nameOf = getComponentName) {
   const { found, truncated } = findChangedHosts(root, { limit, descendUpdated: true, detectMoves: true });
-  return { changes: found.map(toDomChange), truncated };
+  return { changes: found.map((item) => toDomChange(item, nameOf)), truncated };
 }
-function createDomDiffCapture(options = {}, now = () => performance.now()) {
+function createDomDiffCapture(options = {}, now = () => performance.now(), nameOf = getComponentName) {
   const enabled = options.domDiff !== false && typeof document !== "undefined";
   const byCommit = {};
   const store = createCommitBudgetStore(byCommit, options.maxDomChanges ?? DEFAULT_MAX_DOM_CHANGES, (diff) => diff.changes.length, DEFAULT_MAX_DOM_CHANGES);
   function record(commitId, root) {
     if (!enabled) return;
     const started = now();
-    const { changes, truncated } = diffCommit(root);
+    const { changes, truncated } = diffCommit(root, MAX_DOM_CHANGES_PER_COMMIT, nameOf);
     if (changes.length === 0) return;
     store.add(commitId, {
       changes,
@@ -3706,7 +3863,7 @@ function nameOfType(type) {
   }
   return null;
 }
-function entryFor(owner2, via) {
+function entryFor(owner2, via, nameOf) {
   if (!owner2 || typeof owner2 !== "object") return null;
   const fiber = owner2;
   if (typeof fiber.tag === "number") {
@@ -3714,7 +3871,7 @@ function entryFor(owner2, via) {
     const props2 = pickLocationProps(fiber.memoizedProps);
     return {
       via,
-      name: getComponentName(fiber),
+      name: nameOf(fiber),
       ...source && { source: { fileName: source.fileName, lineNumber: source.lineNumber } },
       ...props2 && { props: props2 }
     };
@@ -3729,7 +3886,7 @@ function nextOwner(owner2) {
   const value = owner2;
   return typeof value.tag === "number" ? value._debugOwner ?? null : value.owner ?? null;
 }
-function describeSuspenseLocation(boundary, parents = LOCATION_PARENTS, owners = LOCATION_OWNERS) {
+function describeSuspenseLocation(boundary, parents = LOCATION_PARENTS, owners = LOCATION_OWNERS, nameOf = getComponentName, noteName) {
   const fiber = boundary;
   const chain = [];
   const listed = /* @__PURE__ */ new Map();
@@ -3740,7 +3897,7 @@ function describeSuspenseLocation(boundary, parents = LOCATION_PARENTS, owners =
   };
   for (let f = fiber.return, n = 0; f && n < parents; f = f.return) {
     if (!isComponentFiber$1(f.tag)) continue;
-    const entry = entryFor(f, "parent");
+    const entry = entryFor(f, "parent", nameOf);
     if (!entry) continue;
     chain.push(entry);
     remember(f, entry);
@@ -3753,7 +3910,7 @@ function describeSuspenseLocation(boundary, parents = LOCATION_PARENTS, owners =
       n++;
       continue;
     }
-    const entry = entryFor(o, "owner");
+    const entry = entryFor(o, "owner", nameOf);
     if (!entry) continue;
     chain.push(entry);
     remember(o, entry);
@@ -3761,7 +3918,9 @@ function describeSuspenseLocation(boundary, parents = LOCATION_PARENTS, owners =
   }
   const props = fiber.memoizedProps || {};
   const name = typeof props.name === "string" ? props.name : typeof fiber.key === "string" ? fiber.key : void 0;
-  const fallback = props.fallback && typeof props.fallback === "object" ? nameOfType(props.fallback.type) : null;
+  const fallbackType = props.fallback && typeof props.fallback === "object" ? props.fallback.type : null;
+  const fallback = fallbackType ? nameOfType(fallbackType) : null;
+  if (fallback && noteName) noteName(fallback, fallbackType);
   return { ...name && { name }, ...fallback && { fallback }, chain };
 }
 function entryKey(entry) {
@@ -4010,6 +4169,115 @@ function createRenderTickTracker(options = {}) {
     }
   };
 }
+function createNameLedger(deps) {
+  let written = /* @__PURE__ */ new Map();
+  let renamed = /* @__PURE__ */ new Map();
+  function note(name, type) {
+    let types2 = written.get(name);
+    if (!types2) {
+      types2 = /* @__PURE__ */ new Set();
+      written.set(name, types2);
+    }
+    types2.add(type);
+  }
+  function nameOf(fiber) {
+    const name = deps.componentName(fiber);
+    note(name, deps.typeOf(fiber));
+    return name;
+  }
+  function types(names) {
+    const out = /* @__PURE__ */ new Set();
+    const add = (set) => set == null ? void 0 : set.forEach((type) => out.add(type));
+    if (names === void 0) written.forEach(add);
+    else for (const name of names) add(written.get(name));
+    return Array.from(out);
+  }
+  function update() {
+    const fresh = /* @__PURE__ */ new Map();
+    for (const [name, types2] of written) {
+      if (renamed.has(name)) continue;
+      let authored = null;
+      for (const type of types2) {
+        const candidate = deps.minifiedNameOf(type) === name ? deps.nameOf(type) : null;
+        if (candidate === null || authored !== null && candidate !== authored) {
+          authored = null;
+          break;
+        }
+        authored = candidate;
+      }
+      if (authored !== null && authored !== name) {
+        fresh.set(name, authored);
+        renamed.set(name, authored);
+      }
+    }
+    return fresh;
+  }
+  function renames() {
+    const out = /* @__PURE__ */ new Map();
+    for (const [minifiedName, types2] of written) {
+      for (const type of types2) {
+        if (deps.minifiedNameOf(type) !== minifiedName) continue;
+        const name = deps.nameOf(type);
+        out.set(`${minifiedName}\0${name}`, { name, minifiedName });
+      }
+    }
+    return Array.from(out.values());
+  }
+  function reset() {
+    written = /* @__PURE__ */ new Map();
+    renamed = /* @__PURE__ */ new Map();
+  }
+  return { note, nameOf, types, update, renames, reset };
+}
+const ANCHOR_SEPARATOR = " › ";
+function applyRecordedRenames(targets, table) {
+  var _a2, _b2, _c2;
+  if (table.size === 0) return 0;
+  let changed = 0;
+  const rename = (name) => {
+    const authored = table.get(name);
+    if (authored === void 0) return name;
+    changed += 1;
+    return authored;
+  };
+  const renameNamed = (item) => {
+    if (item && typeof item.name === "string") item.name = rename(item.name);
+  };
+  const renameOwner = (owner2) => {
+    if (owner2 && typeof owner2.component === "string") owner2.component = rename(owner2.component);
+  };
+  for (const diff of Object.values(targets.domByCommit ?? {})) {
+    for (const change of diff.changes) {
+      if (!change.at.includes(ANCHOR_SEPARATOR) && !table.has(change.at)) continue;
+      change.at = change.at.split(ANCHOR_SEPARATOR).map(rename).join(ANCHOR_SEPARATOR);
+    }
+  }
+  for (const events of Object.values(targets.suspenseByCommit ?? {})) {
+    for (const event of events) {
+      const location = event.location;
+      if (!location) continue;
+      if (location.fallback) location.fallback = rename(location.fallback);
+      location.chain.forEach(renameNamed);
+    }
+  }
+  for (const screen of Object.values(targets.screenByCommit ?? {})) {
+    for (const region of screen.regions) region.label = rename(region.label);
+  }
+  for (const entry of targets.perfEntries ?? []) {
+    (_a2 = entry.sources) == null ? void 0 : _a2.forEach(renameOwner);
+    renameOwner(entry.target);
+    renameOwner(entry.element);
+  }
+  for (const samples of targets.unmountSamples ?? []) samples == null ? void 0 : samples.forEach(renameNamed);
+  const seenLocations = /* @__PURE__ */ new Set();
+  for (const location of targets.interactionLocations ?? []) {
+    if (!location || seenLocations.has(location)) continue;
+    seenLocations.add(location);
+    renameNamed(location.targetFiber);
+    (_c2 = (_b2 = location.targetFiber) == null ? void 0 : _b2.ownerStack) == null ? void 0 : _c2.forEach(renameNamed);
+  }
+  return changed;
+}
 const MAX_STRING = 64;
 const MAX_KEYS = 5;
 const MAX_ITEMS$1 = 3;
@@ -4076,6 +4344,105 @@ function elementName(value) {
     if (typeof named === "string" && named) return named;
   }
   return "Anonymous";
+}
+const MAX_LISTED_KEYS = 8;
+const MAX_COMPARED_KEYS = 1e3;
+const hasOwn = Object.prototype.hasOwnProperty;
+function isPlainObject(value) {
+  if ("$$typeof" in value) return false;
+  const proto = Object.getPrototypeOf(value);
+  return proto === null || Object.getPrototypeOf(proto) === null;
+}
+function sameKeyOrder(a, b) {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
+  return true;
+}
+function isScalar(value) {
+  return value === null || typeof value !== "object" && typeof value !== "function";
+}
+function createPropKeyDiffer(summarize2) {
+  const byCurrent = /* @__PURE__ */ new WeakMap();
+  function change(key, prevValue, currentValue, missing) {
+    if (missing === "prev") return { key, kind: "added", current: summarize2(currentValue) };
+    if (missing === "current") return { key, kind: "removed", prev: summarize2(prevValue) };
+    if (isScalar(prevValue) && isScalar(currentValue)) {
+      return { key, kind: "scalar-changed", prev: summarize2(prevValue), current: summarize2(currentValue) };
+    }
+    return { key, kind: "ref-changed" };
+  }
+  function finish2(changed, count) {
+    if (count === 0) return { sameShallow: true, changedKeys: changed, changedKeyCount: 0 };
+    return count > changed.length ? { changedKeys: changed, changedKeyCount: count, changedKeysTruncated: true } : { changedKeys: changed, changedKeyCount: count };
+  }
+  function diffArrays(prev, current) {
+    const length = Math.max(prev.length, current.length);
+    if (length > MAX_COMPARED_KEYS) return { keysNotCompared: length };
+    const changed = [];
+    let count = 0;
+    for (let i = 0; i < length; i++) {
+      const inPrev = i < prev.length;
+      const inCurrent = i < current.length;
+      if (inPrev && inCurrent && Object.is(prev[i], current[i])) continue;
+      count++;
+      if (changed.length < MAX_LISTED_KEYS) {
+        changed.push(change(String(i), prev[i], current[i], inPrev ? inCurrent ? null : "current" : "prev"));
+      }
+    }
+    return finish2(changed, count);
+  }
+  function diffObjects(prev, current) {
+    const prevKeys = Object.keys(prev);
+    const currentKeys = Object.keys(current);
+    const keys = Math.max(prevKeys.length, currentKeys.length);
+    if (keys > MAX_COMPARED_KEYS) return { keysNotCompared: keys };
+    const changed = [];
+    let count = 0;
+    if (sameKeyOrder(prevKeys, currentKeys)) {
+      const prevValues = Object.values(prev);
+      const currentValues = Object.values(current);
+      for (let i = 0; i < prevValues.length; i++) {
+        if (Object.is(prevValues[i], currentValues[i])) continue;
+        count++;
+        if (changed.length < MAX_LISTED_KEYS) changed.push(change(prevKeys[i], prevValues[i], currentValues[i], null));
+      }
+      return finish2(changed, count);
+    }
+    let removed = 0;
+    for (let i = 0; i < prevKeys.length; i++) {
+      const key = prevKeys[i];
+      const inCurrent = hasOwn.call(current, key);
+      if (inCurrent && Object.is(prev[key], current[key])) continue;
+      count++;
+      if (!inCurrent) removed++;
+      if (changed.length < MAX_LISTED_KEYS) changed.push(change(key, prev[key], current[key], inCurrent ? null : "current"));
+    }
+    if (currentKeys.length > prevKeys.length - removed) {
+      for (let i = 0; i < currentKeys.length; i++) {
+        const key = currentKeys[i];
+        if (hasOwn.call(prev, key)) continue;
+        count++;
+        if (changed.length < MAX_LISTED_KEYS) changed.push(change(key, void 0, current[key], "prev"));
+      }
+    }
+    return finish2(changed, count);
+  }
+  return (prev, current) => {
+    if (!prev || !current || typeof prev !== "object" || typeof current !== "object" || prev === current) return null;
+    const prevIsArray = Array.isArray(prev);
+    if (prevIsArray !== Array.isArray(current)) return null;
+    if (!prevIsArray && (!isPlainObject(prev) || !isPlainObject(current))) return null;
+    const cached = byCurrent.get(current);
+    if (cached && cached.prev === prev) return cached.diff;
+    let diff;
+    try {
+      diff = prevIsArray ? diffArrays(prev, current) : diffObjects(prev, current);
+    } catch {
+      return null;
+    }
+    byCurrent.set(current, { prev, diff });
+    return diff;
+  };
 }
 var __defProp$1 = Object.defineProperty;
 var __defNormalProp$1 = (obj, key, value) => key in obj ? __defProp$1(obj, key, { enumerable: true, configurable: true, writable: true, value }) : obj[key] = value;
@@ -4168,6 +4535,10 @@ function createAvalancheDetector(options = {}) {
       const typeId = Number(sourceId.slice(1, sourceId.indexOf("#")));
       return this.idToType.get(typeId) ?? null;
     }
+    /** Every component type given a source id since the last clear. */
+    types() {
+      return this.idToType.values();
+    }
     clear() {
       this.idMap = /* @__PURE__ */ new WeakMap();
       this.instanceCounters.clear();
@@ -4177,17 +4548,26 @@ function createAvalancheDetector(options = {}) {
     }
   }
   const sourceIdManager = new StableSourceIdManager();
+  const nameOfType2 = (type) => getComponentName({ type });
   const renderedNames = createRenderedNames({
     typeOf: (sourceId) => sourceIdManager.typeOf(sourceId),
-    // eslint-disable-next-line @typescript-eslint/consistent-type-assertions
-    nameOf: (type) => getComponentName({ type })
+    types: () => sourceIdManager.types(),
+    nameOf: nameOfType2,
+    minifiedNameOf: minifiedComponentName
   });
+  const recordedNames = createNameLedger({
+    componentName: getComponentName,
+    typeOf: (fiber) => fiber.type,
+    nameOf: nameOfType2,
+    minifiedNameOf: minifiedComponentName
+  });
+  const noteRecordedName = (name, type) => recordedNames.note(name, type);
   const debugRender = createDebugRender();
-  const interactionCapture = createInteractionCapture(options);
+  const interactionCapture = createInteractionCapture(options, noteRecordedName);
   const networkCapture = createNetworkCapture(options);
-  const perfCapture = createPerfCapture(options);
-  const screenCapture = createScreenCapture(options);
-  const domDiff = createDomDiffCapture(options);
+  const perfCapture = createPerfCapture(options, recordedNames.nameOf);
+  const screenCapture = createScreenCapture(options, void 0, recordedNames.nameOf);
+  const domDiff = createDomDiffCapture(options, void 0, recordedNames.nameOf);
   const hookRunner = createAvalancheHookRunner();
   const paintTracker = createPaintTracker((ids, paintAt) => {
     for (const id of ids) {
@@ -4296,16 +4676,17 @@ function createAvalancheDetector(options = {}) {
     return null;
   }
   const summarizePropValue = createPropSummarizer();
+  const diffPropKeys = enableSourceTracking ? createPropKeyDiffer(summarizePropValue) : null;
   function diffProps(prevProps, currentProps) {
     const changes = [];
     if (prevProps === currentProps) return changes;
     const prev = prevProps && typeof prevProps === "object" ? prevProps : {};
     const current = currentProps && typeof currentProps === "object" ? currentProps : {};
-    const hasOwn = Object.prototype.hasOwnProperty;
+    const hasOwn2 = Object.prototype.hasOwnProperty;
     for (const name in prev) {
-      if (!hasOwn.call(prev, name)) continue;
+      if (!hasOwn2.call(prev, name)) continue;
       const prevValue = prev[name];
-      if (!hasOwn.call(current, name)) {
+      if (!hasOwn2.call(current, name)) {
         changes.push({ name, kind: "removed", prev: summarizePropValue(prevValue) });
         continue;
       }
@@ -4314,10 +4695,16 @@ function createAvalancheDetector(options = {}) {
       const isRef = prevValue !== null && currentValue !== null && (typeof prevValue === "object" || typeof prevValue === "function" || typeof currentValue === "object" || typeof currentValue === "function");
       const currentSummary = summarizePropValue(currentValue);
       const prevSummary = typeof prevValue === "function" && typeof currentValue === "function" && prevValue.name === currentValue.name ? currentSummary : summarizePropValue(prevValue);
-      changes.push(isRef ? prevSummary === currentSummary ? { name, kind: "ref-changed", current: currentSummary } : { name, kind: "ref-changed", prev: prevSummary, current: currentSummary } : { name, kind: "scalar-changed", prev: prevSummary, current: currentSummary });
+      if (!isRef) {
+        changes.push({ name, kind: "scalar-changed", prev: prevSummary, current: currentSummary });
+        continue;
+      }
+      const refChange = prevSummary === currentSummary ? { name, kind: "ref-changed", current: currentSummary } : { name, kind: "ref-changed", prev: prevSummary, current: currentSummary };
+      const keyDiff = diffPropKeys == null ? void 0 : diffPropKeys(prevValue, currentValue);
+      changes.push(keyDiff ? Object.assign(refChange, keyDiff) : refChange);
     }
     for (const name in current) {
-      if (!hasOwn.call(current, name) || hasOwn.call(prev, name)) continue;
+      if (!hasOwn2.call(current, name) || hasOwn2.call(prev, name)) continue;
       changes.push({ name, kind: "added", current: summarizePropValue(current[name]) });
     }
     return changes;
@@ -4412,7 +4799,7 @@ function createAvalancheDetector(options = {}) {
                 if (perCommit.unmountSamples.length < 30) {
                   const fiberKey = df.key;
                   const sample = {
-                    name: getComponentName(df),
+                    name: recordedNames.nameOf(df),
                     key: fiberKey == null ? null : String(fiberKey),
                     depth: branchStartDepth,
                     count: 1,
@@ -4454,7 +4841,7 @@ function createAvalancheDetector(options = {}) {
               const counts = countUnmountedComponentSubtree(deleted);
               const fiberKey = labelFiber2.key;
               perCommit.unmountSamples.push({
-                name: getComponentName(labelFiber2),
+                name: recordedNames.nameOf(labelFiber2),
                 key: fiberKey == null ? null : String(fiberKey),
                 depth,
                 count: counts.components,
@@ -4479,7 +4866,7 @@ function createAvalancheDetector(options = {}) {
             boundary: boundaryId(fiber),
             entered: suspenseChange.entered,
             left: suspenseChange.left,
-            location: describeSuspenseLocation(fiber),
+            location: describeSuspenseLocation(fiber, void 0, void 0, recordedNames.nameOf, noteRecordedName),
             ...captureFibers && { fiber }
           };
           perCommit.suspenseEvents.push(event);
@@ -4892,6 +5279,29 @@ function createAvalancheDetector(options = {}) {
     renderTicks.reset();
     sourceIdManager.clear();
     renderedNames.reset();
+    recordedNames.reset();
+  }
+  function refreshComponentNames() {
+    renderedNames.refresh(state2.renderedByCommit);
+    applyRecordedRenames(
+      {
+        domByCommit: state2.domByCommit,
+        suspenseByCommit: state2.suspenseByCommit,
+        screenByCommit: state2.screenByCommit,
+        perfEntries: state2.perfEntries,
+        unmountSamples: [...Object.values(state2.unmountsByCommit), pendingDevtoolsUnmountSamples],
+        interactionLocations: [
+          ...interactionCapture.state.actions,
+          ...Object.values(interactionCapture.state.byCommit).flat()
+        ].map((action) => action.location)
+      },
+      recordedNames.update()
+    );
+    const all = /* @__PURE__ */ new Map();
+    for (const rename of [...renderedNames.renames(), ...recordedNames.renames()]) {
+      all.set(`${rename.minifiedName}\0${rename.name}`, rename);
+    }
+    return Array.from(all.values());
   }
   const commitSurface = createCommitSurfaceOwnership();
   const renderTicks = createRenderTickTracker();
@@ -5147,7 +5557,7 @@ function createAvalancheDetector(options = {}) {
           if (labelFiber2) {
             const fiberKey = labelFiber2.key;
             pendingDevtoolsUnmountSamples.push({
-              name: getComponentName(labelFiber2),
+              name: recordedNames.nameOf(labelFiber2),
               key: fiberKey == null ? null : String(fiberKey),
               depth: null,
               count: counts.components,
@@ -5315,6 +5725,22 @@ function createAvalancheDetector(options = {}) {
       return renderedNames.unnamedTypes();
     },
     /**
+     * Component types the capture named with any of `names`, or every type it
+     * named when omitted: types with a source id whose current name matches,
+     * and types whose names were stored as text (DOM anchors, Suspense
+     * locations, regions, perf owners, unmount samples, interaction targets;
+     * see recorded-names.ts).
+     * Lets callers recover names for the components a result mentions by name.
+     */
+    componentTypesNamed(names) {
+      const wanted = names === void 0 ? null : new Set(names);
+      const types = new Set(recordedNames.types(wanted ?? void 0));
+      for (const type of sourceIdManager.types()) {
+        if (!wanted || wanted.has(nameOfType2(type))) types.add(type);
+      }
+      return Array.from(types);
+    },
+    /**
      * Generate a report of top update sources and thrashing components.
      * @param topN - Number of top sources to include (default: 10)
      * @param sortBy - Sort thrashers by 'effect', 'callback', 'memo', or 'total' (default: 'effect')
@@ -5324,7 +5750,7 @@ function createAvalancheDetector(options = {}) {
     report(topN = 10, sortBy = "effect", reportOptions) {
       networkCapture.flush();
       perfCapture.flush();
-      renderedNames.refresh(state2.renderedByCommit);
+      const componentNames = refreshComponentNames();
       const report = buildReport(state2, thrashMode, topN, sortBy, reportOptions, {
         effectThrashMode,
         captureFibers,
@@ -5338,6 +5764,7 @@ function createAvalancheDetector(options = {}) {
         ...domDiff.enabled && { domDiff: domDiff.status() },
         capture: captureStatus()
       });
+      if (componentNames.length > 0) report.meta.componentNames = componentNames;
       const hooks = hookRunner.collect();
       if (hooks) report.hooks = hooks;
       return report;
@@ -5443,6 +5870,10 @@ function createAvalancheDetector(options = {}) {
      */
     getIntegrationMode() {
       return integrationMode;
+    },
+    /** Detection level this detector records at: `stats`, `sources`, `amplifierMetrics`, `amplifiers`, or `full`. */
+    getDetectionLevel() {
+      return detectionLevel ?? null;
     },
     /** Id of the commit metrics adapter resolved on install, or null. */
     getMetricsAdapterId() {
@@ -7138,6 +7569,51 @@ function evalDescribeComponent(fiberIdRaw, nameRaw, deps) {
     replayErrorDetails: replayErrorDetails || void 0
   };
 }
+const MAX_TOKENS = 5e3;
+const MAX_TOKEN_LENGTH = 80;
+const MAX_DEPTH = 12;
+const SEPARATORS = /[^\w$]+/;
+const IDENTIFIER = /^[A-Za-z_$][\w$]*$/;
+const RENAME_TABLE_KEY = "componentNames";
+function nameTokensIn(value, limit = MAX_TOKENS) {
+  const found = /* @__PURE__ */ new Set();
+  const seen = /* @__PURE__ */ new Set();
+  const addWords = (text) => {
+    for (const word of text.split(SEPARATORS)) {
+      if (found.size >= limit) return;
+      if (word.length <= MAX_TOKEN_LENGTH && IDENTIFIER.test(word)) found.add(word);
+    }
+  };
+  const visit = (node, depth) => {
+    if (found.size >= limit) return;
+    if (typeof node === "string") {
+      addWords(node);
+      return;
+    }
+    if (!node || typeof node !== "object" || depth > MAX_DEPTH || seen.has(node)) return;
+    seen.add(node);
+    if (Array.isArray(node)) {
+      for (const item of node) visit(item, depth + 1);
+      return;
+    }
+    for (const [key, item] of Object.entries(node)) {
+      if (key === RENAME_TABLE_KEY) continue;
+      addWords(key);
+      visit(item, depth + 1);
+    }
+  };
+  visit(value, 0);
+  return found;
+}
+function isRename(value) {
+  const rename = value;
+  return !!rename && typeof rename.name === "string" && typeof rename.minifiedName === "string";
+}
+function componentNamesIn(value, renames) {
+  if (!Array.isArray(renames) || renames.length === 0) return [];
+  const tokens = nameTokensIn(value);
+  return renames.filter((rename) => isRename(rename) && tokens.has(rename.name));
+}
 const DEFAULT_NETWORK_WINDOW_MS = 250;
 const NETWORK_SORT_KEYS = ["start", "end", "duration"];
 const round$4 = (value) => Math.round(value * 10) / 10;
@@ -7482,7 +7958,7 @@ function buildTimeline(report, options = {}) {
   const drawable = inWindow.filter((r) => r.duration >= minRequestMs);
   const kept = [...drawable].sort((a, b) => b.duration - a.duration).slice(0, options.maxRequests ?? 30).sort((a, b) => a.startTime - b.startTime);
   const network = kept.map(toRequest);
-  const perfLane = perfLaneOf(report.perfEntries ?? [], origin, windowEnd, ids.map((id) => ({ id, start: startOf(id) })), rel, options.maxMarks ?? 40);
+  const perfLane = perfLaneOf(report.perfEntries ?? [], report.ownWork, origin, windowEnd, ids.map((id) => ({ id, start: startOf(id) })), rel, options.maxMarks ?? 40);
   const boundaryKey = (event) => typeof event.boundary === "number" ? "b" + event.boundary : "@" + Number(event.depth);
   const open = /* @__PURE__ */ new Map();
   const suspense = [];
@@ -7606,7 +8082,7 @@ function buildTimeline(report, options = {}) {
 }
 const SHIFT_MIN = 1e-3;
 const EVENT_MIN_MS = 50;
-function perfLaneOf(entries, origin, windowEnd, commitStarts2, rel, maxMarks) {
+function perfLaneOf(entries, ownWork, origin, windowEnd, commitStarts2, rel, maxMarks) {
   var _a2, _b2, _c2;
   const lane = [];
   let marks = 0;
@@ -7616,11 +8092,14 @@ function perfLaneOf(entries, origin, windowEnd, commitStarts2, rel, maxMarks) {
     let kind = null;
     let label = e.name;
     let value = null;
+    let chippy = false;
     if (e.entryType === "long-animation-frame" || e.entryType === "longtask") {
       kind = "frame";
       value = e.entryType === "longtask" ? round$3(Math.max(0, e.duration - 50)) : e.blockingDuration ?? null;
       const script = (_a2 = e.scripts) == null ? void 0 : _a2[0];
       label = script ? [script.invoker, script.sourceFunctionName, (_b2 = script.sourceURL) == null ? void 0 : _b2.split("/").pop()].filter(Boolean).join(" ") : "";
+      chippy = isOwnFrame(e, ownWork);
+      if (chippy) label = "Chippy";
     } else if (e.entryType === "measure" && e.duration >= 1) kind = "measure";
     else if (e.entryType === "measure" || e.entryType === "mark") {
       if (marks >= maxMarks) {
@@ -7652,7 +8131,8 @@ function perfLaneOf(entries, origin, windowEnd, commitStarts2, rel, maxMarks) {
       end: rel(end),
       durationMs: round$3(e.duration || 0),
       value,
-      commits: commitStarts2.filter((c) => c.start >= e.startTime && c.start <= end).map((c) => c.id)
+      commits: commitStarts2.filter((c) => c.start >= e.startTime && c.start <= end).map((c) => c.id),
+      ...chippy && { chippy: true }
     });
   }
   return { lane, omittedMarks };
@@ -7751,10 +8231,14 @@ function renderText(result) {
     const worst = [...delayed].sort((a, b) => b.paintAt - b.t - (a.paintAt - a.t)).slice(0, 5);
     header.push(`Painted late (the commit's task kept running): ${worst.map((c) => `c${c.commitId} +${c.t} → painted +${c.paintAt} (${c.paintAt - c.t}ms)`).join(", ")}.`);
   }
-  const frames = result.lanes.perf.filter((p2) => p2.kind === "frame");
+  const frames = result.lanes.perf.filter((p2) => p2.kind === "frame" && !p2.chippy);
+  const ownFrames = result.lanes.perf.filter((p2) => p2.kind === "frame" && p2.chippy);
   if (frames.length) {
     const worst = [...frames].sort((a, b) => b.durationMs - a.durationMs).slice(0, 3);
     header.push(`Long frames (no paint inside): ${frames.length}, ${Math.round(frames.reduce((sum, p2) => sum + (p2.value ?? 0), 0))}ms blocking; longest ${worst.map((p2) => `+${p2.start} ${p2.durationMs}ms${p2.commits.length ? " (" + commitSpan(p2.commits) + ")" : ""}`).join(", ")}.`);
+  }
+  if (ownFrames.length) {
+    header.push(`Chippy's own long frames, left out of the totals: ${ownFrames.length}, ${Math.round(ownFrames.reduce((sum, p2) => sum + (p2.value ?? 0), 0))}ms blocking.`);
   }
   const rows = [];
   for (const i of result.lanes.input) rows.push({ t: i.t, lane: "input", text: inputLabel(i) });
@@ -7953,8 +8437,12 @@ function cumulativeLayoutShift(shifts) {
 }
 function perfSummary(report, entries = report.perfEntries ?? []) {
   const of = (type) => entries.filter((e) => e.entryType === type);
-  const frames = of("long-animation-frame");
-  const tasks = of("longtask");
+  const own = (e) => isOwnFrame(e, report.ownWork);
+  const blockingOf = (e) => e.entryType === "longtask" ? Math.max(0, e.duration - 50) : e.blockingDuration ?? 0;
+  const allLong = [...of("long-animation-frame"), ...of("long-animation-frame").length ? [] : of("longtask")];
+  const chippyLong = allLong.filter(own);
+  const frames = of("long-animation-frame").filter((e) => !own(e));
+  const tasks = of("longtask").filter((e) => !own(e));
   const events = of("event");
   const measures = of("measure");
   const lcp = of("largest-contentful-paint").sort((a, b) => a.startTime - b.startTime).at(-1);
@@ -7968,12 +8456,13 @@ function perfSummary(report, entries = report.perfEntries ?? []) {
     perInteraction.set(e.interactionId, Math.max(perInteraction.get(e.interactionId) ?? 0, e.duration));
   }
   const longest = measures.reduce((best, e) => !best || e.duration > best.duration ? e : best, null);
-  const blocking = frames.length ? frames.reduce((sum, e) => sum + (e.blockingDuration ?? 0), 0) : tasks.reduce((sum, e) => sum + Math.max(0, e.duration - 50), 0);
+  const blocking = of("long-animation-frame").length ? frames.reduce((sum, e) => sum + (e.blockingDuration ?? 0), 0) : tasks.reduce((sum, e) => sum + Math.max(0, e.duration - 50), 0);
   return {
     cls: cumulativeLayoutShift(of("layout-shift")),
     layoutShifts: of("layout-shift").length,
     longFrames: frames.length || tasks.length,
     totalBlockingMs: round$2(blocking),
+    chippyFrames: { count: chippyLong.length, blockingMs: round$2(chippyLong.reduce((sum, e) => sum + blockingOf(e), 0)) },
     worstFrame: worstLinked ? {
       id: worstLinked.id,
       startTime: worstLinked.startTime,
@@ -8050,6 +8539,48 @@ function perfForCommit(report, commitId, maxItems = DEFAULT_PERF_TOP) {
   near.sort((a, b) => b.duration - a.duration || a.startTime - b.startTime);
   return { total: near.length, items: near.slice(0, maxItems) };
 }
+function summarizeRebuiltProps(rendered, maxItems) {
+  if (!Array.isArray(rendered)) return null;
+  const groups = /* @__PURE__ */ new Map();
+  let sameShallow = 0;
+  let keysChanged = 0;
+  let notCompared = 0;
+  for (const entry of rendered) {
+    const e = entry;
+    if (!e || !Array.isArray(e.propChanges)) continue;
+    for (const raw of e.propChanges) {
+      const change = raw;
+      if (!change || change.kind !== "ref-changed") continue;
+      const prop = String(change.name);
+      let row;
+      if (change.sameShallow === true) {
+        sameShallow++;
+        row = { sameShallow: true };
+      } else if (Array.isArray(change.changedKeys)) {
+        keysChanged++;
+        row = { changedKeys: change.changedKeys.map((k) => String(k == null ? void 0 : k.key)), changedKeyCount: Number(change.changedKeyCount) || change.changedKeys.length };
+      } else if (typeof change.keysNotCompared === "number") {
+        notCompared++;
+        row = { keysNotCompared: change.keysNotCompared };
+      } else {
+        continue;
+      }
+      const key = `${prop}\0${String(change.current)}\0${JSON.stringify(row)}`;
+      const group = groups.get(key);
+      if (group) group.components++;
+      else groups.set(key, { prop, component: e.name ?? null, sourceId: e.sourceId ?? null, components: 1, ...row });
+    }
+  }
+  if (!groups.size) return null;
+  const sorted = [...groups.values()].sort((a, b) => b.components - a.components || Number(!!b.sameShallow) - Number(!!a.sameShallow));
+  return {
+    sameShallow,
+    keysChanged,
+    notCompared,
+    groups: sorted.slice(0, maxItems),
+    omittedGroups: Math.max(0, sorted.length - maxItems)
+  };
+}
 const SUMMARY_DEFAULT_TOP = 5;
 const SUMMARY_DEFAULT_MAX_ITEMS = 3;
 function positive(value, fallback) {
@@ -8100,11 +8631,16 @@ function frameOf(frames, commitId, origin) {
 function compactTimeline(report) {
   const timeline = buildTimeline(report);
   if ("error" in timeline) return { error: timeline.error };
-  const { ok: _ok, lanes: _lanes, mermaid: _mermaid, ...rest } = timeline;
-  return rest;
+  const { origin, window: window2, omitted, text } = timeline;
+  return { origin, window: window2, omitted, text };
+}
+function nonZero(stats) {
+  return stats ? Object.fromEntries(Object.entries(stats).filter(([, value]) => value !== 0)) : null;
+}
+function tenths(value) {
+  return value === null ? null : Math.round(value * 10) / 10;
 }
 function buildSummaryView(report, options = {}) {
-  var _a2;
   const top = positive(options.top, SUMMARY_DEFAULT_TOP);
   const maxItems = positive(options.maxItems, SUMMARY_DEFAULT_MAX_ITEMS);
   const commitStats = report.commitStats ?? {};
@@ -8117,13 +8653,13 @@ function buildSummaryView(report, options = {}) {
     if (stats) for (const key of UPSTREAM_COMMIT_STAT_KEYS) totals[key] += stats[key];
   }
   const timeline = compactTimeline(report);
-  const origin = "origin" in timeline ? finite((_a2 = timeline.origin) == null ? void 0 : _a2.at) : null;
+  const origin = "origin" in timeline ? finite(timeline.origin.at) : null;
   const frames = Array.isArray(report.perfEntries) ? linkPerfEntries(report, report.perfEntries.filter((e) => e.entryType === "long-animation-frame" || e.entryType === "longtask")) : [];
   const topCommits = ids.slice().sort((a, b) => {
-    var _a3, _b2;
-    return (((_a3 = statsById.get(b)) == null ? void 0 : _a3.collateral) ?? 0) - (((_b2 = statsById.get(a)) == null ? void 0 : _b2.collateral) ?? 0) || a - b;
+    var _a2, _b2;
+    return (((_a2 = statsById.get(b)) == null ? void 0 : _a2.collateral) ?? 0) - (((_b2 = statsById.get(a)) == null ? void 0 : _b2.collateral) ?? 0) || a - b;
   }).slice(0, top).map((commitId) => {
-    var _a3;
+    var _a2;
     const timing = at(report.commitTimings, commitId);
     const start = finite(timing == null ? void 0 : timing.startTime);
     const end = finite(timing == null ? void 0 : timing.endTime);
@@ -8133,13 +8669,14 @@ function buildSummaryView(report, options = {}) {
     const actions = at(report.interactionsByCommit, commitId);
     return {
       commitId,
-      stat: statsById.get(commitId) ?? null,
+      stat: nonZero(statsById.get(commitId)),
       atMs: start !== null && origin !== null ? ms(start - origin) : null,
-      renderMs: finite((_a3 = timing == null ? void 0 : timing.render) == null ? void 0 : _a3.workMs),
+      renderMs: tenths(finite((_a2 = timing == null ? void 0 : timing.render) == null ? void 0 : _a2.workMs)),
       ticks: finite(timing == null ? void 0 : timing.ticks),
       paintDelayMs: paint !== null && end !== null && paint >= end ? ms(paint - end) : null,
       sourcesTotal: list.length,
       sources: sourceRows(list, maxItems),
+      rebuiltProps: summarizeRebuiltProps(at(report.renderedByCommit, commitId), maxItems),
       latestAction: Array.isArray(actions) && actions.length ? compactLatestAction(actions[actions.length - 1]) : null,
       hooks: hookStepsAt(report.hooks, commitId),
       longFrame: frameOf(frames, commitId, origin)
@@ -8200,6 +8737,18 @@ function readAvalancheStatus(api2, mod) {
   }
 }
 function evalAvalanche(command, api2, mod) {
+  let slice;
+  const report = () => slice === void 0 ? slice = getReport(api2) : slice;
+  const result = runAvalanche(command, api2, mod, report);
+  return slice ? withComponentNames(result, slice) : result;
+}
+function withComponentNames(result, slice) {
+  if (!result.ok || "error" in slice || WHOLE_CAPTURE_ACTIONS.has(result.action)) return result;
+  const meta = slice.serial.meta;
+  const componentNames = componentNamesIn(result, meta == null ? void 0 : meta.componentNames);
+  return componentNames.length > 0 ? { ...result, componentNames } : result;
+}
+function runAvalanche(command, api2, mod, report) {
   var _a2, _b2, _c2, _d2, _e2, _f, _g, _h, _i, _j, _k, _l, _m, _n, _o, _p, _q, _r, _s, _t;
   const action = String((command == null ? void 0 : command.action) || "status");
   if (!api2) {
@@ -8222,7 +8771,7 @@ function evalAvalanche(command, api2, mod) {
       case "status":
         return { ok: true, available: true, action, status: readAvalancheStatus(api2, mod).status };
       case "export": {
-        const r = getReport(api2);
+        const r = report();
         if (!r) return { ok: false, available: true, action, error: "report() unavailable" };
         if ("error" in r) return { ok: false, available: true, action, error: r.error };
         return { ok: true, available: true, action, payload: r.serial };
@@ -8261,7 +8810,7 @@ function evalAvalanche(command, api2, mod) {
       case "hot-sources": {
         const limit = Number(command == null ? void 0 : command.limit);
         const n = Number.isFinite(limit) && limit > 0 ? Math.floor(limit) : 20;
-        const r = getReport(api2);
+        const r = report();
         if (!r || "error" in r) {
           return { ok: false, available: true, action, error: r && "error" in r ? r.error : "report() unavailable" };
         }
@@ -8295,7 +8844,7 @@ function evalAvalanche(command, api2, mod) {
           };
         }
         const maxItems = Number.isFinite(Number(command == null ? void 0 : command.maxItems)) ? Math.max(1, Math.floor(Number(command.maxItems))) : 50;
-        const r = getReport(api2);
+        const r = report();
         if (!r || "error" in r) {
           return { ok: false, available: true, action, error: r && "error" in r ? r.error : "report() unavailable" };
         }
@@ -8377,7 +8926,7 @@ function evalAvalanche(command, api2, mod) {
         if (!Number.isFinite(actionId)) {
           return { ok: false, available: true, action, error: "describe-action requires numeric actionId" };
         }
-        const r = getReport(api2);
+        const r = report();
         if (!r || "error" in r) {
           return { ok: false, available: true, action, error: r && "error" in r ? r.error : "report() unavailable" };
         }
@@ -8411,7 +8960,7 @@ function evalAvalanche(command, api2, mod) {
           };
         }
         const sortKey = by;
-        const r = getReport(api2);
+        const r = report();
         if (!r || "error" in r) {
           return { ok: false, available: true, action, error: r && "error" in r ? r.error : "report() unavailable" };
         }
@@ -8454,7 +9003,7 @@ function evalAvalanche(command, api2, mod) {
         return { ok: true, available: true, action, by: sortKey, total: rows.length, rows: rows.slice(0, top) };
       }
       case "network": {
-        const r = getReport(api2);
+        const r = report();
         if (!r || "error" in r) {
           return { ok: false, available: true, action, error: r && "error" in r ? r.error : "report() unavailable" };
         }
@@ -8469,7 +9018,7 @@ function evalAvalanche(command, api2, mod) {
         return { ok: true, available: true, action, payload: view.payload };
       }
       case "perf": {
-        const r = getReport(api2);
+        const r = report();
         if (!r || "error" in r) {
           return { ok: false, available: true, action, error: r && "error" in r ? r.error : "report() unavailable" };
         }
@@ -8484,7 +9033,7 @@ function evalAvalanche(command, api2, mod) {
         return { ok: true, available: true, action, payload: view.payload };
       }
       case "timeline": {
-        const r = getReport(api2);
+        const r = report();
         if (!r || "error" in r) {
           return { ok: false, available: true, action, error: r && "error" in r ? r.error : "report() unavailable" };
         }
@@ -8501,7 +9050,7 @@ function evalAvalanche(command, api2, mod) {
         return { ok: true, available: true, action, payload: (command == null ? void 0 : command.format) === "full" ? { ...rest, lanes } : rest };
       }
       case "dom-diff": {
-        const r = getReport(api2);
+        const r = report();
         if (!r || "error" in r) {
           return { ok: false, available: true, action, error: r && "error" in r ? r.error : "report() unavailable" };
         }
@@ -8516,7 +9065,7 @@ function evalAvalanche(command, api2, mod) {
         return { ok: true, available: true, action, payload: view };
       }
       case "summary": {
-        const r = getReport(api2);
+        const r = report();
         if (!r || "error" in r) {
           return { ok: false, available: true, action, error: r && "error" in r ? r.error : "report() unavailable" };
         }
@@ -8538,7 +9087,7 @@ function nameBudgetFor(command) {
   if (!WHOLE_CAPTURE_ACTIONS.has(action) || !Number.isFinite(timeoutMs)) return AVALANCHE_NAME_BUDGET_MS;
   return Math.min(AVALANCHE_EXPORT_NAME_BUDGET_MS, Math.max(AVALANCHE_NAME_BUDGET_MS, timeoutMs / 2));
 }
-const NAME_FREE_ACTIONS = /* @__PURE__ */ new Set(["install", "uninstall", "reset", "clear", "status", "debug-hook", "network", "perf", "timeline", "dom-diff"]);
+const NAME_FREE_ACTIONS = /* @__PURE__ */ new Set(["install", "uninstall", "reset", "clear", "status", "debug-hook", "network"]);
 const SOURCE_ID = /^[^\s#@]+#\d+@-?\d+$/;
 const WHOLE_CAPTURE_ACTIONS = /* @__PURE__ */ new Set(["export", "export-last"]);
 const MAX_SOURCE_IDS = 2e3;
@@ -8571,14 +9120,16 @@ async function evalAvalancheWithNames(command, api2, mod, budgetMs = nameBudgetF
   if (!first.ok || NAME_FREE_ACTIONS.has(action) || typeof (api2 == null ? void 0 : api2.componentTypesFor) !== "function") return first;
   const ids = sourceIdsIn(first);
   const wholeCapture = WHOLE_CAPTURE_ACTIONS.has(action);
-  if (ids.length === 0 && !wholeCapture) return first;
+  const named = typeof api2.componentTypesNamed === "function" ? api2.componentTypesNamed.bind(api2) : null;
   let types;
   try {
     types = ids.length > 0 ? api2.componentTypesFor(ids) : [];
     if (wholeCapture && typeof api2.unnamedRenderedTypes === "function") types = types.concat(api2.unnamedRenderedTypes());
+    if (named) types = types.concat(wholeCapture ? named() : named(nameTokensIn(first)));
   } catch {
     return first;
   }
+  if (types.length === 0) return first;
   const stats = await warmComponentTypes(types, budgetMs);
   if (!stats) return first;
   const again = stats.named > 0 ? evalAvalanche(command, api2, mod) : first;
@@ -10477,6 +11028,117 @@ function inspectFiberStructure(fiber, fiberId, hookIndex, windowSize, replayComp
     replayErrorDetails: replayErrorDetails || void 0
   };
 }
+const MAX_FIBERS_SEARCHED = 500;
+const RESERVED = /* @__PURE__ */ new Set([
+  "type",
+  "target",
+  "currentTarget",
+  "nativeEvent",
+  "preventDefault",
+  "stopPropagation",
+  "isDefaultPrevented",
+  "isPropagationStopped",
+  "persist",
+  "isPersistent",
+  "defaultPrevented"
+]);
+const IGNORED_READS = /* @__PURE__ */ new Set(["then", "toJSON", "$$typeof", "constructor", "asymmetricMatch", "nodeType"]);
+function isEventPlaceholder(value) {
+  return !!value && typeof value === "object" && !Array.isArray(value) && typeof value.$event === "string" && value.$event.trim() !== "";
+}
+function isElement(value) {
+  return !!value && typeof value === "object" && value.nodeType === 1;
+}
+function firstElementOf(fiber) {
+  const stack = fiber ? [fiber] : [];
+  let searched = 0;
+  while (stack.length && searched < MAX_FIBERS_SEARCHED) {
+    const node = stack.pop();
+    searched += 1;
+    if (isElement(node.stateNode)) return node.stateNode;
+    if (node !== fiber && node.sibling) stack.push(node.sibling);
+    if (node.child) stack.push(node.child);
+  }
+  return null;
+}
+function describeElement(element) {
+  if (!element) return null;
+  const tag = element.tagName.toLowerCase();
+  const testId = element.getAttribute("data-testid");
+  if (testId) return `${tag}[data-testid="${testId}"]`;
+  if (element.id) return `${tag}#${element.id}`;
+  return tag;
+}
+function nativeEventOf(type, init) {
+  const view = typeof window === "undefined" ? null : window;
+  if (!view || typeof view.Event !== "function") return null;
+  const options = { bubbles: true, cancelable: true, ...init };
+  const ctor = /^(?:click|dblclick|contextmenu|mouse|auxclick)/.test(type) ? view.MouseEvent : /^pointer/.test(type) ? view.PointerEvent ?? view.MouseEvent : /^key/.test(type) ? view.KeyboardEvent : /^(?:focus|blur)/.test(type) ? view.FocusEvent : view.Event;
+  try {
+    return new (ctor ?? view.Event)(type, options);
+  } catch {
+    return new view.Event(type, options);
+  }
+}
+function createSyntheticEvent(placeholder, fiber) {
+  const { $event, ...rest } = placeholder;
+  const type = $event.trim();
+  const fields = {};
+  for (const [key, value] of Object.entries(rest)) {
+    if (!RESERVED.has(key) && (value === null || ["string", "number", "boolean"].includes(typeof value))) fields[key] = value;
+  }
+  const element = firstElementOf(fiber);
+  const nativeEvent = nativeEventOf(type, fields);
+  const report = {
+    synthetic: true,
+    type,
+    target: describeElement(element),
+    calls: [],
+    defaultPrevented: false,
+    propagationStopped: false,
+    missing: []
+  };
+  let persistent = false;
+  const base = {
+    bubbles: true,
+    cancelable: true,
+    eventPhase: 2,
+    isTrusted: false,
+    timeStamp: typeof performance === "undefined" ? Date.now() : performance.now(),
+    ...fields,
+    type,
+    target: element,
+    currentTarget: element,
+    nativeEvent,
+    preventDefault() {
+      report.calls.push("preventDefault");
+      report.defaultPrevented = true;
+      nativeEvent == null ? void 0 : nativeEvent.preventDefault();
+    },
+    stopPropagation() {
+      report.calls.push("stopPropagation");
+      report.propagationStopped = true;
+      nativeEvent == null ? void 0 : nativeEvent.stopPropagation();
+    },
+    isDefaultPrevented: () => report.defaultPrevented,
+    isPropagationStopped: () => report.propagationStopped,
+    persist() {
+      report.calls.push("persist");
+      persistent = true;
+    },
+    isPersistent: () => persistent
+  };
+  Object.defineProperty(base, "defaultPrevented", { enumerable: true, get: () => report.defaultPrevented });
+  const event = new Proxy(base, {
+    get(target, key, receiver) {
+      if (typeof key === "string" && !(key in target) && !IGNORED_READS.has(key) && !report.missing.includes(key)) {
+        report.missing.push(key);
+      }
+      return Reflect.get(target, key, receiver);
+    }
+  });
+  return { event, report };
+}
 const REACT_TAG_CLASS_COMPONENT = 1;
 function readFiberProp(fiberId, propName, deps) {
   const rememberedFiberId = deps.normalizeRememberedFiberId(fiberId);
@@ -10566,13 +11228,34 @@ async function evalFiberInvoke(fiberId, propName, args, deps) {
       propType: typeof value
     };
   }
-  const invokeArgs = Array.isArray(args) ? args : [];
+  const requestedArgs = Array.isArray(args) ? args : [];
+  const placeholders = requestedArgs.filter(isEventPlaceholder).length;
+  if (placeholders > 1) {
+    return {
+      ok: false,
+      error: `pass at most one {"$event": type} argument; got ${placeholders}`,
+      fiberId: read2.fiberId,
+      fiberName: getFiberDisplayName$1(read2.fiber),
+      propName: read2.propName
+    };
+  }
+  let eventReport = null;
+  const invokeArgs = requestedArgs.map((arg) => {
+    if (!isEventPlaceholder(arg)) return arg;
+    const built = createSyntheticEvent(arg, read2.fiber);
+    eventReport = built.report;
+    return built.event;
+  });
+  const serializedArgs = () => deps.safeSerialize(requestedArgs, 0, /* @__PURE__ */ new Set());
+  const fnLength = Number.isFinite(value.length) ? value.length : null;
+  const eventFields = () => eventReport ? { event: eventReport } : {};
   const thisArg = pickThisArg(read2.fiber);
   let result;
   try {
     result = value.apply(thisArg, invokeArgs);
   } catch (e) {
     const err = e;
+    const hint = !eventReport && fnLength !== null && fnLength > 0 && e instanceof TypeError ? `The callback may expect an event. If its source reads one, pass --args '[{"$event":"click"}]'.` : null;
     return {
       ok: false,
       error: (err == null ? void 0 : err.message) || String(e),
@@ -10582,7 +11265,9 @@ async function evalFiberInvoke(fiberId, propName, args, deps) {
       fiberName: getFiberDisplayName$1(read2.fiber),
       propName: read2.propName,
       propType: "function",
-      args: deps.safeSerialize(invokeArgs, 0, /* @__PURE__ */ new Set())
+      args: serializedArgs(),
+      ...eventFields(),
+      ...hint && { hint }
     };
   }
   const base = {
@@ -10591,9 +11276,9 @@ async function evalFiberInvoke(fiberId, propName, args, deps) {
     fiberName: getFiberDisplayName$1(read2.fiber),
     propName: read2.propName,
     propType: "function",
-    fnLength: Number.isFinite(value.length) ? value.length : null,
+    fnLength,
     invoked: true,
-    args: deps.safeSerialize(invokeArgs, 0, /* @__PURE__ */ new Set())
+    args: serializedArgs()
   };
   if (isThenable(result)) {
     const timeoutMs = Math.max(1, Math.min(3e4, deps.awaitTimeoutMs ?? 2e3));
@@ -10602,7 +11287,7 @@ async function evalFiberInvoke(fiberId, propName, args, deps) {
         Promise.resolve(result),
         new Promise((_, reject) => setTimeout(() => reject(new Error(`async callback did not resolve within ${timeoutMs}ms`)), timeoutMs))
       ]);
-      return { ...base, async: true, returnValue: deps.safeSerialize(resolved, 0, /* @__PURE__ */ new Set()) };
+      return { ...base, async: true, returnValue: deps.safeSerialize(resolved, 0, /* @__PURE__ */ new Set()), ...eventFields() };
     } catch (e) {
       const err = e;
       return {
@@ -10616,11 +11301,12 @@ async function evalFiberInvoke(fiberId, propName, args, deps) {
         fiberName: getFiberDisplayName$1(read2.fiber),
         propName: read2.propName,
         propType: "function",
-        args: deps.safeSerialize(invokeArgs, 0, /* @__PURE__ */ new Set())
+        args: serializedArgs(),
+        ...eventFields()
       };
     }
   }
-  return { ...base, async: false, returnValue: deps.safeSerialize(result, 0, /* @__PURE__ */ new Set()) };
+  return { ...base, async: false, returnValue: deps.safeSerialize(result, 0, /* @__PURE__ */ new Set()), ...eventFields() };
 }
 function getFiberDisplayName(fiber) {
   if (!fiber) return "Unknown";
@@ -11298,6 +11984,9 @@ const api = {
   unnamedRenderedTypes() {
     return detector ? detector.unnamedRenderedTypes() : [];
   },
+  componentTypesNamed(names) {
+    return detector ? detector.componentTypesNamed(names) : [];
+  },
   debugHook(sourceId, hookIndex, windowSize) {
     if (!detector) return { ok: false, error: "not installed" };
     const fn = detector.debugHook;
@@ -11329,6 +12018,7 @@ const api = {
     } catch (_) {
     }
     const integrationMode = detector ? ((_b2 = detector.getIntegrationMode) == null ? void 0 : _b2.call(detector)) ?? "none" : "none";
+    const detectionMode = installed && detector ? detector.getDetectionLevel() : null;
     const metricsAdapter = detector ? ((_c2 = detector.getMetricsAdapterId) == null ? void 0 : _c2.call(detector)) ?? null : ((_d2 = getCommitMetricsAdapter()) == null ? void 0 : _d2.id) ?? null;
     const packs2 = listPacks().map(({ id, label, instructions, extensions, compileErrors, initErrors }) => ({ id, label, instructions, extensions, compileErrors, initErrors }));
     let hooks = null;
@@ -11336,7 +12026,7 @@ const api = {
       hooks = summarizeHookResults(detector == null ? void 0 : detector.hookResults());
     } catch (_) {
     }
-    return { installed, paused, pausedAt, hasMetricsGlobal, commitCount, integrationMode, metricsAdapter, networkRequests, perfEntries, renderedEvidence, packs: packs2, hooks };
+    return { installed, paused, pausedAt, hasMetricsGlobal, commitCount, integrationMode, detectionMode, metricsAdapter, networkRequests, perfEntries, renderedEvidence, packs: packs2, hooks };
   },
   registerCommitMetricsAdapter,
   enablePlugins,
@@ -11412,6 +12102,7 @@ const api = {
     safeJson,
     scriptResultJson,
     runChippyScript,
+    noteOwnWork,
     clearScriptOverlay: clearOverlay,
     measureComponentArea: (options) => measureComponentArea(options),
     areaWatch: { start: (options) => startAreaWatch(options), read: readAreaWatch, stop: stopAreaWatch },

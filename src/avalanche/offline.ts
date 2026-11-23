@@ -7,6 +7,7 @@
  */
 import { buildSummaryView, type SummaryOptions } from './summary-view';
 import { evalAvalanche, type AvalancheCommand } from '../chippy-bridge/avalanche-commands';
+import { componentNamesIn } from '../chippy-bridge/component-name-tokens';
 
 type SavedReport = {
   meta: Record<string, unknown>;
@@ -68,7 +69,9 @@ function dispatch(report: SavedReport, command: AvalancheCommand) {
 
 // Flat for older callers: the digest fields sit at the top level, beside `ok` and `action`.
 export function summary(report: SavedReport, options: SummaryOptions = {}) {
-  return { ok: true, action: 'summary', ...buildSummaryView(report, options) };
+  const view = buildSummaryView(report, options);
+  const componentNames = componentNamesIn(view, report.meta?.componentNames);
+  return { ok: true, action: 'summary', ...view, ...(componentNames.length > 0 && { componentNames }) };
 }
 
 // Finds components by name across aggregate sources and per-commit render

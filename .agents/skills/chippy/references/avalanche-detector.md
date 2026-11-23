@@ -106,6 +106,8 @@ The first read of a capture, in one call. It answers what an analysis asks first
 - `perf`: the [`avalanche-perf`](#avalanche-perf-clientid-types-top-match-fromcommit-tocommit) `summary` over the whole capture; `null` when the report has no performance entries.
 - `meta`: the capture metadata.
 
+Each top commit also has `rebuiltProps`, read from `renderedByCommit`, or `null` when no rendered entry has a key diff: `sameShallow`, `keysChanged`, and `notCompared` count the `ref-changed` object and array prop changes of each kind, and `groups` (the first `maxItems`, then `omittedGroups`) merges identical changes of one prop across components, by `components` received: `prop`, the first `component` and `sourceId` in render order, and `sameShallow: true` or `changedKeys` (key names) with `changedKeyCount`. A large group with `sameShallow: true` is one rebuilt object that rendered many components for nothing.
+
 Each top commit also has `longFrame`: the long animation frame it ran in (`atMs`, `durationMs`, `blockingMs`) and every commit that started in that frame, or `null`.
 
 `sameContent: true` on a changed hook means a new reference with equal content: identity churn. Drill down with `avalanche-commit-peek`, `avalanche-timeline`, or `avalanche-dom-diff`.
@@ -190,7 +192,7 @@ chippy.sh avalanche-perf my-client '' '' '' 30 42
 ```
 Lists the browser performance entries Avalanche recorded during the capture. `types` is a CSV of `mark`, `measure`, `long-animation-frame`, `layout-shift`, `event`, `largest-contentful-paint`, `paint`, `navigation`, and `longtask` (default all). `top` caps entries per type (default 20): layout shifts are ranked by value, long frames by blocking time, long tasks, events, and measures by duration, and marks latest first. `match` is a case-insensitive regex on the entry name (mark or measure name, event type). `fromCommit` and `toCommit` keep entries that overlap the span from the first commit's start until the commit after the last one starts. Pass `""` to skip a position.
 
-`payload` holds `status` (`meta.perf`), `summary`, and `entries[type]: {count, items}`. `summary` has `cls` (the largest session window of shifts without recent input), `layoutShifts`, `longFrames`, `totalBlockingMs` (long frame blocking time, or long task time over 50 ms where frames are unsupported), `worstFrame` with its commits, `interactions`, `worstInteractionMs`, `lcpMs`, `fcpMs`, `ttfbMs`, `marks`, `measures`, and `longestMeasure`, over the selected entries.
+`payload` holds `status` (`meta.perf`), `summary`, and `entries[type]: {count, items}`. `summary` has `cls` (the largest session window of shifts without recent input), `layoutShifts`, `longFrames`, `totalBlockingMs` (long frame blocking time, or long task time over 50 ms where frames are unsupported), `worstFrame` with its commits, `chippyFrames` (`count` and `blockingMs` of long frames Chippy's own commands caused; `longFrames`, `totalBlockingMs`, and `worstFrame` leave them out), `interactions`, `worstInteractionMs`, `lcpMs`, `fcpMs`, `ttfbMs`, `marks`, `measures`, and `longestMeasure`, over the selected entries.
 
 Every entry has `id`, `entryType`, `name`, `startTime`, `duration`, and `commits`: `during` (commits that started inside the entry's span, first ten), `duringCount`, and `before` (`{commitId, gapMs}`, the last commit that started at or before the entry). Type fields:
 
@@ -320,7 +322,9 @@ No file is written. Re-check `avalanche-status` first: `installed`, `hasMetricsG
 ### Panel Record and Stop
 In the Chippy panel, **● Record** clears the capture, as `avalanche-clear` does, and **■ Stop** pauses the capture. Nothing else is saved: the recording is Avalanche's capture. Read it live with the `avalanche-*` commands, or save it with `avalanche-save`. Avalanche stays installed after Stop, and React DevTools still sees every commit, but nothing after Stop enters the capture: no commits, input, or requests that start later. Requests in flight at Stop still finish into it. `avalanche-status` and the report's `meta.capture` show `paused` and `pausedAt` (`performance.now()`). The next Record or `avalanche-clear` starts a new capture. Commits after Stop are not kept, so a read cannot include them; record again to capture them. Input on the panel itself is not captured, so Record and Stop do not appear in `interactionsByCommit`.
 
-The Avalanche pill beside Record shows whether the capture includes the page's first render. Green: Avalanche was installed before React's first commit by an armed reload. Amber (`late`): it was installed on the live page. Grey (`off`): not installed. Clicking amber or grey reloads the page with Avalanche installed from page start, with the defaults of `reload-with-avalanche`.
+The Avalanche pill beside Record shows whether the capture includes the page's first render. Green: Avalanche was installed before React's first commit by an armed reload. Amber (`late`): it was installed on the live page. Grey (`off`): not installed. Clicking amber or grey reloads the page with Avalanche installed from page start, with the defaults of `reload-with-avalanche` and the mode chosen in the panel.
+
+The **Sources | Full** toggle beside the pill sets the detection mode. `sources` is the default; `full` also records effect, memo, and callback dependency churn (`trasherCounts`). The toggle highlights the mode the capture runs at, shown as `detectionMode` in `avalanche-status`. While Avalanche runs, choosing the other mode reinstalls it now, as `avalanche-recapture` does: the capture starts again without the page load, and the pill turns amber. Click the pill to reload in the chosen mode and capture the load too. The choice is kept per origin for later reloads from the panel. The toggle is disabled during a recording.
 
 ### `avalanche-offline <path> <summary|commit-list|commit-peek|hot-sources|describe-action|network|timeline|dom-diff|source-search> ...`
 ```bash
@@ -367,9 +371,11 @@ Read order:
 
 For locality: dev builds use `ownerStackKind: "owners"`; production/minified builds fall back to `ownerStackKind: "parents"`. Compact views keep the closest 10 names from the target-local side plus the full count. Full views may be large; inspect only when needed.
 
-On a production build, source ids use minified names until Chippy recovers authored names from the page's source maps. Each Avalanche command recovers names only for the components whose source ids appear in its result, then returns the result with those ids renamed and a `nameRecovery` summary (see [Production component names](command-output-formats.md#production-component-names)). Components that minified to the same name share a source id, so recovery resolves all of them, and the counts from before recovery may combine several components.
+On a production build, Avalanche records minified names while it captures, and Chippy recovers authored names from the page's source maps when a command reads the capture, never during a commit. Each Avalanche command recovers names only for the components its result mentions, by source id or by name, then returns the result with those components renamed and a `nameRecovery` summary (see [Production component names](command-output-formats.md#production-component-names)). The rename covers every place a capture names a component: source ids, `renderedByCommit` entries, DOM change anchors (`at`), Suspense locations, screen region labels, perf entry owners, unmount samples, and interaction targets and owners, and so the summary and timeline text as well. A component that first mounts partway through the capture is renamed like any other. Components that minified to the same name share a source id, so recovery resolves all of them, and the counts from before recovery may combine several components.
 
-`renderedByCommit` names a component when it commits, so a component with no runtime name (an arrow function inside `forwardRef` or `memo`) is recorded as `Anonymous`. An export (`export`, `export-last`, `avalanche-save`) first recovers names for those components and renames their entries. A command spends up to 3 seconds on recovery; an export may spend up to half of its request timeout, at most 20 seconds. When `nameRecovery.skipped` is above zero the budget ran out: export again to name more, because resolved names are kept. Entries still `Anonymous` after that have no name in the source map either, for example components created by a factory function.
+A result that mentions a renamed component lists the renames in `componentNames: [{ name, minifiedName }]`, so the result can be matched against minified stack traces or bundle code. Exports and saved files carry the full table in `meta.componentNames`. A renamed `renderedByCommit` entry also keeps its runtime name in `minifiedName`. When components from different bundles minified to the same name and recovered different authored names, text fields such as `at` keep the minified name, because the text cannot tell them apart; `componentNames` lists each pair.
+
+`renderedByCommit` names a component when it commits, so a component with no runtime name (an arrow function inside `forwardRef` or `memo`) is recorded as `Anonymous`. An export (`export`, `export-last`, `avalanche-save`) first recovers names for every component in the capture and renames their entries. A command spends up to 3 seconds on recovery; an export may spend up to half of its request timeout, at most 20 seconds. When `nameRecovery.skipped` is above zero the budget ran out: export again to name more, because resolved names are kept. Entries still `Anonymous` after that have no name in the source map either, for example components created by a factory function.
 
 ## Observability design principle
 
@@ -497,7 +503,20 @@ PropChangeEvidence = {
   name:     string,                // prop key
   kind:     'added' | 'removed' | 'scalar-changed' | 'ref-changed',  // unchanged props are not listed
   prev?:    string,                // value summary; absent for 'added', and for 'ref-changed' when the shape did not change
-  current?: string                 // value summary; absent for 'removed'
+  current?: string,                // value summary; absent for 'removed'
+  // 'ref-changed' plain objects and arrays only, not in `stats` mode:
+  sameShallow?:          true,     // every key holds the same value: only the identity changed
+  changedKeys?:          PropKeyChange[],  // first 8 keys whose values differ, in key order; [] when sameShallow
+  changedKeyCount?:      number,   // all keys that differ
+  changedKeysTruncated?: true,     // changedKeys lists fewer than changedKeyCount
+  keysNotCompared?:      number    // instead of the fields above: the value has more than 1000 keys, its key count
+}
+
+PropKeyChange = {
+  key:      string,                // array index as a string for arrays
+  kind:     'added' | 'removed' | 'scalar-changed' | 'ref-changed',  // 'ref-changed': a nested object or function with a new identity
+  prev?:    string,                // value summary, for 'scalar-changed' and 'removed'
+  current?: string                 // value summary, for 'scalar-changed' and 'added'
 }
 ```
 
@@ -513,6 +532,14 @@ A value summary is one bounded line:
 | other object | `object{id,title,"a,b",…+3}`: the first five keys, quoted when not plain names, and how many more |
 
 A `ref-changed` prop with only `current` got a new identity with the same shape: an equal-looking object or callback was recreated.
+
+On a `ref-changed` plain object or array, the key diff compares the previous and current value one level deep with `Object.is`, at commit time:
+
+- `sameShallow: true` with `changedKeys: []`: a new object with the same values. The component received nothing new through this prop; if it is the only changed prop, the render was wasted and the fix is upstream, where the object is rebuilt.
+- `changedKeys` lists the keys that do carry new values. A `scalar-changed` key is a real data change; a `ref-changed` key is a nested object or function with a new identity, which may itself hold the same values (the diff does not go deeper).
+- No key diff fields: a callback, React element, class instance, Map, or Set, or a capture in `stats` mode.
+
+Mutating an object in place keeps its identity, so it never shows up as `ref-changed`.
 
 Saves made before this format use the older expanded entries: `prev`/`current` as objects with `type`, `isFunction`, `preview` and `keysTop`, plus `hasPropChanges` and default-valued fields.
 
@@ -548,7 +575,7 @@ Reading rules:
 | 2 | `added` / `removed` optional props | Parent toggled a feature or branch. | **conditional prop / branch change** | Verify the toggle is intentional; inspect the parent conditional if unexpected. |
 | 3 | no `propChanges` and no `isSelfSource` | Parent/ancestor rendered and this component came along. | **cascade collateral** | Walk to `parentSourceId`; do not blame this component. |
 | 4 | `ref-changed` function prop | Callback identity changed. | **identity churn** or legitimate callback update. | Walk to parent; inspect `useCallback` deps or inline function creation. |
-| 5 | `ref-changed` object/array prop | Object identity changed. Contents may still be equal. | **identity leak** or legitimate data object change. | Walk to parent; inspect literal creation, selectors, `useMemo`, data normalization. |
+| 5 | `ref-changed` object/array prop | Object identity changed. `sameShallow: true` means the contents are equal; `changedKeys` names the keys that changed. | `sameShallow`: **identity leak**. `changedKeys`: legitimate data change for those keys, unless the component reads none of them. | Walk to parent; inspect literal creation, selectors, `useMemo`, data normalization. |
 | 6 | `ref-changed` `children` | JSX children identity changed. | **caller-created ReactElement churn** | Caller-only fix: hoist/memoize children at the caller. |
 | 7 | any prop changes plus `trasherCounts > 0` | Prop churn and local hook churn are both present. | **mixed leak + amplifier** | Separate caller leak from local amplifier; prove both before editing. |
 

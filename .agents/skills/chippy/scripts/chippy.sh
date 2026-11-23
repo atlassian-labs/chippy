@@ -97,7 +97,7 @@ Usage:
   ./scripts/chippy.sh avalanche-install <clientId> [detectionMode]
   ./scripts/chippy.sh avalanche-uninstall <clientId>
   ./scripts/chippy.sh avalanche-recapture <clientId> [detectionMode]
-  ./scripts/chippy.sh avalanche-debug-hook <clientId> <sourceId> <hookIndex> [window]
+  ./scripts/chippy.sh avalanche-debug-hook <clientId> <sourceId> <hookIndex> [window] [sourceMaps=true|false]
   ./scripts/chippy.sh avalanche-save <clientId> <file> [count]
   ./scripts/chippy.sh avalanche-offline <file> <summary|commit-list|commit-peek|hot-sources|describe-action|network|perf|timeline|dom-diff|source-search> [args...]
   ./scripts/chippy.sh eval-page <clientId> <snippet-file-or-name|-> [--allow replay] [--script-timeout ms] [--key value ...]
@@ -1146,12 +1146,18 @@ case "$cmd" in
     source_id="${3:-}"
     hook_index="${4:-}"
     window_size="${5:-3}"
+    source_maps="${6:-sourceMaps=true}"
     if [[ -z "$client_id" || -z "$source_id" || -z "$hook_index" ]]; then
-      echo "avalanche-debug-hook requires <clientId> <sourceId> <hookIndex> [window]" >&2
+      echo "avalanche-debug-hook requires <clientId> <sourceId> <hookIndex> [window] [sourceMaps=true|false]" >&2
+      exit 1
+    fi
+    source_maps="${source_maps#sourceMaps=}"
+    if [[ "$source_maps" != "true" && "$source_maps" != "false" ]]; then
+      echo "avalanche-debug-hook sourceMaps must be true or false" >&2
       exit 1
     fi
     source_json=$(json_escape "$source_id")
-    post_avalanche "$client_id" "{\"action\":\"debug-hook\",\"sourceId\":$source_json,\"hookIndex\":$hook_index,\"window\":$window_size}"
+    post_avalanche "$client_id" "{\"action\":\"debug-hook\",\"sourceId\":$source_json,\"hookIndex\":$hook_index,\"window\":$window_size,\"sourceMaps\":$source_maps}"
     ;;
   avalanche-save)
     client_id="${2:-}"

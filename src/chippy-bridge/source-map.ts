@@ -25,7 +25,8 @@ export type SourceMap = {
   names: readonly string[];
   /** Authored text per source, or null when the map omits it. */
   sourcesContent: readonly (string | null)[];
-  lines: readonly (readonly Segment[])[];
+  /** Generated lines, decoded lazily. */
+  lines: MappingLines;
   offset: { line: number; column: number };
 };
 
@@ -55,70 +56,154 @@ type RawMap = {
   sections?: unknown;
 };
 
-function decodeVlq(field: string): number[] {
-  const values: number[] = [];
-  let value = 0;
-  let shift = 0;
+/** Running VLQ state carried from one generated line to the next. */
+type DecodeState = { sourceIndex: number; originalLine: number; originalColumn: number; nameIndex: number };
 
-  for (let index = 0; index < field.length; index += 1) {
-    const code = field.charCodeAt(index);
-    const digit = code < 128 ? VALUE_OF[code]! : -1;
-    if (digit < 0) return values;
+/**
+ * Walk one generated line of `mappings` from `state`, advancing it in place.
+ * With `out`, also collect the line's segments; without it, allocate nothing.
+ */
+function walkLine(
+  mappings: string,
+  start: number,
+  end: number,
+  state: DecodeState,
+  sourceCount: number,
+  out: Segment[] | null,
+): void {
+  let generatedColumn = 0;
+  let index = start;
+  while (index < end) {
+    // One field: up to five VLQ values, ended by ',' or the line end.
+    let count = 0;
+    let v0 = 0, v1 = 0, v2 = 0, v3 = 0, v4 = 0;
+    let value = 0;
+    let shift = 0;
+    let broken = false;
+    for (; index < end; index += 1) {
+      const code = mappings.charCodeAt(index);
+      if (code === 44) break; // ','
+      const digit = code < 128 ? VALUE_OF[code]! : -1;
+      if (digit < 0 || broken) { broken = true; continue; }
+      value += (digit & 31) << shift;
+      if ((digit & 32) !== 0) { shift += 5; continue; }
+      const magnitude = value >>> 1;
+      const decoded = (value & 1) === 1 ? (magnitude === 0 ? -0x80000000 : -magnitude) : magnitude;
+      if (count === 0) v0 = decoded;
+      else if (count === 1) v1 = decoded;
+      else if (count === 2) v2 = decoded;
+      else if (count === 3) v3 = decoded;
+      else if (count === 4) v4 = decoded;
+      count += 1;
+      value = 0;
+      shift = 0;
+    }
+    index += 1; // skip ','
 
-    const more = (digit & 32) !== 0;
-    value += (digit & 31) << shift;
-    if (more) {
-      shift += 5;
+    if (count === 0) continue;
+    generatedColumn += v0;
+    if (count < 4) {
+      out?.push({ generatedColumn, sourceIndex: null, originalLine: null, originalColumn: null, nameIndex: null });
       continue;
     }
-
-    const negative = (value & 1) === 1;
-    const magnitude = value >>> 1;
-    values.push(negative ? (magnitude === 0 ? -0x80000000 : -magnitude) : magnitude);
-    value = 0;
-    shift = 0;
+    state.sourceIndex += v1;
+    state.originalLine += v2;
+    state.originalColumn += v3;
+    const named = count >= 5;
+    if (named) state.nameIndex += v4;
+    if (out && state.sourceIndex >= 0 && state.sourceIndex < sourceCount) {
+      out.push({
+        generatedColumn,
+        sourceIndex: state.sourceIndex,
+        originalLine: state.originalLine,
+        originalColumn: state.originalColumn,
+        nameIndex: named ? state.nameIndex : null,
+      });
+    }
   }
-
-  return values;
+  out?.sort((left, right) => left.generatedColumn - right.generatedColumn);
 }
 
-function decodeMappings(mappings: string, sourceCount: number): Segment[][] {
-  const lines: Segment[][] = [];
-  let sourceIndex = 0;
-  let originalLine = 0;
-  let originalColumn = 0;
-  let nameIndex = 0;
+/**
+ * Generated lines, decoded on first read. A production map can be tens of
+ * megabytes, and a lookup needs one line: earlier lines are walked only to
+ * carry the running VLQ state, without allocating their segments.
+ */
+export class MappingLines {
+  readonly #mappings: string;
+  readonly #sourceCount: number;
+  #starts: number[] | null = null;
+  /** State at the start of each line up to `#knownLines`, four ints per line. */
+  #states = new Int32Array(4);
+  #knownLines = 1;
+  readonly #decoded = new Map<number, readonly Segment[]>();
 
-  for (const encodedLine of mappings.split(';')) {
-    const segments: Segment[] = [];
-    let generatedColumn = 0;
-
-    for (const field of encodedLine === '' ? [] : encodedLine.split(',')) {
-      const values = decodeVlq(field);
-      if (values.length < 4) {
-        if (values.length > 0) {
-          generatedColumn += values[0]!;
-          segments.push({ generatedColumn, sourceIndex: null, originalLine: null, originalColumn: null, nameIndex: null });
-        }
-        continue;
-      }
-
-      generatedColumn += values[0]!;
-      sourceIndex += values[1]!;
-      originalLine += values[2]!;
-      originalColumn += values[3]!;
-      const named = values.length >= 5;
-      if (named) nameIndex += values[4]!;
-      if (sourceIndex >= 0 && sourceIndex < sourceCount) {
-        segments.push({ generatedColumn, sourceIndex, originalLine, originalColumn, nameIndex: named ? nameIndex : null });
-      }
-    }
-
-    segments.sort((left, right) => left.generatedColumn - right.generatedColumn);
-    lines.push(segments);
+  constructor(mappings: string, sourceCount: number) {
+    this.#mappings = mappings;
+    this.#sourceCount = sourceCount;
   }
 
-  return lines;
+  #lineStarts(): number[] {
+    if (this.#starts) return this.#starts;
+    const starts = [0];
+    for (let at = this.#mappings.indexOf(';'); at !== -1; at = this.#mappings.indexOf(';', at + 1)) {
+      starts.push(at + 1);
+    }
+    this.#starts = starts;
+    return starts;
+  }
+
+  get length(): number {
+    return this.#lineStarts().length;
+  }
+
+  #lineEnd(starts: number[], line: number): number {
+    return line + 1 < starts.length ? starts[line + 1]! - 1 : this.#mappings.length;
+  }
+
+  #stateAt(line: number): DecodeState {
+    const starts = this.#lineStarts();
+    if (this.#states.length < starts.length * 4) {
+      const grown = new Int32Array(starts.length * 4);
+      grown.set(this.#states);
+      this.#states = grown;
+    }
+    const states = this.#states;
+    while (this.#knownLines <= line) {
+      const previous = this.#knownLines - 1;
+      const state = {
+        sourceIndex: states[previous * 4]!,
+        originalLine: states[previous * 4 + 1]!,
+        originalColumn: states[previous * 4 + 2]!,
+        nameIndex: states[previous * 4 + 3]!,
+      };
+      walkLine(this.#mappings, starts[previous]!, this.#lineEnd(starts, previous), state, this.#sourceCount, null);
+      const next = this.#knownLines * 4;
+      states[next] = state.sourceIndex;
+      states[next + 1] = state.originalLine;
+      states[next + 2] = state.originalColumn;
+      states[next + 3] = state.nameIndex;
+      this.#knownLines += 1;
+    }
+    return {
+      sourceIndex: states[line * 4]!,
+      originalLine: states[line * 4 + 1]!,
+      originalColumn: states[line * 4 + 2]!,
+      nameIndex: states[line * 4 + 3]!,
+    };
+  }
+
+  /** Segments of the 0-based generated `line`, sorted by column; undefined past the end. */
+  at(line: number): readonly Segment[] | undefined {
+    const cached = this.#decoded.get(line);
+    if (cached) return cached;
+    const starts = this.#lineStarts();
+    if (line < 0 || line >= starts.length) return undefined;
+    const segments: Segment[] = [];
+    walkLine(this.#mappings, starts[line]!, this.#lineEnd(starts, line), this.#stateAt(line), this.#sourceCount, segments);
+    this.#decoded.set(line, segments);
+    return segments;
+  }
 }
 
 function resolveSources(raw: RawMap): string[] | null {
@@ -165,7 +250,7 @@ export function parseSourceMap(text: string): SourceMap[] {
     sources,
     names,
     sourcesContent,
-    lines: decodeMappings(raw.mappings, sources.length),
+    lines: new MappingLines(raw.mappings, sources.length),
     offset: { line: 0, column: 0 },
   }];
 }
@@ -215,7 +300,7 @@ export function mappingAt(
   for (const map of sectionsFor(maps, line, column)) {
     const localLine = line - map.offset.line;
     const localColumn = localLine === 1 ? column - map.offset.column : column;
-    const segments = map.lines[localLine - 1];
+    const segments = map.lines.at(localLine - 1);
     if (segments === undefined || segments.length === 0) continue;
 
     const found = segmentAt(segments, localColumn - 1);
@@ -310,7 +395,7 @@ export function mappingsInRange(
       const line = localLine + map.offset.line;
       if (line < start.line) continue;
       if (line > end.line) break;
-      for (const segment of map.lines[localLine - 1]!) {
+      for (const segment of map.lines.at(localLine - 1)!) {
         const column = segment.generatedColumn + 1 + (localLine === 1 ? map.offset.column : 0);
         if (before(line, column, start)) continue;
         if (!before(line, column, end)) break;
