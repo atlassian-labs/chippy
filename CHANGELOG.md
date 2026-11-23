@@ -50,6 +50,14 @@ must stay compatible with the extension version in the store.
   event lacks. A handler that throws a `TypeError` without one gets a `hint`.
   The event is never dispatched.
 
+- The Chippy panel has a **Sources | Full** detection mode toggle beside the
+  Avalanche pill. Full also records effect, memo, and callback dependency
+  churn. With Avalanche running, choosing the other mode reinstalls it now, as
+  `avalanche-recapture` does; the pill then turns amber, and clicking it reloads
+  in that mode to capture the page load. The choice is kept per origin and used
+  by the pill's reloads, which previously always used `sources`.
+  `avalanche-status` adds `detectionMode`, the level the capture runs at.
+
 - `avalanche-summary <clientId> [top] [maxItems]` (MCP `summary` action) reads
   a live capture in one call: commit totals, the interaction timeline, the top
   commits by collateral with timing, sources, changed hooks, and latest input,
