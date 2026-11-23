@@ -82,7 +82,7 @@ function nameOfType(type: unknown): string | null {
   return null;
 }
 
-function entryFor(owner: unknown, via: LocationEntry['via']): LocationEntry | null {
+function entryFor(owner: unknown, via: LocationEntry['via'], nameOf: (fiber: Fiber) => string): LocationEntry | null {
   if (!owner || typeof owner !== 'object') return null;
   const fiber = owner as AnyFiber;
   if (typeof fiber.tag === 'number') {
@@ -90,7 +90,7 @@ function entryFor(owner: unknown, via: LocationEntry['via']): LocationEntry | nu
     const props = pickLocationProps(fiber.memoizedProps);
     return {
       via,
-      name: getComponentName(fiber),
+      name: nameOf(fiber),
       ...(source && { source: { fileName: source.fileName, lineNumber: source.lineNumber } }),
       ...(props && { props }),
     };
@@ -112,6 +112,9 @@ export function describeSuspenseLocation(
   boundary: Fiber,
   parents = LOCATION_PARENTS,
   owners = LOCATION_OWNERS,
+  nameOf: (fiber: Fiber) => string = getComponentName,
+  /** Called with each fallback component name and its type, so the detector can rename it later. */
+  noteName?: (name: string, type: unknown) => void,
 ): SuspenseLocation {
   const fiber = boundary as AnyFiber;
   const chain: LocationEntry[] = [];
@@ -124,7 +127,7 @@ export function describeSuspenseLocation(
 
   for (let f = fiber.return, n = 0; f && n < parents; f = f.return) {
     if (!isComponentFiber(f.tag)) continue;
-    const entry = entryFor(f, 'parent');
+    const entry = entryFor(f, 'parent', nameOf);
     if (!entry) continue;
     chain.push(entry);
     remember(f, entry);
@@ -133,7 +136,7 @@ export function describeSuspenseLocation(
   for (let o = fiber._debugOwner, n = 0; o && n < owners; o = nextOwner(o)) {
     const seen = listed.get(o);
     if (seen) { seen.via = 'both'; n++; continue; }
-    const entry = entryFor(o, 'owner');
+    const entry = entryFor(o, 'owner', nameOf);
     if (!entry) continue;
     chain.push(entry);
     remember(o, entry);
@@ -142,7 +145,9 @@ export function describeSuspenseLocation(
 
   const props = (fiber.memoizedProps || {}) as { name?: unknown; fallback?: unknown };
   const name = typeof props.name === 'string' ? props.name : typeof fiber.key === 'string' ? fiber.key : undefined;
-  const fallback = props.fallback && typeof props.fallback === 'object' ? nameOfType((props.fallback as { type?: unknown }).type) : null;
+  const fallbackType = props.fallback && typeof props.fallback === 'object' ? (props.fallback as { type?: unknown }).type : null;
+  const fallback = fallbackType ? nameOfType(fallbackType) : null;
+  if (fallback && noteName) noteName(fallback, fallbackType);
   return { ...(name && { name }), ...(fallback && { fallback }), chain };
 }
 

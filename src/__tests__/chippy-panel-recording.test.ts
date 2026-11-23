@@ -8,7 +8,7 @@ const EXTENSION = resolve(__dirname, '../../.agents/skills/chippy/extension');
 const read = (name: string) => readFileSync(resolve(EXTENSION, name), 'utf8');
 
 
-function openPanelWithBridge({ installed = true, fromPageStart = true, runtime = true } = {}) {
+function openPanelWithBridge({ installed = true, fromPageStart = true, runtime = true, startupMode = undefined as string | undefined, storedMode = undefined as string | undefined } = {}) {
   const dom = new JSDOM('<!doctype html><html><body><main>fixture</main></body></html>', {
     url: 'https://example.test/page',
     runScripts: 'outside-only',
@@ -17,13 +17,21 @@ function openPanelWithBridge({ installed = true, fromPageStart = true, runtime =
   const calls: string[] = [];
   const sent: Array<Record<string, any>> = [];
   let isInstalled = installed;
+  let detectionMode = startupMode ?? 'sources';
+  const installs: Array<Record<string, unknown>> = [];
+  if (storedMode) win.localStorage.setItem('chippy:avalanche-mode', storedMode);
   win.__CHIPPY = { config: { activated: true, ui: 'panel', integration: { kind: 'extension', who: 'Chippy browser extension' }, publishDebounceMs: 0 } };
-  if (fromPageStart) win.__CHIPPY_STARTUP_CONFIG = { avalanche: { autoStart: true } };
+  if (fromPageStart) win.__CHIPPY_STARTUP_CONFIG = { avalanche: { autoStart: true, options: { detectionMode } } };
   if (runtime) win.__AVALANCHE__ = {
-    status: () => ({ installed: isInstalled, commitCount: 2 }),
+    status: () => ({ installed: isInstalled, commitCount: 2, detectionMode: isInstalled ? detectionMode : null }),
     reset: () => { calls.push('reset'); return { ok: true }; },
     pause: () => { calls.push('pause'); return { ok: true }; },
-    install: () => { isInstalled = true; return { ok: true }; },
+    install: (options: Record<string, unknown> = {}) => {
+      installs.push(options);
+      isInstalled = true;
+      detectionMode = String(options.detectionMode ?? 'full');
+      return { ok: true };
+    },
     uninstall: () => { calls.push('uninstall'); return { ok: true }; },
     bridge: {
       readAvalancheStatus: () => ({ ok: true, available: true, status: { installed: isInstalled } }),
@@ -73,7 +81,7 @@ function openPanelWithBridge({ installed = true, fromPageStart = true, runtime =
   (panel.querySelector('[aria-label="Open Chippy"]') as HTMLButtonElement).click();
   sockets[0].emit('open');
   const helper = (command: Record<string, unknown>) => sockets[0].emit('message', { type: 'command', command });
-  return { dom, win, panel, calls, sent, helper };
+  return { dom, win, panel, calls, sent, helper, installs };
 }
 
 describe('panel recording controls', () => {
@@ -134,6 +142,57 @@ describe('panel recording controls', () => {
     expect(pill?.textContent).toBe('⚠ Runtime missing · reload');
     expect(missing.panel.querySelector('[data-chippy-avalanche-pill="off"]')).toBeNull();
     expect(missing.panel.querySelector('[data-chippy-record]')).toBeNull();
+  });
+
+  it('switches a running capture to full mode from the panel and keeps the choice for reloads', () => {
+    const { dom, win, panel, installs, sent } = openPanelWithBridge();
+    close = () => { win.__CHIPPY.pageBridge.destroy(); dom.window.close(); };
+    const pressed = () => panel.querySelector('[data-chippy-avalanche-mode][aria-pressed="true"]')?.getAttribute('data-chippy-avalanche-mode');
+    expect(pressed()).toBe('sources');
+
+    (panel.querySelector('[data-chippy-avalanche-mode="full"]') as HTMLButtonElement).click();
+    expect(installs).toEqual([{ captureFibers: true, detectionMode: 'full', historySize: 1000 }]);
+    expect(pressed()).toBe('full');
+    expect(win.localStorage.getItem('chippy:avalanche-mode')).toBe('full');
+    // The new capture starts on the live page, so it no longer has the load.
+    expect(panel.querySelector('[data-chippy-avalanche-pill="late"]')?.getAttribute('title')).toMatch(/Reloads in full mode\.$/);
+    expect(sent.some((m) => JSON.stringify(m).includes('avalanche-panel-mode'))).toBe(true);
+
+    // Pressing the running mode again does nothing.
+    (panel.querySelector('[data-chippy-avalanche-mode="full"]') as HTMLButtonElement).click();
+    expect(installs).toHaveLength(1);
+  });
+
+  it('does not switch mode during a recording', () => {
+    const { dom, win, panel, installs } = openPanelWithBridge();
+    close = () => { win.__CHIPPY.pageBridge.destroy(); dom.window.close(); };
+    (panel.querySelector('[data-chippy-record="idle"]') as HTMLButtonElement).click();
+    expect((panel.querySelector('[data-chippy-avalanche-mode="full"]') as HTMLButtonElement).disabled).toBe(true);
+    expect(win.__CHIPPY.pageBridge.recording.setMode('full')).toEqual({ ok: false, error: 'Stop the recording before switching mode.' });
+    expect(installs).toEqual([]);
+  });
+
+  it('shows the running mode, and with Avalanche off picks the mode for the next reload', () => {
+    const running = openPanelWithBridge({ startupMode: 'amplifiers' });
+    expect(running.panel.querySelector('[data-chippy-avalanche-mode="full"]')?.getAttribute('aria-pressed')).toBe('true');
+    running.win.__CHIPPY.pageBridge.destroy();
+    running.dom.window.close();
+
+    const off = openPanelWithBridge({ installed: false, fromPageStart: false, storedMode: 'full' });
+    close = () => { off.win.__CHIPPY.pageBridge.destroy(); off.dom.window.close(); };
+    expect(off.panel.querySelector('[data-chippy-avalanche-mode="full"]')?.getAttribute('aria-pressed')).toBe('true');
+    (off.panel.querySelector('[data-chippy-avalanche-mode="sources"]') as HTMLButtonElement).click();
+    expect(off.installs).toEqual([]);
+    expect(off.win.localStorage.getItem('chippy:avalanche-mode')).toBe('sources');
+    expect(off.panel.querySelector('[data-chippy-avalanche-pill="off"]')?.getAttribute('title')).toMatch(/Reloads in sources mode\.$/);
+  });
+
+  it('reloads with Avalanche in the chosen mode', async () => {
+    const { dom, win } = openPanelWithBridge({ installed: false, fromPageStart: false, storedMode: 'full' });
+    close = () => { win.__CHIPPY.pageBridge.destroy(); dom.window.close(); };
+    await win.__CHIPPY.pageBridge.recording.reloadWithAvalanche();
+    const handoff = JSON.parse(win.sessionStorage.getItem('__chippyStartupHandoff') || '{}');
+    expect(handoff.avalanche).toEqual({ autoStart: true, options: { captureFibers: true, detectionMode: 'full' } });
   });
 
   it('shows how Chippy reached the page in the panel header', () => {

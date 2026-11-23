@@ -10,7 +10,8 @@
 import { hookStepsAt, summarizeHookResults } from './avalanche-hooks';
 import { compactLatestAction, tupleToStats, UPSTREAM_COMMIT_STAT_KEYS } from './commit-stats';
 import { linkPerfEntries, perfSummary, type PerfSummary } from './perf-signals';
-import { buildTimeline } from './timeline';
+import { summarizeRebuiltProps, type RebuiltPropsSummary } from './rebuilt-props';
+import { buildTimeline, type TimelineResult } from './timeline';
 
 export const SUMMARY_DEFAULT_TOP = 5;
 export const SUMMARY_DEFAULT_MAX_ITEMS = 3;
@@ -33,6 +34,7 @@ export type SummarySource = {
 
 export type SummaryCommit = {
   commitId: number;
+  /** Commit counters; zero counters are left out. */
   stat: Record<string, number> | null;
   /** Milliseconds from the timeline origin to the commit; null without timings. */
   atMs: number | null;
@@ -42,6 +44,11 @@ export type SummaryCommit = {
   paintDelayMs: number | null;
   sourcesTotal: number;
   sources: SummarySource[];
+  /**
+   * Object and array props that got a new identity, grouped, with whether
+   * any key changed value. Null without rendered evidence or key diffs.
+   */
+  rebuiltProps: RebuiltPropsSummary | null;
   latestAction: unknown;
   /** Each pack hook's onStep result for this commit; empty without packs. */
   hooks: Record<string, unknown>;
@@ -53,14 +60,21 @@ export type SummaryCommit = {
   longFrame: { atMs: number | null; durationMs: number; blockingMs: number; commits: number[] } | null;
 };
 
+export type SummaryTimeline = Pick<TimelineResult, 'origin' | 'window' | 'omitted' | 'text'>;
+
 export type SummaryView = {
   commits: number;
   firstCommitId: number | null;
   lastCommitId: number | null;
   sources: number;
   totals: Record<string, number>;
-  /** The timeline of the last interaction without lanes or the mermaid chart, or why it could not be built. */
-  timeline: Record<string, unknown> | { error: string };
+  /**
+   * The timeline of the last interaction as text, with its origin, window, and
+   * omitted counts, or why it could not be built. The text already states the
+   * waits, visual completeness, late paints, and long frames; `avalanche-timeline`
+   * returns them as structured `perceived`, `screen`, and `boundaries`.
+   */
+  timeline: SummaryTimeline | { error: string };
   topCommits: SummaryCommit[];
   hooks: ReturnType<typeof summarizeHookResults>;
   /** Browser performance metrics over the whole capture; null when the report has no performance entries. */
@@ -128,8 +142,16 @@ function frameOf(frames: ReturnType<typeof linkPerfEntries>, commitId: number, o
 function compactTimeline(report: Report): SummaryView['timeline'] {
   const timeline = buildTimeline(report as Parameters<typeof buildTimeline>[0]);
   if ('error' in timeline) return { error: timeline.error };
-  const { ok: _ok, lanes: _lanes, mermaid: _mermaid, ...rest } = timeline;
-  return rest;
+  const { origin, window, omitted, text } = timeline;
+  return { origin, window, omitted, text };
+}
+
+function nonZero(stats: Record<string, number> | null | undefined): Record<string, number> | null {
+  return stats ? Object.fromEntries(Object.entries(stats).filter(([, value]) => value !== 0)) : null;
+}
+
+function tenths(value: number | null): number | null {
+  return value === null ? null : Math.round(value * 10) / 10;
 }
 
 export function buildSummaryView(report: Report, options: SummaryOptions = {}): SummaryView {
@@ -147,7 +169,7 @@ export function buildSummaryView(report: Report, options: SummaryOptions = {}): 
   }
 
   const timeline = compactTimeline(report);
-  const origin = 'origin' in timeline ? finite((timeline.origin as { at?: unknown })?.at) : null;
+  const origin = 'origin' in timeline ? finite(timeline.origin.at) : null;
 
   const frames = Array.isArray(report.perfEntries)
     ? linkPerfEntries(report, report.perfEntries.filter((e: { entryType?: unknown }) => e.entryType === 'long-animation-frame' || e.entryType === 'longtask'))
@@ -169,13 +191,14 @@ export function buildSummaryView(report: Report, options: SummaryOptions = {}): 
       const actions = at(report.interactionsByCommit, commitId);
       return {
         commitId,
-        stat: statsById.get(commitId) ?? null,
+        stat: nonZero(statsById.get(commitId)),
         atMs: start !== null && origin !== null ? ms(start - origin) : null,
-        renderMs: finite(timing?.render?.workMs),
+        renderMs: tenths(finite(timing?.render?.workMs)),
         ticks: finite(timing?.ticks),
         paintDelayMs: paint !== null && end !== null && paint >= end ? ms(paint - end) : null,
         sourcesTotal: list.length,
         sources: sourceRows(list, maxItems),
+        rebuiltProps: summarizeRebuiltProps(at(report.renderedByCommit, commitId), maxItems),
         latestAction: Array.isArray(actions) && actions.length ? compactLatestAction(actions[actions.length - 1]) : null,
         hooks: hookStepsAt(report.hooks, commitId),
         longFrame: frameOf(frames, commitId, origin),

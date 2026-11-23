@@ -78,8 +78,11 @@ import { createScreenCapture } from './screen-changes';
 import { createDomDiffCapture } from './dom-diff';
 import { describeSuspenseLocation } from './suspense-location';
 import { createRenderTickTracker } from './render-ticks';
-import { createRenderedNames } from './rendered-names';
+import { createRenderedNames, type ComponentRename } from './rendered-names';
+import { applyRecordedRenames, createNameLedger } from './recorded-names';
+import { minifiedComponentName } from '../chippy-bridge/component-origin';
 import { createPropSummarizer } from './prop-summary';
+import { createPropKeyDiffer } from './prop-key-diff';
 import { createRenderedEvidenceStore, DEFAULT_MAX_RENDERED_ENTRIES, type RenderedEvidenceStatus } from './rendered-evidence-store';
 import {
   CS_UNMOUNTED_COMPONENTS,
@@ -219,6 +222,11 @@ export function createAvalancheDetector(options: DetectorOptions = {}) {
       return this.idToType.get(typeId) ?? null;
     }
 
+    /** Every component type given a source id since the last clear. */
+    types(): Iterable<ComponentType> {
+      return this.idToType.values();
+    }
+
     clear() {
       // Fibers that outlive the reset get fresh ids too. An id kept from before
       // would name a type id that is reissued, so it would point at another type.
@@ -231,17 +239,31 @@ export function createAvalancheDetector(options: DetectorOptions = {}) {
   }
 
   const sourceIdManager = new StableSourceIdManager();
+  // eslint-disable-next-line @typescript-eslint/consistent-type-assertions
+  const nameOfType = (type: ComponentType) => getComponentName({ type } as Fiber);
   const renderedNames = createRenderedNames<ComponentType>({
     typeOf: (sourceId) => sourceIdManager.typeOf(sourceId),
-    // eslint-disable-next-line @typescript-eslint/consistent-type-assertions
-    nameOf: (type) => getComponentName({ type } as Fiber),
+    types: () => sourceIdManager.types(),
+    nameOf: nameOfType,
+    minifiedNameOf: minifiedComponentName,
   });
+  // Names stored as text (DOM anchors, Suspense locations, regions, perf
+  // owners, unmount samples, interaction targets), so a report can rename
+  // them. See recorded-names.ts.
+  const recordedNames = createNameLedger<Fiber, ComponentType>({
+    componentName: getComponentName,
+    typeOf: (fiber) => fiber.type,
+    nameOf: nameOfType,
+    minifiedNameOf: minifiedComponentName,
+  });
+  // eslint-disable-next-line @typescript-eslint/consistent-type-assertions
+  const noteRecordedName = (name: string, type: unknown) => recordedNames.note(name, type as ComponentType);
   const debugRender = createDebugRender();
-  const interactionCapture = createInteractionCapture(options);
+  const interactionCapture = createInteractionCapture(options, noteRecordedName);
   const networkCapture = createNetworkCapture(options);
-  const perfCapture = createPerfCapture(options);
-  const screenCapture = createScreenCapture(options);
-  const domDiff = createDomDiffCapture(options);
+  const perfCapture = createPerfCapture(options, recordedNames.nameOf);
+  const screenCapture = createScreenCapture(options, undefined, recordedNames.nameOf);
+  const domDiff = createDomDiffCapture(options, undefined, recordedNames.nameOf);
   // Plugin hooks (packs' onStart/onStep/onEnd); results land in report.hooks.
   const hookRunner = createAvalancheHookRunner();
   const paintTracker = createPaintTracker((ids, paintAt) => {
@@ -519,6 +541,8 @@ export function createAvalancheDetector(options: DetectorOptions = {}) {
   }
 
   const summarizePropValue = createPropSummarizer();
+  // `stats` stays the cheapest mode: it records which props changed, not which keys.
+  const diffPropKeys = enableSourceTracking ? createPropKeyDiffer(summarizePropValue) : null;
 
   // Runs for every rendered component; most props are unchanged, so the common
   // path allocates nothing beyond the result array.
@@ -548,12 +572,16 @@ export function createAvalancheDetector(options: DetectorOptions = {}) {
       // Recreated callbacks keep their name, so their summary cannot differ.
       const prevSummary = typeof prevValue === 'function' && typeof currentValue === 'function' &&
         prevValue.name === currentValue.name ? currentSummary : summarizePropValue(prevValue);
+      if (!isRef) {
+        changes.push({ name, kind: 'scalar-changed', prev: prevSummary, current: currentSummary });
+        continue;
+      }
       // A new identity with the same shape needs one summary, not two.
-      changes.push(isRef
-        ? (prevSummary === currentSummary
-          ? { name, kind: 'ref-changed', current: currentSummary }
-          : { name, kind: 'ref-changed', prev: prevSummary, current: currentSummary })
-        : { name, kind: 'scalar-changed', prev: prevSummary, current: currentSummary });
+      const refChange: PropChangeEvidence = prevSummary === currentSummary
+        ? { name, kind: 'ref-changed', current: currentSummary }
+        : { name, kind: 'ref-changed', prev: prevSummary, current: currentSummary };
+      const keyDiff = diffPropKeys?.(prevValue, currentValue);
+      changes.push(keyDiff ? Object.assign(refChange, keyDiff) : refChange);
     }
     for (const name in current) {
       if (!hasOwn.call(current, name) || hasOwn.call(prev, name)) continue;
@@ -743,7 +771,7 @@ export function createAvalancheDetector(options: DetectorOptions = {}) {
                 if (perCommit.unmountSamples.length < 30) {
                   const fiberKey = (df as unknown as { key?: string | number | null }).key;
                   const sample = {
-                    name: getComponentName(df),
+                    name: recordedNames.nameOf(df),
                     key: fiberKey == null ? null : String(fiberKey),
                     depth: branchStartDepth,
                     count: 1,
@@ -785,7 +813,7 @@ export function createAvalancheDetector(options: DetectorOptions = {}) {
               const counts = countUnmountedComponentSubtree(deleted);
               const fiberKey = (labelFiber as unknown as { key?: string | number | null }).key;
               perCommit.unmountSamples.push({
-                name: getComponentName(labelFiber),
+                name: recordedNames.nameOf(labelFiber),
                 key: fiberKey == null ? null : String(fiberKey),
                 depth,
                 count: counts.components,
@@ -816,7 +844,7 @@ export function createAvalancheDetector(options: DetectorOptions = {}) {
             boundary: boundaryId(fiber),
             entered: suspenseChange.entered,
             left: suspenseChange.left,
-            location: describeSuspenseLocation(fiber),
+            location: describeSuspenseLocation(fiber, undefined, undefined, recordedNames.nameOf, noteRecordedName),
             ...(captureFibers && { fiber }),
           };
           perCommit.suspenseEvents.push(event);
@@ -1404,6 +1432,34 @@ export function createAvalancheDetector(options: DetectorOptions = {}) {
     renderTicks.reset();
     sourceIdManager.clear();
     renderedNames.reset();
+    recordedNames.reset();
+  }
+
+  /**
+   * Rename held entries and stored text for components whose authored name
+   * was recovered since the last report. Returns every rename so far.
+   */
+  function refreshComponentNames(): ComponentRename[] {
+    renderedNames.refresh(state.renderedByCommit);
+    applyRecordedRenames(
+      {
+        domByCommit: state.domByCommit,
+        suspenseByCommit: state.suspenseByCommit,
+        screenByCommit: state.screenByCommit,
+        perfEntries: state.perfEntries,
+        unmountSamples: [...Object.values(state.unmountsByCommit), pendingDevtoolsUnmountSamples],
+        interactionLocations: [
+          ...interactionCapture.state.actions,
+          ...Object.values(interactionCapture.state.byCommit).flat(),
+        ].map((action) => action.location),
+      },
+      recordedNames.update(),
+    );
+    const all = new Map<string, ComponentRename>();
+    for (const rename of [...renderedNames.renames(), ...recordedNames.renames()]) {
+      all.set(`${rename.minifiedName}\u0000${rename.name}`, rename);
+    }
+    return Array.from(all.values());
   }
 
   type DevtoolsHook = {
@@ -1749,7 +1805,7 @@ export function createAvalancheDetector(options: DetectorOptions = {}) {
           if (labelFiber) {
             const fiberKey = (labelFiber as unknown as { key?: string | number | null }).key;
             pendingDevtoolsUnmountSamples.push({
-              name: getComponentName(labelFiber),
+              name: recordedNames.nameOf(labelFiber),
               key: fiberKey == null ? null : String(fiberKey),
               depth: null,
               count: counts.components,
@@ -1941,6 +1997,23 @@ export function createAvalancheDetector(options: DetectorOptions = {}) {
     },
 
     /**
+     * Component types the capture named with any of `names`, or every type it
+     * named when omitted: types with a source id whose current name matches,
+     * and types whose names were stored as text (DOM anchors, Suspense
+     * locations, regions, perf owners, unmount samples, interaction targets;
+     * see recorded-names.ts).
+     * Lets callers recover names for the components a result mentions by name.
+     */
+    componentTypesNamed(names?: Iterable<string>): ComponentType[] {
+      const wanted = names === undefined ? null : new Set(names);
+      const types = new Set<ComponentType>(recordedNames.types(wanted ?? undefined));
+      for (const type of sourceIdManager.types()) {
+        if (!wanted || wanted.has(nameOfType(type))) types.add(type);
+      }
+      return Array.from(types);
+    },
+
+    /**
      * Generate a report of top update sources and thrashing components.
      * @param topN - Number of top sources to include (default: 10)
      * @param sortBy - Sort thrashers by 'effect', 'callback', 'memo', or 'total' (default: 'effect')
@@ -1950,7 +2023,7 @@ export function createAvalancheDetector(options: DetectorOptions = {}) {
     report(topN: number = 10, sortBy: SortBy = 'effect', reportOptions?: ReportOptions): Report {
       networkCapture.flush();
       perfCapture.flush();
-      renderedNames.refresh(state.renderedByCommit);
+      const componentNames = refreshComponentNames();
       const report = buildReport(state, thrashMode, topN, sortBy, reportOptions, {
         effectThrashMode,
         captureFibers,
@@ -1964,6 +2037,7 @@ export function createAvalancheDetector(options: DetectorOptions = {}) {
         ...(domDiff.enabled && { domDiff: domDiff.status() }),
         capture: captureStatus(),
       });
+      if (componentNames.length > 0) report.meta.componentNames = componentNames;
       const hooks = hookRunner.collect();
       if (hooks) report.hooks = hooks;
       return report;
@@ -2079,6 +2153,11 @@ export function createAvalancheDetector(options: DetectorOptions = {}) {
      */
     getIntegrationMode(): IntegrationMode {
       return integrationMode;
+    },
+
+    /** Detection level this detector records at: `stats`, `sources`, `amplifierMetrics`, `amplifiers`, or `full`. */
+    getDetectionLevel(): string | null {
+      return detectionLevel ?? null;
     },
 
     /** Id of the commit metrics adapter resolved on install, or null. */

@@ -57,6 +57,23 @@ Rules:
 - prop must exist on `memoizedProps`
 - prop must be a function
 - arguments are explicit JSON only; do not infer them from prop names
+- an event handler that reads its event gets one only when asked: write `{"$event": "<type>"}` in that argument's position
+
+### Event arguments
+
+`--args '[{"$event":"click"}]'` replaces that argument with an event shaped like React's synthetic event:
+- `type` from `$event`
+- `target` and `currentTarget` set to the fiber's own element, or the first element it renders, so `e.currentTarget.dataset` and `e.target.value` read the live DOM
+- `nativeEvent`, a matching browser event (`MouseEvent`, `KeyboardEvent`, `FocusEvent`, or `Event`)
+- `preventDefault`, `stopPropagation`, `isDefaultPrevented`, `isPropagationStopped`, and `persist`
+
+Other JSON fields become event fields: `{"$event":"keydown","key":"Enter","shiftKey":true}`. Use at most one event argument per call.
+
+The result adds `event: {synthetic, type, target, calls, defaultPrevented, propagationStopped, missing}`. `calls` lists the event methods the handler called. `missing` lists the fields it read that the event does not have (for example `clientX`): a handler that branches on one of them took the branch for `undefined`, so pass the field explicitly and invoke again.
+
+A handler that throws a `TypeError` without an event argument, and that declares at least one parameter, gets a `hint` to pass one. Check the source before you follow it.
+
+The event is never dispatched. Parent handlers do not see it, `stopPropagation` stops nothing, and the browser performs no default action: a submit button does not submit its form and a link does not navigate. Use `page-click` when any of those matter.
 
 Pollution:
 - component/app state may change without matching browser focus, pointer, or default-event semantics

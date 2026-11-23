@@ -46,6 +46,7 @@ describe('perfSummary', () => {
       layoutShifts: 3,
       longFrames: 2,
       totalBlockingMs: 170,
+      chippyFrames: { count: 0, blockingMs: 0 },
       worstFrame: { id: 3, startTime: 90, duration: 210, blockingDuration: 160, commits: [1, 2] },
       interactions: 1,
       worstInteractionMs: 220,
@@ -64,6 +65,17 @@ describe('perfSummary', () => {
       { id: 2, entryType: 'longtask', name: 'self', startTime: 500, duration: 60 },
     ];
     expect(perfSummary({ perfEntries: tasks })).toMatchObject({ longFrames: 2, totalBlockingMs: 80, worstFrame: null });
+  });
+
+  it("leaves Chippy's own long frames out of the page metrics", () => {
+    // Frame 3 (90..300) has no attributed scripts and overlaps a Chippy command.
+    const own = { ...report, ownWork: [{ start: 80, end: 320, label: 'eval-avalanche' }] };
+    expect(perfSummary(own)).toMatchObject({
+      longFrames: 1,
+      totalBlockingMs: 10,
+      chippyFrames: { count: 1, blockingMs: 160 },
+      worstFrame: { id: 4 },
+    });
   });
 });
 

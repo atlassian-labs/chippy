@@ -5,6 +5,7 @@
  * ordering, so presentation changes do not alter hot-path collection.
  */
 
+import { ownWorkSince, type OwnWorkSpan } from './own-work';
 import type { RenderedEvidenceStatus } from './rendered-evidence-store';
 import type { ComponentType, ChangedHook, Fiber, ThrashInfo } from './internals';
 import { CS_RESTARTS } from './commit-stats-indices';
@@ -18,7 +19,9 @@ import { getComponentName } from './internals';
 import type { ReportDTO } from './report-serializer';
 import { serializeReport } from './report-serializer';
 import type { InputEventDetails } from './input-details';
+import type { PropKeyDiff } from './prop-key-diff';
 import type { AvalancheHookResult } from './avalanche-hooks';
+import type { ComponentRename } from './rendered-names';
 import {
   type CommitMetricsAdapter,
   type CommitMetricsDelta,
@@ -304,6 +307,12 @@ export interface ReportMeta {
    * (performance.now()) enters the capture.
    */
   capture?: CaptureStatus;
+  /**
+   * Authored names recovered from source maps for components that ran under a
+   * minified name. Report text already uses `name`; `minifiedName` is the
+   * runtime name. Absent when no name was recovered.
+   */
+  componentNames?: ComponentRename[];
   /** Amplifier summary (when detectionMode: 'amplifierMetrics') */
   amplifiersMetrics?: {
     totalHookThrashes: number;
@@ -394,9 +403,12 @@ export type PropValueSummary = string;
 /**
  * One changed prop. `removed` has only `prev`; `added` only `current`;
  * `scalar-changed` has both. `ref-changed` has `current`, plus `prev` only
- * when the previous value's summary differs (its shape changed).
+ * when the previous value's summary differs (its shape changed). A
+ * `ref-changed` plain object or array also carries its shallow key diff
+ * (`sameShallow`, `changedKeys`, ...; see `prop-key-diff.ts`), except in
+ * `stats` mode.
  */
-export interface PropChangeEvidence {
+export interface PropChangeEvidence extends PropKeyDiff {
   name: string;
   kind: PropChangeKind;
   prev?: PropValueSummary;
@@ -509,6 +521,13 @@ export interface Report {
    * computed on read. Absent before report v9.
    */
   perfEntries?: PerfEntry[];
+
+  /**
+   * Spans of Chippy's own work in the page (bridge commands and snapshots), so
+   * long frames Chippy caused can be left out of page metrics. Absent when
+   * Chippy recorded none.
+   */
+  ownWork?: OwnWorkSpan[];
 
   /**
    * Results of plugin Avalanche hooks (packs' onStart/onStep/onEnd), keyed by
@@ -1150,6 +1169,7 @@ export function buildReport(
     renderedByCommit: state.renderedByCommit,
     networkRequests: state.networkRequests.slice(),
     ...(state.perfEntries && { perfEntries: state.perfEntries.slice() }),
+    ...(ownWorkSince().length > 0 && { ownWork: ownWorkSince() }),
     ...(state.screenByCommit && Object.keys(state.screenByCommit).length > 0 && { screenByCommit: { ...state.screenByCommit } }),
     ...(state.domByCommit && Object.keys(state.domByCommit).length > 0 && { domByCommit: { ...state.domByCommit } }),
     ...(hasMetricsData && { metricsByCommit: state.metricsByCommit }),

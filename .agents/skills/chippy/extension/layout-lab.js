@@ -1259,6 +1259,32 @@
     return '';
   }
 
+  const DETECTION_MODES = [
+    { mode: 'sources', label: 'Sources', title: 'Sources: which components rendered and what caused each commit. Light enough to leave on.' },
+    { mode: 'full', label: 'Full', title: 'Full: Sources plus effect, memo, and callback dependency churn. Heavier; use it to explore why hooks rerun.' },
+  ];
+
+  // Sources | Full. The running mode is highlighted; with Avalanche off, the
+  // mode the next reload uses. Clicking another mode while Avalanche runs
+  // switches it now and starts a new capture.
+  function renderDetectionModeToggle(rec) {
+    const active = rec.avalanche.installed ? rec.avalanche.mode : rec.avalanche.preferredMode;
+    const busy = rec.state === 'recording';
+    const note = busy
+      ? ' Stop the recording to switch.'
+      : rec.avalanche.installed ? ' Switching restarts the capture, without the page load.' : ' Used by the next reload.';
+    const buttons = DETECTION_MODES.map(({ mode, label, title }) => {
+      const pressed = mode === active;
+      return `<button type="button" data-chippy-avalanche-mode="${mode}" aria-pressed="${pressed}" title="${escapeAttr(title + (pressed ? '' : note))}"${busy && !pressed ? ' disabled' : ''} style="
+          border:0;background:${pressed ? 'rgba(87,157,255,.28)' : 'transparent'};color:${pressed ? '#CCE0FF' : '#A9ABAF'};
+          padding:3px 7px;cursor:${pressed || busy ? 'default' : 'pointer'};font-size:11px;line-height:1.2;pointer-events:auto;
+        ">${label}</button>`;
+    }).join('');
+    return `<span data-chippy-avalanche-modes role="group" aria-label="Avalanche detection mode" style="
+        display:inline-flex;border-radius:7px;overflow:hidden;background:rgba(255,255,255,.08);flex:none;
+      ">${buttons}</span>`;
+  }
+
   function renderAvalancheControls() {
     const rec = getRecording();
     syncRecordingTicker(rec);
@@ -1266,9 +1292,10 @@
     const mode = avalancheMode(rec);
     const pill = AVALANCHE_PILL_STYLES[mode];
     const busy = rec.state === 'recording';
+    const reloadTitle = `${pill.title} Reloads in ${rec.avalanche.preferredMode || 'sources'} mode.`;
     const pillButton = mode === 'ready'
       ? `<span data-chippy-avalanche-pill="ready" title="${escapeAttr(pill.title)}" style="font-size:11px;color:${pill.color};">● Avalanche</span>`
-      : `<button type="button" data-chippy-avalanche-reload data-chippy-avalanche-pill="${mode}" title="${escapeAttr(pill.title)}"${busy ? ' disabled' : ''} style="
+      : `<button type="button" data-chippy-avalanche-reload data-chippy-avalanche-pill="${mode}" title="${escapeAttr(reloadTitle)}"${busy ? ' disabled' : ''} style="
           border:0;background:rgba(255,255,255,.08);color:${pill.color};border-radius:7px;padding:3px 7px;
           cursor:pointer;font-size:11px;line-height:1.2;pointer-events:auto;
         ">${AVALANCHE_PILL_LABELS[mode]}</button>`;
@@ -1286,6 +1313,7 @@
     return `
       <div data-chippy-key="avalanche-controls" data-chippy-avalanche-controls style="display:flex;align-items:center;gap:6px;min-width:0;font-size:11px;color:#A9ABAF;">
         ${pillButton}
+        ${rec.avalanche.available ? renderDetectionModeToggle(rec) : ''}
         ${recordButton}
         ${renderRecordingStatus(rec)}
       </div>
@@ -1295,6 +1323,13 @@
   function bindAvalancheControls(panel) {
     bindPanelEvent(panel.querySelector('[data-chippy-avalanche-reload]'), 'click', () => {
       chippy.pageBridge?.recording?.reloadWithAvalanche?.();
+    });
+    panel.querySelectorAll('[data-chippy-avalanche-mode]').forEach((button) => {
+      bindPanelEvent(button, 'click', () => {
+        if (button.getAttribute('aria-pressed') === 'true') return;
+        chippy.pageBridge?.recording?.setMode?.(button.getAttribute('data-chippy-avalanche-mode'));
+        updatePanel();
+      });
     });
     bindPanelEvent(panel.querySelector('[data-chippy-record]'), 'click', () => {
       const recordingApi = chippy.pageBridge?.recording;

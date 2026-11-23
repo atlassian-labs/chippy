@@ -19,6 +19,45 @@ function makeFiber(props: Record<string, unknown>, extras: Partial<Fiber> = {}):
 }
 
 describe('fiber-invoke', () => {
+  it('passes a synthetic event for a {"$event"} argument and reports it', async () => {
+    const button = document.createElement('button');
+    const seen: unknown[] = [];
+    const onClick = (e: { preventDefault(): void; currentTarget: Element }, label: string) => {
+      e.preventDefault();
+      seen.push(e.currentTarget, label);
+      return 'saved';
+    };
+    const fiber = makeFiber({ onClick }, { child: { tag: 5, stateNode: button } });
+    const r = await evalFiberInvoke('f1', 'onClick', [{ $event: 'click' }, 'draft'], makeDeps(fiber)) as any;
+    expect(r.ok).toBe(true);
+    expect(r.returnValue).toBe('saved');
+    expect(seen).toEqual([button, 'draft']);
+    expect(r.args).toEqual([{ $event: 'click' }, 'draft']);
+    expect(r.event).toMatchObject({ synthetic: true, type: 'click', target: 'button', calls: ['preventDefault'], defaultPrevented: true });
+  });
+
+  it('keeps the event report when the handler throws', async () => {
+    const fiber = makeFiber({ onClick: (e: { stopPropagation(): void }) => { e.stopPropagation(); throw new Error('after stop'); } });
+    const r = await evalFiberInvoke('f1', 'onClick', [{ $event: 'click' }], makeDeps(fiber)) as any;
+    expect(r.threw).toBe(true);
+    expect(r.event.calls).toEqual(['stopPropagation']);
+    expect(r).not.toHaveProperty('hint');
+  });
+
+  it('hints at an event when a handler that takes one throws a TypeError without it', async () => {
+    const fiber = makeFiber({ onClick: (e: { preventDefault(): void }) => e.preventDefault() });
+    const r = await evalFiberInvoke('f1', 'onClick', [], makeDeps(fiber)) as any;
+    expect(r.threw).toBe(true);
+    expect(r.hint).toContain('{"$event":"click"}');
+  });
+
+  it('rejects more than one event placeholder', async () => {
+    const fiber = makeFiber({ onClick: () => 1 });
+    const r = await evalFiberInvoke('f1', 'onClick', [{ $event: 'click' }, { $event: 'click' }], makeDeps(fiber)) as any;
+    expect(r.ok).toBe(false);
+    expect(r.error).toContain('at most one');
+  });
+
   it('happy path: scalar return is serialized', async () => {
     const fiber = makeFiber({ getCount: () => 42 });
     const r = await evalFiberInvoke('f1', 'getCount', [], makeDeps(fiber)) as any;

@@ -11,7 +11,7 @@ function report() {
     commitStats: { 1: tuple(2, 1), 2: tuple(9, 2), 3: tuple(9, 1) },
     commitTimings: {
       1: { startTime: 100, endTime: 104, ticks: 1, render: { workMs: 3 } },
-      2: { startTime: 120, endTime: 130, paintAt: 145, ticks: 2, render: { workMs: 8.5 } },
+      2: { startTime: 120, endTime: 130, paintAt: 145, ticks: 2, render: { workMs: 8.500000047683716 } },
     },
     sourcesByCommit: {
       2: [
@@ -45,11 +45,35 @@ describe('buildSummaryView', () => {
       hooks: { 'demo.count': { n: 2 } },
     });
     expect(commit.latestAction).not.toBeNull();
+    // Zero counters are left out, and render time is rounded to 0.1 ms.
+    expect(commit.stat).toEqual({ collateral: 9, sources: 2, performedWork: 11 });
+  });
+
+  it('carries the timeline as text, leaving structured waits and boundaries to avalanche-timeline', () => {
+    const { timeline } = buildSummaryView(report());
+    expect(Object.keys(timeline).sort()).toEqual(['omitted', 'origin', 'text', 'window']);
   });
 
   it('reports missing timings and evidence as null or empty, not zero', () => {
     const [, commit] = buildSummaryView(report(), { top: 2 }).topCommits;
-    expect(commit).toMatchObject({ commitId: 3, atMs: null, renderMs: null, ticks: null, paintDelayMs: null, sourcesTotal: 0, sources: [], latestAction: null });
+    expect(commit).toMatchObject({ commitId: 3, atMs: null, renderMs: null, ticks: null, paintDelayMs: null, sourcesTotal: 0, sources: [], rebuiltProps: null, latestAction: null });
+  });
+
+  it('says which rebuilt object props of a top commit kept their values', () => {
+    const r = {
+      ...report(),
+      renderedByCommit: {
+        2: [{ sourceId: 'LayerUI#1@1', name: 'LayerUI', propChanges: [{ name: 'appState', kind: 'ref-changed', current: 'object{theme}', sameShallow: true, changedKeys: [], changedKeyCount: 0 }] }],
+      },
+    };
+    const [commit] = buildSummaryView(r, { top: 1 }).topCommits;
+    expect(commit.rebuiltProps).toEqual({
+      sameShallow: 1,
+      keysChanged: 0,
+      notCompared: 0,
+      groups: [{ prop: 'appState', component: 'LayerUI', sourceId: 'LayerUI#1@1', components: 1, sameShallow: true }],
+      omittedGroups: 0,
+    });
   });
 
   it('reports a commit just before the rounded origin at 0 ms, not -0', () => {

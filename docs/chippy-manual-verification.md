@@ -158,6 +158,24 @@ Pass criteria:
 - pre/post hook summaries show `asyncCount` increased by one and `lastAction` became `"async"`
 - refreshed page text shows `async=1` and `last=async`
 
+### Step 4b — fiber-invoke with a synthetic event
+
+Agent invokes the event-reading button, first without an event, then with one:
+
+```bash
+find-fibers <clientId> --testid manual-on-event --max 5
+fiber-prop-contract <clientId> <fiberId> onClick
+fiber-invoke <clientId> <fiberId> onClick --args '[]'
+fiber-invoke <clientId> <fiberId> onClick --args '[{"$event":"click"}]'
+request-snapshot <clientId>
+page <clientId> full
+```
+
+Pass criteria:
+- the bare invoke has `ok: false`, `threw: true`, and a `hint` naming `$event`
+- the event invoke has `ok: true`, `returnValue: true`, and `event` with `synthetic: true`, `target: 'button[data-testid="manual-on-event"]'`, `calls: ["preventDefault", "stopPropagation"]`, and `missing: []`
+- refreshed page text shows `event=1` and `last=event:click:save`
+
 ### Step 5 — class component `this` binding
 
 Agent invokes the class button twice:
@@ -224,6 +242,7 @@ Pass criteria:
 - `renderedTotal > 0`
 - rendered entries include `sourceId`, `name` and `depth`, plus `propChanges` and `trasherCounts` where present
 - for the fixture's `TrasherChild`, `propChanges` shows `ref-changed` for `payload` and/or `onReport`
+- the `payload` change carries a key diff: `changedKeys` with `{ key: "id", kind: "scalar-changed" }` when the tick changed, or `sameShallow: true` with `changedKeys: []` when it did not; `onReport` has no key diff
 - at least one relevant entry has non-zero `trasherCounts.effects` or `trasherCounts.memos`
 
 If `rendered` is empty, stop and recover in this order: reload, reconnect and resolve the current `clientId`, run `avalanche-install <currentClientId> full`, run `avalanche-clear <currentClientId>`, then repeat the trigger. Reload discards the prior detector instance. Do not mark the step passed with empty rendered evidence.

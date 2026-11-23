@@ -479,7 +479,42 @@
     return true;
   }
 
+  // ─── Own-work spans ──────────────────────────────────────────────────────
+  // Chrome leaves extension scripts out of long animation frame attribution,
+  // so Avalanche cannot tell a frame Chippy caused from the page's own. Each
+  // command is timed from receipt to its result, and each snapshot, so the
+  // perf summary can leave those frames out.
+  const pendingCommandStarts = new Map();
+
+  function noteOwnWork(start, label) {
+    try { getBridge()?.noteOwnWork?.(start, performance.now(), label); } catch (e) {}
+  }
+
+  function noteResultSent(message) {
+    const requestId = message && message.requestId;
+    if (!requestId || !pendingCommandStarts.has(requestId)) return;
+    const started = pendingCommandStarts.get(requestId);
+    pendingCommandStarts.delete(requestId);
+    noteOwnWork(started.at, started.type);
+  }
+
+  function runTimedCommand(command) {
+    const at = performance.now();
+    const requestId = command && command.requestId;
+    if (requestId) {
+      pendingCommandStarts.set(requestId, { at, type: String(command.type || '') });
+      // A command that never answers must not keep its start forever.
+      if (pendingCommandStarts.size > 50) pendingCommandStarts.delete(pendingCommandStarts.keys().next().value);
+    }
+    try {
+      handleCommand(command);
+    } finally {
+      if (!requestId) noteOwnWork(at, String(command?.type || ''));
+    }
+  }
+
   function send(message) {
+    noteResultSent(message);
     if (!socket || socket.readyState !== WebSocket.OPEN) return false;
     if (sendRawResult(message)) return true;
     let text;
@@ -522,6 +557,15 @@
   }
 
   function publishSnapshot(reason) {
+    const startedAt = performance.now();
+    try {
+      return publishSnapshotNow(reason);
+    } finally {
+      noteOwnWork(startedAt, 'snapshot');
+    }
+  }
+
+  function publishSnapshotNow(reason) {
     const sequence = ++snapshotSequence;
     const mode = resolveBuildMode();
     const markers = summarizeMarkers();
@@ -1873,7 +1917,7 @@
           helperAcceptsRawResults = payload.rawResults === true;
         }
         if (payload.type === 'command') {
-          handleCommand(payload.command);
+          runTimedCommand(payload.command);
         }
       } catch (e) {
         console.error('[chippy-bridge] message parse error:', e?.message || e);
@@ -2063,6 +2107,26 @@
     notifyRecording();
   }
 
+  // The panel's detection mode toggle. `sources` is the light default; `full`
+  // also records effect, memo, and callback dependency churn. The choice is
+  // kept per origin, so the next reload from the panel uses it.
+  const AVALANCHE_MODE_KEY = 'chippy:avalanche-mode';
+  const AVALANCHE_MODES = ['sources', 'full'];
+
+  function getPreferredAvalancheMode() {
+    try {
+      const stored = global.localStorage.getItem(AVALANCHE_MODE_KEY);
+      if (AVALANCHE_MODES.includes(stored)) return stored;
+    } catch (e) {}
+    return 'sources';
+  }
+
+  // `amplifiers` is `full` under its current name; other levels are shown as they are.
+  function panelModeOf(level) {
+    if (level === 'full' || level === 'amplifiers') return 'full';
+    return level || null;
+  }
+
   function readAvalancheCapture() {
     const api = getAvalancheApi();
     let status = null;
@@ -2073,10 +2137,37 @@
       available: !!api,
       installed,
       // Installed by an armed reload before React's first commit, so the
-      // capture includes the initial mount.
-      fromPageStart: installed && !!startup?.avalanche?.autoStart,
+      // capture includes the initial mount. A mode switch on the live page
+      // starts a new capture that does not.
+      fromPageStart: installed && !!startup?.avalanche?.autoStart && !chippy.__avalancheSwitchedLive,
       commits: Number(status?.commitCount) || 0,
+      mode: installed ? panelModeOf(status?.detectionMode || startup?.avalanche?.options?.detectionMode || 'sources') : null,
+      preferredMode: getPreferredAvalancheMode(),
     };
+  }
+
+  /**
+   * Choose the detection mode. When Avalanche is installed in another mode,
+   * reinstall it in this one now, as `avalanche-recapture` does: the capture
+   * starts again and no longer includes the page load. Refused while a panel
+   * recording runs, since the switch would clear it.
+   */
+  function setAvalancheMode(mode) {
+    if (!AVALANCHE_MODES.includes(mode)) return { ok: false, error: `unknown mode ${mode}` };
+    if (recording.state === 'recording') return { ok: false, error: 'Stop the recording before switching mode.' };
+    try { global.localStorage.setItem(AVALANCHE_MODE_KEY, mode); } catch (e) {}
+    const api = getAvalancheApi();
+    const capture = readAvalancheCapture();
+    let switched = false;
+    if (capture.installed && capture.mode !== mode && typeof api?.install === 'function') {
+      api.install({ captureFibers: true, detectionMode: mode, historySize: 1000 });
+      chippy.__avalancheSwitchedLive = true;
+      switched = true;
+      if (recording.state === 'stopped') recording = { ...recording, state: 'idle', startedAt: null, stoppedAt: null };
+    }
+    setRecording({ error: null });
+    sendActivity('avalanche-panel-mode', { mode, switched });
+    return { ok: true, mode, switched };
   }
 
   function getRecordingState() {
@@ -2105,8 +2196,9 @@
     return getRecordingState();
   }
 
-  function reloadWithAvalanche() {
-    const avalanche = { autoStart: true, options: { captureFibers: true, detectionMode: 'sources' } };
+  function reloadWithAvalanche(mode) {
+    const detectionMode = AVALANCHE_MODES.includes(mode) ? mode : getPreferredAvalancheMode();
+    const avalanche = { autoStart: true, options: { captureFibers: true, detectionMode } };
     return prepareReload(avalanche).then(function(earlyStartup) {
       sendActivity('avalanche-panel-reload', { earlyStartup: earlyStartup });
       setTimeout(function() { try { global.location.reload(); } catch (e) {} }, 50);
@@ -2146,6 +2238,7 @@
       state: getRecordingState,
       start: startRecording,
       stop: stopRecording,
+      setMode: setAvalancheMode,
       reloadWithAvalanche,
     },
     avalanche: {

@@ -70,6 +70,17 @@ function compactLatestAction(action) {
   };
 }
 
+// src/avalanche/own-work.ts
+function isOwnFrame(frame, own) {
+  const scripts = frame.scripts ?? [];
+  const pageScriptMs = scripts.reduce((sum, script) => sum + (script.chippy ? 0 : script.duration || 0), 0);
+  if (pageScriptMs * 2 >= frame.duration) return false;
+  if (scripts.some((script) => script.chippy)) return true;
+  const from = frame.startTime;
+  const to = frame.startTime + frame.duration;
+  return !!own?.some((span) => span.start < to && span.end > from);
+}
+
 // src/avalanche/perf-signals.ts
 var DEFAULT_PERF_TOP = 20;
 var MAX_LINKED_COMMITS = 10;
@@ -118,8 +129,12 @@ function cumulativeLayoutShift(shifts) {
 }
 function perfSummary(report, entries = report.perfEntries ?? []) {
   const of = (type) => entries.filter((e) => e.entryType === type);
-  const frames = of("long-animation-frame");
-  const tasks = of("longtask");
+  const own = (e) => isOwnFrame(e, report.ownWork);
+  const blockingOf = (e) => e.entryType === "longtask" ? Math.max(0, e.duration - 50) : e.blockingDuration ?? 0;
+  const allLong = [...of("long-animation-frame"), ...of("long-animation-frame").length ? [] : of("longtask")];
+  const chippyLong = allLong.filter(own);
+  const frames = of("long-animation-frame").filter((e) => !own(e));
+  const tasks = of("longtask").filter((e) => !own(e));
   const events = of("event");
   const measures = of("measure");
   const lcp = of("largest-contentful-paint").sort((a, b) => a.startTime - b.startTime).at(-1);
@@ -133,12 +148,13 @@ function perfSummary(report, entries = report.perfEntries ?? []) {
     perInteraction.set(e.interactionId, Math.max(perInteraction.get(e.interactionId) ?? 0, e.duration));
   }
   const longest = measures.reduce((best, e) => !best || e.duration > best.duration ? e : best, null);
-  const blocking = frames.length ? frames.reduce((sum, e) => sum + (e.blockingDuration ?? 0), 0) : tasks.reduce((sum, e) => sum + Math.max(0, e.duration - 50), 0);
+  const blocking = of("long-animation-frame").length ? frames.reduce((sum, e) => sum + (e.blockingDuration ?? 0), 0) : tasks.reduce((sum, e) => sum + Math.max(0, e.duration - 50), 0);
   return {
     cls: cumulativeLayoutShift(of("layout-shift")),
     layoutShifts: of("layout-shift").length,
     longFrames: frames.length || tasks.length,
     totalBlockingMs: round(blocking),
+    chippyFrames: { count: chippyLong.length, blockingMs: round(chippyLong.reduce((sum, e) => sum + blockingOf(e), 0)) },
     worstFrame: worstLinked ? {
       id: worstLinked.id,
       startTime: worstLinked.startTime,
@@ -209,6 +225,50 @@ function perfForCommit(report, commitId, maxItems = DEFAULT_PERF_TOP) {
   const near = linkPerfEntries(report).filter((e) => e.commits.during.includes(commitId) || e.commits.before?.commitId === commitId);
   near.sort((a, b) => b.duration - a.duration || a.startTime - b.startTime);
   return { total: near.length, items: near.slice(0, maxItems) };
+}
+
+// src/avalanche/rebuilt-props.ts
+function summarizeRebuiltProps(rendered, maxItems) {
+  if (!Array.isArray(rendered)) return null;
+  const groups = /* @__PURE__ */ new Map();
+  let sameShallow = 0;
+  let keysChanged = 0;
+  let notCompared = 0;
+  for (const entry of rendered) {
+    const e = entry;
+    if (!e || !Array.isArray(e.propChanges)) continue;
+    for (const raw of e.propChanges) {
+      const change = raw;
+      if (!change || change.kind !== "ref-changed") continue;
+      const prop = String(change.name);
+      let row;
+      if (change.sameShallow === true) {
+        sameShallow++;
+        row = { sameShallow: true };
+      } else if (Array.isArray(change.changedKeys)) {
+        keysChanged++;
+        row = { changedKeys: change.changedKeys.map((k) => String(k?.key)), changedKeyCount: Number(change.changedKeyCount) || change.changedKeys.length };
+      } else if (typeof change.keysNotCompared === "number") {
+        notCompared++;
+        row = { keysNotCompared: change.keysNotCompared };
+      } else {
+        continue;
+      }
+      const key = `${prop}\0${String(change.current)}\0${JSON.stringify(row)}`;
+      const group = groups.get(key);
+      if (group) group.components++;
+      else groups.set(key, { prop, component: e.name ?? null, sourceId: e.sourceId ?? null, components: 1, ...row });
+    }
+  }
+  if (!groups.size) return null;
+  const sorted = [...groups.values()].sort((a, b) => b.components - a.components || Number(!!b.sameShallow) - Number(!!a.sameShallow));
+  return {
+    sameShallow,
+    keysChanged,
+    notCompared,
+    groups: sorted.slice(0, maxItems),
+    omittedGroups: Math.max(0, sorted.length - maxItems)
+  };
 }
 
 // src/avalanche/screen-stability.ts
@@ -472,7 +532,7 @@ function buildTimeline(report, options = {}) {
   const drawable = inWindow.filter((r) => r.duration >= minRequestMs);
   const kept = [...drawable].sort((a, b) => b.duration - a.duration).slice(0, options.maxRequests ?? 30).sort((a, b) => a.startTime - b.startTime);
   const network = kept.map(toRequest);
-  const perfLane = perfLaneOf(report.perfEntries ?? [], origin, windowEnd, ids.map((id) => ({ id, start: startOf(id) })), rel, options.maxMarks ?? 40);
+  const perfLane = perfLaneOf(report.perfEntries ?? [], report.ownWork, origin, windowEnd, ids.map((id) => ({ id, start: startOf(id) })), rel, options.maxMarks ?? 40);
   const boundaryKey = (event) => typeof event.boundary === "number" ? "b" + event.boundary : "@" + Number(event.depth);
   const open = /* @__PURE__ */ new Map();
   const suspense = [];
@@ -589,7 +649,7 @@ function buildTimeline(report, options = {}) {
 }
 var SHIFT_MIN = 1e-3;
 var EVENT_MIN_MS = 50;
-function perfLaneOf(entries, origin, windowEnd, commitStarts2, rel, maxMarks) {
+function perfLaneOf(entries, ownWork, origin, windowEnd, commitStarts2, rel, maxMarks) {
   const lane = [];
   let marks = 0;
   let omittedMarks = 0;
@@ -598,11 +658,14 @@ function perfLaneOf(entries, origin, windowEnd, commitStarts2, rel, maxMarks) {
     let kind = null;
     let label = e.name;
     let value = null;
+    let chippy = false;
     if (e.entryType === "long-animation-frame" || e.entryType === "longtask") {
       kind = "frame";
       value = e.entryType === "longtask" ? round2(Math.max(0, e.duration - 50)) : e.blockingDuration ?? null;
       const script = e.scripts?.[0];
       label = script ? [script.invoker, script.sourceFunctionName, script.sourceURL?.split("/").pop()].filter(Boolean).join(" ") : "";
+      chippy = isOwnFrame(e, ownWork);
+      if (chippy) label = "Chippy";
     } else if (e.entryType === "measure" && e.duration >= 1) kind = "measure";
     else if (e.entryType === "measure" || e.entryType === "mark") {
       if (marks >= maxMarks) {
@@ -634,7 +697,8 @@ function perfLaneOf(entries, origin, windowEnd, commitStarts2, rel, maxMarks) {
       end: rel(end),
       durationMs: round2(e.duration || 0),
       value,
-      commits: commitStarts2.filter((c) => c.start >= e.startTime && c.start <= end).map((c) => c.id)
+      commits: commitStarts2.filter((c) => c.start >= e.startTime && c.start <= end).map((c) => c.id),
+      ...chippy && { chippy: true }
     });
   }
   return { lane, omittedMarks };
@@ -730,10 +794,14 @@ function renderText(result) {
     const worst = [...delayed].sort((a, b) => b.paintAt - b.t - (a.paintAt - a.t)).slice(0, 5);
     header.push(`Painted late (the commit's task kept running): ${worst.map((c) => `c${c.commitId} +${c.t} \u2192 painted +${c.paintAt} (${c.paintAt - c.t}ms)`).join(", ")}.`);
   }
-  const frames = result.lanes.perf.filter((p2) => p2.kind === "frame");
+  const frames = result.lanes.perf.filter((p2) => p2.kind === "frame" && !p2.chippy);
+  const ownFrames = result.lanes.perf.filter((p2) => p2.kind === "frame" && p2.chippy);
   if (frames.length) {
     const worst = [...frames].sort((a, b) => b.durationMs - a.durationMs).slice(0, 3);
     header.push(`Long frames (no paint inside): ${frames.length}, ${Math.round(frames.reduce((sum, p2) => sum + (p2.value ?? 0), 0))}ms blocking; longest ${worst.map((p2) => `+${p2.start} ${p2.durationMs}ms${p2.commits.length ? " (" + commitSpan(p2.commits) + ")" : ""}`).join(", ")}.`);
+  }
+  if (ownFrames.length) {
+    header.push(`Chippy's own long frames, left out of the totals: ${ownFrames.length}, ${Math.round(ownFrames.reduce((sum, p2) => sum + (p2.value ?? 0), 0))}ms blocking.`);
   }
   const rows = [];
   for (const i of result.lanes.input) rows.push({ t: i.t, lane: "input", text: inputLabel(i) });
@@ -809,8 +877,14 @@ function frameOf(frames, commitId, origin) {
 function compactTimeline(report) {
   const timeline = buildTimeline(report);
   if ("error" in timeline) return { error: timeline.error };
-  const { ok: _ok, lanes: _lanes, mermaid: _mermaid, ...rest } = timeline;
-  return rest;
+  const { origin, window: window2, omitted, text } = timeline;
+  return { origin, window: window2, omitted, text };
+}
+function nonZero(stats) {
+  return stats ? Object.fromEntries(Object.entries(stats).filter(([, value]) => value !== 0)) : null;
+}
+function tenths(value) {
+  return value === null ? null : Math.round(value * 10) / 10;
 }
 function buildSummaryView(report, options = {}) {
   const top = positive(options.top, SUMMARY_DEFAULT_TOP);
@@ -825,7 +899,7 @@ function buildSummaryView(report, options = {}) {
     if (stats) for (const key of UPSTREAM_COMMIT_STAT_KEYS) totals[key] += stats[key];
   }
   const timeline = compactTimeline(report);
-  const origin = "origin" in timeline ? finite(timeline.origin?.at) : null;
+  const origin = "origin" in timeline ? finite(timeline.origin.at) : null;
   const frames = Array.isArray(report.perfEntries) ? linkPerfEntries(report, report.perfEntries.filter((e) => e.entryType === "long-animation-frame" || e.entryType === "longtask")) : [];
   const topCommits = ids.slice().sort((a, b) => (statsById.get(b)?.collateral ?? 0) - (statsById.get(a)?.collateral ?? 0) || a - b).slice(0, top).map((commitId) => {
     const timing = at(report.commitTimings, commitId);
@@ -837,13 +911,14 @@ function buildSummaryView(report, options = {}) {
     const actions = at(report.interactionsByCommit, commitId);
     return {
       commitId,
-      stat: statsById.get(commitId) ?? null,
+      stat: nonZero(statsById.get(commitId)),
       atMs: start !== null && origin !== null ? ms(start - origin) : null,
-      renderMs: finite(timing?.render?.workMs),
+      renderMs: tenths(finite(timing?.render?.workMs)),
       ticks: finite(timing?.ticks),
       paintDelayMs: paint !== null && end !== null && paint >= end ? ms(paint - end) : null,
       sourcesTotal: list.length,
       sources: sourceRows(list, maxItems),
+      rebuiltProps: summarizeRebuiltProps(at(report.renderedByCommit, commitId), maxItems),
       latestAction: Array.isArray(actions) && actions.length ? compactLatestAction(actions[actions.length - 1]) : null,
       hooks: hookStepsAt(report.hooks, commitId),
       longFrame: frameOf(frames, commitId, origin)
@@ -861,6 +936,53 @@ function buildSummaryView(report, options = {}) {
     perf: Array.isArray(report.perfEntries) ? perfSummary(report) : null,
     meta: report.meta ?? null
   };
+}
+
+// src/chippy-bridge/component-name-tokens.ts
+var MAX_TOKENS = 5e3;
+var MAX_TOKEN_LENGTH = 80;
+var MAX_DEPTH = 12;
+var SEPARATORS = /[^\w$]+/;
+var IDENTIFIER2 = /^[A-Za-z_$][\w$]*$/;
+var RENAME_TABLE_KEY = "componentNames";
+function nameTokensIn(value, limit = MAX_TOKENS) {
+  const found = /* @__PURE__ */ new Set();
+  const seen = /* @__PURE__ */ new Set();
+  const addWords = (text) => {
+    for (const word of text.split(SEPARATORS)) {
+      if (found.size >= limit) return;
+      if (word.length <= MAX_TOKEN_LENGTH && IDENTIFIER2.test(word)) found.add(word);
+    }
+  };
+  const visit = (node, depth) => {
+    if (found.size >= limit) return;
+    if (typeof node === "string") {
+      addWords(node);
+      return;
+    }
+    if (!node || typeof node !== "object" || depth > MAX_DEPTH || seen.has(node)) return;
+    seen.add(node);
+    if (Array.isArray(node)) {
+      for (const item of node) visit(item, depth + 1);
+      return;
+    }
+    for (const [key, item] of Object.entries(node)) {
+      if (key === RENAME_TABLE_KEY) continue;
+      addWords(key);
+      visit(item, depth + 1);
+    }
+  };
+  visit(value, 0);
+  return found;
+}
+function isRename(value) {
+  const rename = value;
+  return !!rename && typeof rename.name === "string" && typeof rename.minifiedName === "string";
+}
+function componentNamesIn(value, renames) {
+  if (!Array.isArray(renames) || renames.length === 0) return [];
+  const tokens = nameTokensIn(value);
+  return renames.filter((rename) => isRename(rename) && tokens.has(rename.name));
 }
 
 // src/avalanche/network-signals.ts
@@ -1133,6 +1255,18 @@ function readAvalancheStatus(api, mod) {
   }
 }
 function evalAvalanche(command, api, mod) {
+  let slice;
+  const report = () => slice === void 0 ? slice = getReport(api) : slice;
+  const result = runAvalanche(command, api, mod, report);
+  return slice ? withComponentNames(result, slice) : result;
+}
+function withComponentNames(result, slice) {
+  if (!result.ok || "error" in slice || WHOLE_CAPTURE_ACTIONS.has(result.action)) return result;
+  const meta = slice.serial.meta;
+  const componentNames = componentNamesIn(result, meta?.componentNames);
+  return componentNames.length > 0 ? { ...result, componentNames } : result;
+}
+function runAvalanche(command, api, mod, report) {
   const action = String(command?.action || "status");
   if (!api) {
     return { ok: false, available: false, action, error: "__AVALANCHE__ not available" };
@@ -1154,7 +1288,7 @@ function evalAvalanche(command, api, mod) {
       case "status":
         return { ok: true, available: true, action, status: readAvalancheStatus(api, mod).status };
       case "export": {
-        const r = getReport(api);
+        const r = report();
         if (!r) return { ok: false, available: true, action, error: "report() unavailable" };
         if ("error" in r) return { ok: false, available: true, action, error: r.error };
         return { ok: true, available: true, action, payload: r.serial };
@@ -1193,7 +1327,7 @@ function evalAvalanche(command, api, mod) {
       case "hot-sources": {
         const limit = Number(command?.limit);
         const n = Number.isFinite(limit) && limit > 0 ? Math.floor(limit) : 20;
-        const r = getReport(api);
+        const r = report();
         if (!r || "error" in r) {
           return { ok: false, available: true, action, error: r && "error" in r ? r.error : "report() unavailable" };
         }
@@ -1227,7 +1361,7 @@ function evalAvalanche(command, api, mod) {
           };
         }
         const maxItems = Number.isFinite(Number(command?.maxItems)) ? Math.max(1, Math.floor(Number(command.maxItems))) : 50;
-        const r = getReport(api);
+        const r = report();
         if (!r || "error" in r) {
           return { ok: false, available: true, action, error: r && "error" in r ? r.error : "report() unavailable" };
         }
@@ -1309,7 +1443,7 @@ function evalAvalanche(command, api, mod) {
         if (!Number.isFinite(actionId)) {
           return { ok: false, available: true, action, error: "describe-action requires numeric actionId" };
         }
-        const r = getReport(api);
+        const r = report();
         if (!r || "error" in r) {
           return { ok: false, available: true, action, error: r && "error" in r ? r.error : "report() unavailable" };
         }
@@ -1343,7 +1477,7 @@ function evalAvalanche(command, api, mod) {
           };
         }
         const sortKey = by;
-        const r = getReport(api);
+        const r = report();
         if (!r || "error" in r) {
           return { ok: false, available: true, action, error: r && "error" in r ? r.error : "report() unavailable" };
         }
@@ -1384,7 +1518,7 @@ function evalAvalanche(command, api, mod) {
         return { ok: true, available: true, action, by: sortKey, total: rows.length, rows: rows.slice(0, top) };
       }
       case "network": {
-        const r = getReport(api);
+        const r = report();
         if (!r || "error" in r) {
           return { ok: false, available: true, action, error: r && "error" in r ? r.error : "report() unavailable" };
         }
@@ -1399,7 +1533,7 @@ function evalAvalanche(command, api, mod) {
         return { ok: true, available: true, action, payload: view.payload };
       }
       case "perf": {
-        const r = getReport(api);
+        const r = report();
         if (!r || "error" in r) {
           return { ok: false, available: true, action, error: r && "error" in r ? r.error : "report() unavailable" };
         }
@@ -1414,7 +1548,7 @@ function evalAvalanche(command, api, mod) {
         return { ok: true, available: true, action, payload: view.payload };
       }
       case "timeline": {
-        const r = getReport(api);
+        const r = report();
         if (!r || "error" in r) {
           return { ok: false, available: true, action, error: r && "error" in r ? r.error : "report() unavailable" };
         }
@@ -1431,7 +1565,7 @@ function evalAvalanche(command, api, mod) {
         return { ok: true, available: true, action, payload: command?.format === "full" ? { ...rest, lanes } : rest };
       }
       case "dom-diff": {
-        const r = getReport(api);
+        const r = report();
         if (!r || "error" in r) {
           return { ok: false, available: true, action, error: r && "error" in r ? r.error : "report() unavailable" };
         }
@@ -1446,7 +1580,7 @@ function evalAvalanche(command, api, mod) {
         return { ok: true, available: true, action, payload: view };
       }
       case "summary": {
-        const r = getReport(api);
+        const r = report();
         if (!r || "error" in r) {
           return { ok: false, available: true, action, error: r && "error" in r ? r.error : "report() unavailable" };
         }
@@ -1460,6 +1594,7 @@ function evalAvalanche(command, api, mod) {
     return { ok: false, available: true, action, error: error?.message || String(error) };
   }
 }
+var WHOLE_CAPTURE_ACTIONS = /* @__PURE__ */ new Set(["export", "export-last"]);
 
 // src/avalanche/offline.ts
 var PER_COMMIT_KEYS = [
@@ -1511,7 +1646,9 @@ function dispatch(report, command) {
   return rest;
 }
 function summary(report, options = {}) {
-  return { ok: true, action: "summary", ...buildSummaryView(report, options) };
+  const view = buildSummaryView(report, options);
+  const componentNames = componentNamesIn(view, report.meta?.componentNames);
+  return { ok: true, action: "summary", ...view, ...componentNames.length > 0 && { componentNames } };
 }
 function sourceSearch(report, options) {
   let pattern;
