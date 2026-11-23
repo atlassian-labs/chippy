@@ -11,6 +11,7 @@
  * temporal proximity, not proof of cause.
  */
 
+import { isOwnFrame, type OwnWorkSpan } from './own-work';
 import type { PerfCaptureStatus, PerfEntry, PerfEntryType } from './perf-capture';
 
 export const DEFAULT_PERF_TOP = 20;
@@ -19,6 +20,7 @@ const MAX_LINKED_COMMITS = 10;
 type ReportLike = {
   meta?: { perf?: PerfCaptureStatus } & Record<string, unknown>;
   perfEntries?: PerfEntry[];
+  ownWork?: OwnWorkSpan[];
   commitTimings?: Record<string, { startTime?: unknown } | undefined>;
 };
 
@@ -36,10 +38,13 @@ export interface PerfSummary {
   /** Largest session window of layout shifts without recent input (gap < 1 s, window < 5 s). */
   cls: number;
   layoutShifts: number;
+  /** Long frames the page caused; Chippy's own are counted in `chippyFrames`. */
   longFrames: number;
-  /** Sum of long animation frame blocking time, or long task time over 50 ms where frames are unsupported. */
+  /** Sum of long animation frame blocking time, or long task time over 50 ms where frames are unsupported, without Chippy's own frames. */
   totalBlockingMs: number;
-  /** The long frame with the most blocking time. */
+  /** Long frames Chippy's own work caused (bridge commands, snapshots), left out of the metrics above. */
+  chippyFrames: { count: number; blockingMs: number };
+  /** The page's long frame with the most blocking time. */
   worstFrame: { id: number; startTime: number; duration: number; blockingDuration: number; commits: number[] } | null;
   /** Interactions with at least one event of 16 ms or more. */
   interactions: number;
@@ -105,8 +110,12 @@ function cumulativeLayoutShift(shifts: PerfEntry[]): number {
 
 export function perfSummary(report: ReportLike, entries: PerfEntry[] = report.perfEntries ?? []): PerfSummary {
   const of = (type: PerfEntryType) => entries.filter((e) => e.entryType === type);
-  const frames = of('long-animation-frame');
-  const tasks = of('longtask');
+  const own = (e: PerfEntry) => isOwnFrame(e, report.ownWork);
+  const blockingOf = (e: PerfEntry) => (e.entryType === 'longtask' ? Math.max(0, e.duration - 50) : e.blockingDuration ?? 0);
+  const allLong = [...of('long-animation-frame'), ...(of('long-animation-frame').length ? [] : of('longtask'))];
+  const chippyLong = allLong.filter(own);
+  const frames = of('long-animation-frame').filter((e) => !own(e));
+  const tasks = of('longtask').filter((e) => !own(e));
   const events = of('event');
   const measures = of('measure');
   const lcp = of('largest-contentful-paint').sort((a, b) => a.startTime - b.startTime).at(-1);
@@ -121,7 +130,7 @@ export function perfSummary(report: ReportLike, entries: PerfEntry[] = report.pe
     perInteraction.set(e.interactionId, Math.max(perInteraction.get(e.interactionId) ?? 0, e.duration));
   }
   const longest = measures.reduce<PerfEntry | null>((best, e) => (!best || e.duration > best.duration ? e : best), null);
-  const blocking = frames.length
+  const blocking = of('long-animation-frame').length
     ? frames.reduce((sum, e) => sum + (e.blockingDuration ?? 0), 0)
     : tasks.reduce((sum, e) => sum + Math.max(0, e.duration - 50), 0);
 
@@ -130,6 +139,7 @@ export function perfSummary(report: ReportLike, entries: PerfEntry[] = report.pe
     layoutShifts: of('layout-shift').length,
     longFrames: frames.length || tasks.length,
     totalBlockingMs: round(blocking),
+    chippyFrames: { count: chippyLong.length, blockingMs: round(chippyLong.reduce((sum, e) => sum + blockingOf(e), 0)) },
     worstFrame: worstLinked
       ? {
         id: worstLinked.id,

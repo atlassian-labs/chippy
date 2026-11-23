@@ -248,6 +248,24 @@ describe('perf lane', () => {
     expect(result.mermaid).toContain('long frame 130ms c1–c2 :crit, perf1, 90, 220');
   });
 
+  it("labels Chippy's own long frames and leaves them out of the blocking total", () => {
+    const perfEntries = [
+      { id: 1, entryType: 'long-animation-frame', name: 'long-animation-frame', startTime: 1090, duration: 130, blockingDuration: 80,
+        scripts: [{ duration: 100, invoker: 'MessagePort.onmessage', sourceFunctionName: 'flush', sourceURL: 'https://app.test/static/react.js' }] },
+      // No attributed scripts, inside a Chippy command: Chrome hides extension scripts.
+      { id: 2, entryType: 'long-animation-frame', name: 'long-animation-frame', startTime: 1300, duration: 200, blockingDuration: 150, scripts: [] },
+    ];
+    const ownWork = [{ start: 1000, end: 1550, label: 'eval-avalanche' }];
+    const result = buildTimeline({ ...report, perfEntries, ownWork } as never);
+    if ('error' in result) throw new Error(result.error);
+    expect(result.lanes.perf.filter((p) => p.kind === 'frame').map((p) => [p.id, p.label, p.chippy ?? false])).toEqual([
+      [1, 'MessagePort.onmessage flush react.js', false],
+      [2, 'Chippy', true],
+    ]);
+    expect(result.text).toContain('Long frames (no paint inside): 1, 80ms blocking;');
+    expect(result.text).toContain("Chippy's own long frames, left out of the totals: 1, 150ms blocking.");
+  });
+
   it('counts long task time over 50 ms as blocking where frames are missing', () => {
     const perfEntries = [{ id: 1, entryType: 'longtask', name: 'self', startTime: 1090, duration: 120 }];
     const result = buildTimeline({ ...report, perfEntries } as never);

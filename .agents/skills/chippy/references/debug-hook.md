@@ -31,17 +31,18 @@ Do not use to:
 - `sourceId` — source id from the same capture. Both the public form from a report (e.g. `StoreReader#1@6`) and the internal id are accepted.
 - `hookIndex` — source-local hook index from the capture. It is mapped through `sourceHookIndices` onto the recorded hook event stream; the result reports both `hookIndex` and the resolved `eventIndex`.
 - `window` — neighborhood radius around the target event. Default `3`. A recorded hook call is included when `|eventIndex - target eventIndex| <= window`.
+- `sourceMaps` — `true` (default) maps production frames through each script's source map; `false` returns the raw frames.
 
 ## Output
 
-`ok: true` results contain `sourceId` (resolved id), `requestedSourceId`, `componentName`, `resolvedComponentName`, `hookIndex`, `eventIndex`, `sourceHookIndices`, `primitive`, `parents`, `neighborhood`, `eventCount`, `status`, and `caveat`.
+`ok: true` results contain `sourceId` (resolved id), `requestedSourceId`, `componentName`, `resolvedComponentName`, `hookIndex`, `eventIndex`, `sourceHookIndices`, `primitive`, `parents`, `neighborhood`, `eventCount`, `status`, and `caveat`. When the frames name scripts, the result also has `sourceMaps`: `{ status: mapped|partial|none, mapped, unmapped, internalFrames, failures?, ms }`.
 
 ## Read order
 
 Always read the output in this order. Stop at the first step that gives you the answer.
 
 1. `primitive` — chooses the remediation branch. Read first.
-2. `parents` — stack frames (`{ name, loc }`) recorded when the hook ran during a real render; custom-hook names appear here. Empty `parents` can mean the hook is called directly in the component.
+2. `parents` — stack frames (`{ name, loc }`, innermost first) recorded when the hook ran during a real render; custom-hook names appear here. Empty `parents` can mean the hook is called directly in the component. In a production build, read each frame's `source` and `code` instead of its minified `name`.
 3. `neighborhood` — `{ hookIndex, eventIndex, primitive, parents }` for recorded hook calls within `window` of the target. Use it for relative order and landmarks such as `DebugValue`.
 4. `resolvedComponentName` — differs from `componentName` when events were matched by a partial name; treat the result as ambiguous then.
 
@@ -49,6 +50,7 @@ Always read the output in this order. Stop at the first step that gives you the 
 
 - `primitive` — primitive React hook kind derived from the dispatcher method: `SyncExternalStore`, `State`, `Reducer`, `Memo`, `Callback`, `Effect`, `LayoutEffect`, `Ref`, `Context`, `DebugValue`, `Id`, `ImperativeHandle`, `InsertionEffect`, `DeferredValue`, `Transition`, `CacheRefresh`, `MemoCache`. Any other dispatcher method is reported under its raw method name (for example `use`).
 - `parents` — the target call's stack frames with Chippy-internal and component frames removed. **Empty parents does not mean failure.**
+- Mapped frames (production builds with a reachable source map) add `source` (authored `path:line:column`), `code` (that authored line, trimmed), and, only when the map names the exact call-site token, `calls` (the hook or function it called) and `fn` (the frame's own authored name, read from its caller's call site). Many production maps name no call sites; read `code` then. A frame the map does not cover keeps its script `url`. React frames above the first app frame (the hook's own entry point) are dropped, and each list stops at the next React or scheduler frame; `sourceMaps.internalFrames` counts the frames removed. The helper fetches and decodes maps, not the page, and caches them, so the first call on a large bundle can take seconds and later calls are fast. `failures` names scripts whose map could not be fetched; `timed out; still loading, retry` means a retry will use the cached map.
 - `eventCount` — number of hook calls recorded for the component. The recorder keeps one sequence per component name, in call order: the first render records it, and later renders add only calls past its end. `status` — state of the hook-call recorder.
 - `caveat` — reminder that ancestry comes from passive stack capture and index mapping; read it before trusting `parents` in bundled code.
 
@@ -149,6 +151,6 @@ Only renders after install are recorded; the *next* capture window contains the 
 
 ## Limits
 
-- Minified production: `parents` degrade — function names collapse to short aliases or empty strings. Primitive classification still works.
+- Minified production: frame `name`s collapse to short aliases. `source` and `code` (plus `calls` and `fn` when the map names call sites) recover the authored call site when the helper can fetch the script's source map (public URL, or local dev server). Maps behind the page's cookies are not fetched; their frames stay unmapped. Primitive classification works either way.
 - Hook ancestry comes from passive stack capture during real renders (see `caveat`); component-name stack parsing can be ambiguous in bundled or minified code, and custom-hook ownership can be shallower than the source nesting.
 - `hookIndex` is mapped onto the recorded event stream through `sourceHookIndices`; when the mapping is missing, `hookIndex` is used as the event index directly. Confirm `eventIndex` and `neighborhood` order against the component source.

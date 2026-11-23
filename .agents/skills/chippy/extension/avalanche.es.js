@@ -1,64 +1,152 @@
 var _a, _b, _c, _d, _e;
+var __typeError = (msg) => {
+  throw TypeError(msg);
+};
+var __accessCheck = (obj, member, msg) => member.has(obj) || __typeError("Cannot " + msg);
+var __privateGet = (obj, member, getter) => (__accessCheck(obj, member, "read from private field"), getter ? getter.call(obj) : member.get(obj));
+var __privateAdd = (obj, member, value) => member.has(obj) ? __typeError("Cannot add the same private member more than once") : member instanceof WeakSet ? member.add(obj) : member.set(obj, value);
+var __privateSet = (obj, member, value, setter) => (__accessCheck(obj, member, "write to private field"), member.set(obj, value), value);
+var __privateMethod = (obj, member, method) => (__accessCheck(obj, member, "access private method"), method);
+var _mappings, _sourceCount, _starts, _states, _knownLines, _decoded, _MappingLines_instances, lineStarts_fn, lineEnd_fn, stateAt_fn;
 const DIGITS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 const VALUE_OF = new Int8Array(128).fill(-1);
 for (let index = 0; index < DIGITS.length; index += 1) {
   VALUE_OF[DIGITS.charCodeAt(index)] = index;
 }
-function decodeVlq(field) {
-  const values = [];
-  let value = 0;
-  let shift = 0;
-  for (let index = 0; index < field.length; index += 1) {
-    const code = field.charCodeAt(index);
-    const digit = code < 128 ? VALUE_OF[code] : -1;
-    if (digit < 0) return values;
-    const more = (digit & 32) !== 0;
-    value += (digit & 31) << shift;
-    if (more) {
-      shift += 5;
-      continue;
-    }
-    const negative = (value & 1) === 1;
-    const magnitude = value >>> 1;
-    values.push(negative ? magnitude === 0 ? -2147483648 : -magnitude : magnitude);
-    value = 0;
-    shift = 0;
-  }
-  return values;
-}
-function decodeMappings(mappings, sourceCount) {
-  const lines = [];
-  let sourceIndex = 0;
-  let originalLine = 0;
-  let originalColumn = 0;
-  let nameIndex = 0;
-  for (const encodedLine of mappings.split(";")) {
-    const segments = [];
-    let generatedColumn = 0;
-    for (const field of encodedLine === "" ? [] : encodedLine.split(",")) {
-      const values = decodeVlq(field);
-      if (values.length < 4) {
-        if (values.length > 0) {
-          generatedColumn += values[0];
-          segments.push({ generatedColumn, sourceIndex: null, originalLine: null, originalColumn: null, nameIndex: null });
-        }
+function walkLine(mappings, start, end, state2, sourceCount, out) {
+  let generatedColumn = 0;
+  let index = start;
+  while (index < end) {
+    let count = 0;
+    let v0 = 0, v1 = 0, v2 = 0, v3 = 0, v4 = 0;
+    let value = 0;
+    let shift = 0;
+    let broken = false;
+    for (; index < end; index += 1) {
+      const code = mappings.charCodeAt(index);
+      if (code === 44) break;
+      const digit = code < 128 ? VALUE_OF[code] : -1;
+      if (digit < 0 || broken) {
+        broken = true;
         continue;
       }
-      generatedColumn += values[0];
-      sourceIndex += values[1];
-      originalLine += values[2];
-      originalColumn += values[3];
-      const named = values.length >= 5;
-      if (named) nameIndex += values[4];
-      if (sourceIndex >= 0 && sourceIndex < sourceCount) {
-        segments.push({ generatedColumn, sourceIndex, originalLine, originalColumn, nameIndex: named ? nameIndex : null });
+      value += (digit & 31) << shift;
+      if ((digit & 32) !== 0) {
+        shift += 5;
+        continue;
       }
+      const magnitude = value >>> 1;
+      const decoded = (value & 1) === 1 ? magnitude === 0 ? -2147483648 : -magnitude : magnitude;
+      if (count === 0) v0 = decoded;
+      else if (count === 1) v1 = decoded;
+      else if (count === 2) v2 = decoded;
+      else if (count === 3) v3 = decoded;
+      else if (count === 4) v4 = decoded;
+      count += 1;
+      value = 0;
+      shift = 0;
     }
-    segments.sort((left, right) => left.generatedColumn - right.generatedColumn);
-    lines.push(segments);
+    index += 1;
+    if (count === 0) continue;
+    generatedColumn += v0;
+    if (count < 4) {
+      out == null ? void 0 : out.push({ generatedColumn, sourceIndex: null, originalLine: null, originalColumn: null, nameIndex: null });
+      continue;
+    }
+    state2.sourceIndex += v1;
+    state2.originalLine += v2;
+    state2.originalColumn += v3;
+    const named = count >= 5;
+    if (named) state2.nameIndex += v4;
+    if (out && state2.sourceIndex >= 0 && state2.sourceIndex < sourceCount) {
+      out.push({
+        generatedColumn,
+        sourceIndex: state2.sourceIndex,
+        originalLine: state2.originalLine,
+        originalColumn: state2.originalColumn,
+        nameIndex: named ? state2.nameIndex : null
+      });
+    }
   }
-  return lines;
+  out == null ? void 0 : out.sort((left, right) => left.generatedColumn - right.generatedColumn);
 }
+class MappingLines {
+  constructor(mappings, sourceCount) {
+    __privateAdd(this, _MappingLines_instances);
+    __privateAdd(this, _mappings);
+    __privateAdd(this, _sourceCount);
+    __privateAdd(this, _starts, null);
+    __privateAdd(this, _states, new Int32Array(4));
+    __privateAdd(this, _knownLines, 1);
+    __privateAdd(this, _decoded, /* @__PURE__ */ new Map());
+    __privateSet(this, _mappings, mappings);
+    __privateSet(this, _sourceCount, sourceCount);
+  }
+  get length() {
+    return __privateMethod(this, _MappingLines_instances, lineStarts_fn).call(this).length;
+  }
+  /** Segments of the 0-based generated `line`, sorted by column; undefined past the end. */
+  at(line) {
+    const cached = __privateGet(this, _decoded).get(line);
+    if (cached) return cached;
+    const starts = __privateMethod(this, _MappingLines_instances, lineStarts_fn).call(this);
+    if (line < 0 || line >= starts.length) return void 0;
+    const segments = [];
+    walkLine(__privateGet(this, _mappings), starts[line], __privateMethod(this, _MappingLines_instances, lineEnd_fn).call(this, starts, line), __privateMethod(this, _MappingLines_instances, stateAt_fn).call(this, line), __privateGet(this, _sourceCount), segments);
+    __privateGet(this, _decoded).set(line, segments);
+    return segments;
+  }
+}
+_mappings = /* @__PURE__ */ new WeakMap();
+_sourceCount = /* @__PURE__ */ new WeakMap();
+_starts = /* @__PURE__ */ new WeakMap();
+_states = /* @__PURE__ */ new WeakMap();
+_knownLines = /* @__PURE__ */ new WeakMap();
+_decoded = /* @__PURE__ */ new WeakMap();
+_MappingLines_instances = /* @__PURE__ */ new WeakSet();
+lineStarts_fn = function() {
+  if (__privateGet(this, _starts)) return __privateGet(this, _starts);
+  const starts = [0];
+  for (let at2 = __privateGet(this, _mappings).indexOf(";"); at2 !== -1; at2 = __privateGet(this, _mappings).indexOf(";", at2 + 1)) {
+    starts.push(at2 + 1);
+  }
+  __privateSet(this, _starts, starts);
+  return starts;
+};
+lineEnd_fn = function(starts, line) {
+  return line + 1 < starts.length ? starts[line + 1] - 1 : __privateGet(this, _mappings).length;
+};
+stateAt_fn = function(line) {
+  const starts = __privateMethod(this, _MappingLines_instances, lineStarts_fn).call(this);
+  if (__privateGet(this, _states).length < starts.length * 4) {
+    const grown = new Int32Array(starts.length * 4);
+    grown.set(__privateGet(this, _states));
+    __privateSet(this, _states, grown);
+  }
+  const states = __privateGet(this, _states);
+  while (__privateGet(this, _knownLines) <= line) {
+    const previous = __privateGet(this, _knownLines) - 1;
+    const state2 = {
+      sourceIndex: states[previous * 4],
+      originalLine: states[previous * 4 + 1],
+      originalColumn: states[previous * 4 + 2],
+      nameIndex: states[previous * 4 + 3]
+    };
+    walkLine(__privateGet(this, _mappings), starts[previous], __privateMethod(this, _MappingLines_instances, lineEnd_fn).call(this, starts, previous), state2, __privateGet(this, _sourceCount), null);
+    const next = __privateGet(this, _knownLines) * 4;
+    states[next] = state2.sourceIndex;
+    states[next + 1] = state2.originalLine;
+    states[next + 2] = state2.originalColumn;
+    states[next + 3] = state2.nameIndex;
+    __privateSet(this, _knownLines, __privateGet(this, _knownLines) + 1);
+  }
+  return {
+    sourceIndex: states[line * 4],
+    originalLine: states[line * 4 + 1],
+    originalColumn: states[line * 4 + 2],
+    nameIndex: states[line * 4 + 3]
+  };
+};
 function resolveSources(raw) {
   if (!Array.isArray(raw.sources)) return null;
   const root = typeof raw.sourceRoot === "string" ? raw.sourceRoot : "";
@@ -98,7 +186,7 @@ function parseSourceMap(text) {
     sources,
     names,
     sourcesContent,
-    lines: decodeMappings(raw.mappings, sources.length),
+    lines: new MappingLines(raw.mappings, sources.length),
     offset: { line: 0, column: 0 }
   }];
 }
@@ -131,7 +219,7 @@ function mappingAt(maps, line, column) {
   for (const map of sectionsFor(maps, line, column)) {
     const localLine = line - map.offset.line;
     const localColumn = localLine === 1 ? column - map.offset.column : column;
-    const segments = map.lines[localLine - 1];
+    const segments = map.lines.at(localLine - 1);
     if (segments === void 0 || segments.length === 0) continue;
     const found = segmentAt(segments, localColumn - 1);
     if (found === void 0) continue;
@@ -190,7 +278,7 @@ function mappingsInRange(maps, start, end) {
       const line = localLine + map.offset.line;
       if (line < start.line) continue;
       if (line > end.line) break;
-      for (const segment of map.lines[localLine - 1]) {
+      for (const segment of map.lines.at(localLine - 1)) {
         const column = segment.generatedColumn + 1 + (localLine === 1 ? map.offset.column : 0);
         if (before(line, column, start)) continue;
         if (!before(line, column, end)) break;
@@ -1338,6 +1426,27 @@ function didFiberSelfUpdate(fiber) {
 function isDevelopment() {
   return false;
 }
+const MAX_SPANS = 200;
+const spans = [];
+function noteOwnWork(start, end, label = "") {
+  const from = Number(start);
+  const to = Number(end);
+  if (!Number.isFinite(from) || !Number.isFinite(to) || to < from) return;
+  spans.push({ start: Math.round(from * 10) / 10, end: Math.round(to * 10) / 10, label: String(label).slice(0, 60) });
+  if (spans.length > MAX_SPANS) spans.splice(0, spans.length - MAX_SPANS);
+}
+function ownWorkSince(since = -Infinity) {
+  return spans.filter((span) => span.end >= since);
+}
+function isOwnFrame(frame2, own) {
+  const scripts = frame2.scripts ?? [];
+  const pageScriptMs = scripts.reduce((sum, script) => sum + (script.chippy ? 0 : script.duration || 0), 0);
+  if (pageScriptMs * 2 >= frame2.duration) return false;
+  if (scripts.some((script) => script.chippy)) return true;
+  const from = frame2.startTime;
+  const to = frame2.startTime + frame2.duration;
+  return !!(own == null ? void 0 : own.some((span) => span.start < to && span.end > from));
+}
 const CS_RESTARTS = 2;
 const CS_UNMOUNTED_COMPONENTS = 8;
 const CS_UNMOUNTED_SUBTREES = 9;
@@ -1757,6 +1866,7 @@ function buildReport(state2, thrashMode, topN, sortBy, options = {}, detectorCon
     renderedByCommit: state2.renderedByCommit,
     networkRequests: state2.networkRequests.slice(),
     ...state2.perfEntries && { perfEntries: state2.perfEntries.slice() },
+    ...ownWorkSince().length > 0 && { ownWork: ownWorkSince() },
     ...state2.screenByCommit && Object.keys(state2.screenByCommit).length > 0 && { screenByCommit: { ...state2.screenByCommit } },
     ...state2.domByCommit && Object.keys(state2.domByCommit).length > 0 && { domByCommit: { ...state2.domByCommit } },
     ...hasMetricsData && { metricsByCommit: state2.metricsByCommit },
@@ -1873,8 +1983,10 @@ function parseStackLine(line) {
   const name = (m[1] || "").trim();
   const locRaw = (m[2] || "").trim();
   const tail = locRaw.match(/:(\d+):(\d+)\)?$/);
-  const loc = tail ? `${tail[1]}:${tail[2]}` : locRaw;
-  return name ? { name, loc } : null;
+  if (!name) return null;
+  if (!tail) return { name, loc: locRaw };
+  const url = locRaw.slice(0, tail.index);
+  return url ? { name, loc: `${tail[1]}:${tail[2]}`, url } : { name, loc: `${tail[1]}:${tail[2]}` };
 }
 function parseStackFrames(stack) {
   return stack.split("\n").slice(1).map(parseStackLine).filter((f) => !!f);
@@ -7482,7 +7594,7 @@ function buildTimeline(report, options = {}) {
   const drawable = inWindow.filter((r) => r.duration >= minRequestMs);
   const kept = [...drawable].sort((a, b) => b.duration - a.duration).slice(0, options.maxRequests ?? 30).sort((a, b) => a.startTime - b.startTime);
   const network = kept.map(toRequest);
-  const perfLane = perfLaneOf(report.perfEntries ?? [], origin, windowEnd, ids.map((id) => ({ id, start: startOf(id) })), rel, options.maxMarks ?? 40);
+  const perfLane = perfLaneOf(report.perfEntries ?? [], report.ownWork, origin, windowEnd, ids.map((id) => ({ id, start: startOf(id) })), rel, options.maxMarks ?? 40);
   const boundaryKey = (event) => typeof event.boundary === "number" ? "b" + event.boundary : "@" + Number(event.depth);
   const open = /* @__PURE__ */ new Map();
   const suspense = [];
@@ -7606,7 +7718,7 @@ function buildTimeline(report, options = {}) {
 }
 const SHIFT_MIN = 1e-3;
 const EVENT_MIN_MS = 50;
-function perfLaneOf(entries, origin, windowEnd, commitStarts2, rel, maxMarks) {
+function perfLaneOf(entries, ownWork, origin, windowEnd, commitStarts2, rel, maxMarks) {
   var _a2, _b2, _c2;
   const lane = [];
   let marks = 0;
@@ -7616,11 +7728,14 @@ function perfLaneOf(entries, origin, windowEnd, commitStarts2, rel, maxMarks) {
     let kind = null;
     let label = e.name;
     let value = null;
+    let chippy = false;
     if (e.entryType === "long-animation-frame" || e.entryType === "longtask") {
       kind = "frame";
       value = e.entryType === "longtask" ? round$3(Math.max(0, e.duration - 50)) : e.blockingDuration ?? null;
       const script = (_a2 = e.scripts) == null ? void 0 : _a2[0];
       label = script ? [script.invoker, script.sourceFunctionName, (_b2 = script.sourceURL) == null ? void 0 : _b2.split("/").pop()].filter(Boolean).join(" ") : "";
+      chippy = isOwnFrame(e, ownWork);
+      if (chippy) label = "Chippy";
     } else if (e.entryType === "measure" && e.duration >= 1) kind = "measure";
     else if (e.entryType === "measure" || e.entryType === "mark") {
       if (marks >= maxMarks) {
@@ -7652,7 +7767,8 @@ function perfLaneOf(entries, origin, windowEnd, commitStarts2, rel, maxMarks) {
       end: rel(end),
       durationMs: round$3(e.duration || 0),
       value,
-      commits: commitStarts2.filter((c) => c.start >= e.startTime && c.start <= end).map((c) => c.id)
+      commits: commitStarts2.filter((c) => c.start >= e.startTime && c.start <= end).map((c) => c.id),
+      ...chippy && { chippy: true }
     });
   }
   return { lane, omittedMarks };
@@ -7751,10 +7867,14 @@ function renderText(result) {
     const worst = [...delayed].sort((a, b) => b.paintAt - b.t - (a.paintAt - a.t)).slice(0, 5);
     header.push(`Painted late (the commit's task kept running): ${worst.map((c) => `c${c.commitId} +${c.t} → painted +${c.paintAt} (${c.paintAt - c.t}ms)`).join(", ")}.`);
   }
-  const frames = result.lanes.perf.filter((p2) => p2.kind === "frame");
+  const frames = result.lanes.perf.filter((p2) => p2.kind === "frame" && !p2.chippy);
+  const ownFrames = result.lanes.perf.filter((p2) => p2.kind === "frame" && p2.chippy);
   if (frames.length) {
     const worst = [...frames].sort((a, b) => b.durationMs - a.durationMs).slice(0, 3);
     header.push(`Long frames (no paint inside): ${frames.length}, ${Math.round(frames.reduce((sum, p2) => sum + (p2.value ?? 0), 0))}ms blocking; longest ${worst.map((p2) => `+${p2.start} ${p2.durationMs}ms${p2.commits.length ? " (" + commitSpan(p2.commits) + ")" : ""}`).join(", ")}.`);
+  }
+  if (ownFrames.length) {
+    header.push(`Chippy's own long frames, left out of the totals: ${ownFrames.length}, ${Math.round(ownFrames.reduce((sum, p2) => sum + (p2.value ?? 0), 0))}ms blocking.`);
   }
   const rows = [];
   for (const i of result.lanes.input) rows.push({ t: i.t, lane: "input", text: inputLabel(i) });
@@ -7953,8 +8073,12 @@ function cumulativeLayoutShift(shifts) {
 }
 function perfSummary(report, entries = report.perfEntries ?? []) {
   const of = (type) => entries.filter((e) => e.entryType === type);
-  const frames = of("long-animation-frame");
-  const tasks = of("longtask");
+  const own = (e) => isOwnFrame(e, report.ownWork);
+  const blockingOf = (e) => e.entryType === "longtask" ? Math.max(0, e.duration - 50) : e.blockingDuration ?? 0;
+  const allLong = [...of("long-animation-frame"), ...of("long-animation-frame").length ? [] : of("longtask")];
+  const chippyLong = allLong.filter(own);
+  const frames = of("long-animation-frame").filter((e) => !own(e));
+  const tasks = of("longtask").filter((e) => !own(e));
   const events = of("event");
   const measures = of("measure");
   const lcp = of("largest-contentful-paint").sort((a, b) => a.startTime - b.startTime).at(-1);
@@ -7968,12 +8092,13 @@ function perfSummary(report, entries = report.perfEntries ?? []) {
     perInteraction.set(e.interactionId, Math.max(perInteraction.get(e.interactionId) ?? 0, e.duration));
   }
   const longest = measures.reduce((best, e) => !best || e.duration > best.duration ? e : best, null);
-  const blocking = frames.length ? frames.reduce((sum, e) => sum + (e.blockingDuration ?? 0), 0) : tasks.reduce((sum, e) => sum + Math.max(0, e.duration - 50), 0);
+  const blocking = of("long-animation-frame").length ? frames.reduce((sum, e) => sum + (e.blockingDuration ?? 0), 0) : tasks.reduce((sum, e) => sum + Math.max(0, e.duration - 50), 0);
   return {
     cls: cumulativeLayoutShift(of("layout-shift")),
     layoutShifts: of("layout-shift").length,
     longFrames: frames.length || tasks.length,
     totalBlockingMs: round$2(blocking),
+    chippyFrames: { count: chippyLong.length, blockingMs: round$2(chippyLong.reduce((sum, e) => sum + blockingOf(e), 0)) },
     worstFrame: worstLinked ? {
       id: worstLinked.id,
       startTime: worstLinked.startTime,
@@ -8100,11 +8225,16 @@ function frameOf(frames, commitId, origin) {
 function compactTimeline(report) {
   const timeline = buildTimeline(report);
   if ("error" in timeline) return { error: timeline.error };
-  const { ok: _ok, lanes: _lanes, mermaid: _mermaid, ...rest } = timeline;
-  return rest;
+  const { origin, window: window2, omitted, text } = timeline;
+  return { origin, window: window2, omitted, text };
+}
+function nonZero(stats) {
+  return stats ? Object.fromEntries(Object.entries(stats).filter(([, value]) => value !== 0)) : null;
+}
+function tenths(value) {
+  return value === null ? null : Math.round(value * 10) / 10;
 }
 function buildSummaryView(report, options = {}) {
-  var _a2;
   const top = positive(options.top, SUMMARY_DEFAULT_TOP);
   const maxItems = positive(options.maxItems, SUMMARY_DEFAULT_MAX_ITEMS);
   const commitStats = report.commitStats ?? {};
@@ -8117,13 +8247,13 @@ function buildSummaryView(report, options = {}) {
     if (stats) for (const key of UPSTREAM_COMMIT_STAT_KEYS) totals[key] += stats[key];
   }
   const timeline = compactTimeline(report);
-  const origin = "origin" in timeline ? finite((_a2 = timeline.origin) == null ? void 0 : _a2.at) : null;
+  const origin = "origin" in timeline ? finite(timeline.origin.at) : null;
   const frames = Array.isArray(report.perfEntries) ? linkPerfEntries(report, report.perfEntries.filter((e) => e.entryType === "long-animation-frame" || e.entryType === "longtask")) : [];
   const topCommits = ids.slice().sort((a, b) => {
-    var _a3, _b2;
-    return (((_a3 = statsById.get(b)) == null ? void 0 : _a3.collateral) ?? 0) - (((_b2 = statsById.get(a)) == null ? void 0 : _b2.collateral) ?? 0) || a - b;
+    var _a2, _b2;
+    return (((_a2 = statsById.get(b)) == null ? void 0 : _a2.collateral) ?? 0) - (((_b2 = statsById.get(a)) == null ? void 0 : _b2.collateral) ?? 0) || a - b;
   }).slice(0, top).map((commitId) => {
-    var _a3;
+    var _a2;
     const timing = at(report.commitTimings, commitId);
     const start = finite(timing == null ? void 0 : timing.startTime);
     const end = finite(timing == null ? void 0 : timing.endTime);
@@ -8133,9 +8263,9 @@ function buildSummaryView(report, options = {}) {
     const actions = at(report.interactionsByCommit, commitId);
     return {
       commitId,
-      stat: statsById.get(commitId) ?? null,
+      stat: nonZero(statsById.get(commitId)),
       atMs: start !== null && origin !== null ? ms(start - origin) : null,
-      renderMs: finite((_a3 = timing == null ? void 0 : timing.render) == null ? void 0 : _a3.workMs),
+      renderMs: tenths(finite((_a2 = timing == null ? void 0 : timing.render) == null ? void 0 : _a2.workMs)),
       ticks: finite(timing == null ? void 0 : timing.ticks),
       paintDelayMs: paint !== null && end !== null && paint >= end ? ms(paint - end) : null,
       sourcesTotal: list.length,
@@ -11412,6 +11542,7 @@ const api = {
     safeJson,
     scriptResultJson,
     runChippyScript,
+    noteOwnWork,
     clearScriptOverlay: clearOverlay,
     measureComponentArea: (options) => measureComponentArea(options),
     areaWatch: { start: (options) => startAreaWatch(options), read: readAreaWatch, stop: stopAreaWatch },

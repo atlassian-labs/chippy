@@ -11,9 +11,9 @@ describe('debug-render helpers', () => {
     );
 
     expect(frames).toEqual([
-      { name: 'useState', loc: '1:1' },
-      { name: 'useCounter', loc: '10:2' },
-      { name: 'SampleComponent', loc: '20:4' },
+      { name: 'useState', loc: '1:1', url: 'react-dom.development.js' },
+      { name: 'useCounter', loc: '10:2', url: 'useCounter.ts' },
+      { name: 'SampleComponent', loc: '20:4', url: 'SampleComponent.tsx' },
     ]);
 
     const debugRender = createDebugRender();
