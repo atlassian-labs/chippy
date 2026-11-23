@@ -86,7 +86,9 @@ export type PackScripts = {
    * startup registers before the page's scripts, so this is where a pack
    * creates host globals the page must find while it loads (for example a
    * metrics slot an instrumented renderer writes to). Keep it idempotent: the
-   * bundle can evaluate twice on one page.
+   * bundle can evaluate twice on one page. Return a function to undo what it
+   * set up (observers, wrapped functions, globals); Chippy calls it when the
+   * pack unregisters or a pack with the same id replaces it.
    */
   onInit?: string;
   /** Recording phases; each receives `ctx` (see AvalancheHookContext). */

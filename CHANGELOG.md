@@ -28,6 +28,15 @@ must stay compatible with the extension version in the store.
 
 ### Added
 
+- A pack's `onInit` can return a cleanup function. Chippy calls it when
+  `unregisterPack(id)` removes the pack and before a same-id pack's `onInit`, so
+  loading a newer version replaces the old one instead of leaving its observers
+  and wrapped functions running. A throwing cleanup is reported in the new
+  version's `initErrors` as `"<report key> cleanup: <error>"`.
+- The skill's [packs](.agents/skills/chippy/references/packs.md) reference: how
+  to read a loaded pack's evidence and how to write and iterate on a pack. The
+  README describes production profiling, what Chippy senses, and packs.
+
 - Avalanche `propChanges` entries of kind `ref-changed` on plain objects and
   arrays say which top-level keys changed: `changedKeys` (the first 8, each
   `added`, `removed`, `scalar-changed` with both summaries, or `ref-changed`),
@@ -153,6 +162,12 @@ must stay compatible with the extension version in the store.
   plugins, default plugin selections, its own extension identity, and extra skill
   documentation. `@atlassian/chippy/plugin` exports the plugin types and helpers;
   the runtime adds `registerPlugin()` and `listPlugins()`.
+
+### Changed
+
+- The Chippy panel is 380 px wide, capped to the viewport, and its header no
+  longer shows "via extension"; hover the connection state for the route that
+  loaded Chippy.
 
 ### Fixed
 
