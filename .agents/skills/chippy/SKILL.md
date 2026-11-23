@@ -320,7 +320,7 @@ Avalanche records what each commit changed in the DOM, read from the committed f
 
 `latestAction` is a clue, not causality. A confirmed root cause needs a source-to-collateral chain or source code that proves the update origin. Unmount and Suspense fields are branch signals; report DOM regions before wrapper names when the question is about DOM teardown.
 
-Every mode records which components rendered and their prop changes (`commit-peek include=rendered`). `stats` never sets `isSelfSource`, and only `full` or `amplifiers` fill `trasherCounts`. When amplifier evidence is required and triage began in the default `sources` mode, run `avalanche-recapture <clientId> full`, reproduce the identical interaction, and only then read `trasherCounts`. Load [avalanche-detector](references/avalanche-detector.md) for exact schemas and [fixing-performance](references/fixing-performance.md) for fix-layer selection.
+Every mode records which components rendered and their prop changes (`commit-peek include=rendered`). `stats` never sets `isSelfSource`, and only `full` or `amplifiers` fill `trasherCounts`. When amplifier evidence is required and triage began in the default `sources` mode, run `avalanche-recapture <clientId> full`, reproduce the identical interaction, and only then read `trasherCounts`. The user can switch modes too, with the panel's **Sources | Full** toggle, so read the running mode from `avalanche-status` `detectionMode` before relying on `trasherCounts`. Load [avalanche-detector](references/avalanche-detector.md) for exact schemas and [fixing-performance](references/fixing-performance.md) for fix-layer selection.
 
 ## Page scripts, snippets, and active stimuli
 

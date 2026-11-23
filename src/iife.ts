@@ -245,6 +245,8 @@ type AvalancheApi = {
     hasMetricsGlobal: boolean;
     commitCount: number;
     integrationMode: IntegrationMode;
+    /** Detection level of the running capture (`sources`, `full`, ...); null when not installed. */
+    detectionMode: string | null;
     metricsAdapter: string | null;
     /** Network requests captured so far (Resource Timing). */
     networkRequests: number;
@@ -438,6 +440,7 @@ const api: AvalancheApi = {
     const integrationMode = detector
       ? (detector as any).getIntegrationMode?.() ?? 'none'
       : 'none';
+    const detectionMode: string | null = installed && detector ? detector.getDetectionLevel() : null;
     const metricsAdapter = detector
       ? (detector as any).getMetricsAdapterId?.() ?? null
       : getCommitMetricsAdapter()?.id ?? null;
@@ -445,7 +448,7 @@ const api: AvalancheApi = {
     const packs = listPacks().map(({ id, label, instructions, extensions, compileErrors, initErrors }) => ({ id, label, instructions, extensions, compileErrors, initErrors }));
     let hooks: Record<string, AvalancheHookSummary> | null = null;
     try { hooks = summarizeHookResults(detector?.hookResults()); } catch (_) {}
-    return { installed, paused, pausedAt, hasMetricsGlobal, commitCount, integrationMode, metricsAdapter, networkRequests, perfEntries, renderedEvidence, packs, hooks };
+    return { installed, paused, pausedAt, hasMetricsGlobal, commitCount, integrationMode, detectionMode, metricsAdapter, networkRequests, perfEntries, renderedEvidence, packs, hooks };
   },
   registerCommitMetricsAdapter,
   enablePlugins,
