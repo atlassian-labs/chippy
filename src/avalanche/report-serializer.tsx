@@ -42,6 +42,7 @@ import type { PerfCaptureStatus, PerfEntry } from './perf-capture';
 import type { ScreenChange } from './screen-changes';
 import type { DomCommitDiff } from './dom-diff';
 import type { SuspenseLocation } from './suspense-location';
+import type { ComponentRename } from './rendered-names';
 import { toWireValue } from './wire-value';
 
 /** A network request as it travels in a report: already plain data. */
@@ -138,6 +139,12 @@ export interface ReportMetaDTO {
   renderedEvidence?: RenderedEvidenceStatus;
   /** `domByCommit` budget and what it dropped. Absent when DOM diff capture is off. */
   domDiff?: RenderedEvidenceStatus;
+  /**
+   * Authored names recovered from source maps for components that ran under a
+   * minified name. Report text already uses `name`; `minifiedName` is the
+   * runtime name. Absent when no name was recovered.
+   */
+  componentNames?: ComponentRename[];
   amplifiersMetrics?: {
     totalHookThrashes: number;
     affectedComponentCount: number;

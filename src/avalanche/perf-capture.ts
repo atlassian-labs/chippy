@@ -17,6 +17,7 @@
  */
 
 import { describeNodeOwner, type NodeOwner } from './node-owner';
+import type { Fiber } from './internals';
 import { isChippyAssetUrl } from './own-requests';
 
 export const PERF_ENTRY_TYPES = [
@@ -143,8 +144,10 @@ function rectOf(rect: any): Rect | null {
   return rect ? [round(rect.x), round(rect.y), round(rect.width), round(rect.height)] : null;
 }
 
-function owner(node: unknown): NodeOwner | null {
-  try { return describeNodeOwner(node); } catch { return null; }
+type NameOf = (fiber: Fiber) => string;
+
+function owner(node: unknown, nameOf?: NameOf): NodeOwner | null {
+  try { return describeNodeOwner(node, nameOf); } catch { return null; }
 }
 
 function scriptsOf(raw: RawEntry): PerfScript[] {
@@ -168,7 +171,7 @@ function scriptsOf(raw: RawEntry): PerfScript[] {
 }
 
 /** Shapes a raw `PerformanceEntry` into a stored entry, without its id. */
-export function shapePerfEntry(raw: RawEntry): Omit<PerfEntry, 'id'> | null {
+export function shapePerfEntry(raw: RawEntry, nameOf?: NameOf): Omit<PerfEntry, 'id'> | null {
   if (!raw || typeof raw.startTime !== 'number') return null;
   const entryType = String(raw.entryType || '') as PerfEntryType;
   const base = { entryType, name: cut(String(raw.name ?? '')), startTime: round(raw.startTime), duration: round(raw.duration) };
@@ -190,7 +193,7 @@ export function shapePerfEntry(raw: RawEntry): Omit<PerfEntry, 'id'> | null {
         value: Math.round(Number(raw.value || 0) * 10000) / 10000,
         hadRecentInput: !!raw.hadRecentInput,
         sources: (Array.isArray(raw.sources) ? raw.sources : []).slice(0, MAX_SHIFT_SOURCES).map((s: any) => ({
-          ...(owner(s?.node) ?? { element: null, testId: null, component: null }),
+          ...(owner(s?.node, nameOf) ?? { element: null, testId: null, component: null }),
           previousRect: rectOf(s?.previousRect),
           currentRect: rectOf(s?.currentRect),
         })),
@@ -202,7 +205,7 @@ export function shapePerfEntry(raw: RawEntry): Omit<PerfEntry, 'id'> | null {
         inputDelay: round(raw.processingStart - raw.startTime),
         processing: round(raw.processingEnd - raw.processingStart),
         presentationDelay: round(raw.startTime + (raw.duration ?? 0) - raw.processingEnd),
-        target: owner(raw.target),
+        target: owner(raw.target, nameOf),
       };
     case 'largest-contentful-paint':
       return {
@@ -211,7 +214,7 @@ export function shapePerfEntry(raw: RawEntry): Omit<PerfEntry, 'id'> | null {
         loadTime: round(raw.loadTime),
         size: Number(raw.size) || 0,
         url: typeof raw.url === 'string' && raw.url ? cut(raw.url) : null,
-        element: owner(raw.element),
+        element: owner(raw.element, nameOf),
       };
     case 'navigation':
       return {
@@ -230,7 +233,8 @@ export function shapePerfEntry(raw: RawEntry): Omit<PerfEntry, 'id'> | null {
   }
 }
 
-export function createPerfCapture(options: PerfCaptureOptions = {}) {
+/** `nameOf` names the components that own entry nodes; the detector records them for renaming. */
+export function createPerfCapture(options: PerfCaptureOptions = {}, nameOf?: NameOf) {
   const enabled = options.perfCapture !== false;
   const limit = Math.max(1, Math.floor(Number(options.maxPerfEntries) || DEFAULT_MAX_PERF_ENTRIES_PER_TYPE));
   const entries: PerfEntry[] = [];
@@ -274,7 +278,7 @@ export function createPerfCapture(options: PerfCaptureOptions = {}) {
     if (pausedAt !== null && entry.startTime >= pausedAt) return;
     // Hover and other non-interaction events fire by the dozen in a slow frame; keep them only when slow on their own.
     if (entry.entryType === 'event' && !entry.interactionId && (entry.duration ?? 0) < NON_INTERACTION_EVENT_MIN_MS) return;
-    const shaped = shapePerfEntry(entry);
+    const shaped = shapePerfEntry(entry, nameOf);
     if (!shaped) return;
     entries.push({ id: nextId++, ...shaped });
     kept.set(shaped.entryType, (kept.get(shaped.entryType) ?? 0) + 1);

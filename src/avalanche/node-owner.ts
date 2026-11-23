@@ -35,14 +35,14 @@ function hostFiberOf(element: Element): Fiber | null {
   return null;
 }
 
-export function describeNodeOwner(node: unknown): NodeOwner | null {
+export function describeNodeOwner(node: unknown, nameOf: (fiber: Fiber) => string = getComponentName): NodeOwner | null {
   const element = elementOf(node);
   if (!element) return null;
   let fiber = hostFiberOf(element);
   for (let depth = 0; fiber && !isComponentFiber(fiber.tag) && depth < MAX_ANCESTORS; depth += 1) fiber = fiber.return ?? null;
   let component: string | null = null;
   try {
-    component = fiber && isComponentFiber(fiber.tag) ? getComponentName(fiber) : null;
+    component = fiber && isComponentFiber(fiber.tag) ? nameOf(fiber) : null;
   } catch {
     component = null;
   }

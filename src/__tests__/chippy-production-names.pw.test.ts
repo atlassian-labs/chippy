@@ -9,7 +9,7 @@ import { build } from 'esbuild';
 const extension = '.agents/skills/chippy/extension';
 const ORIGIN = 'https://prod.example.test';
 
-const APP_SOURCE = `import { memo, useState } from 'react';
+const APP_SOURCE = `import { memo, useLayoutEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 
 function ProjectList({ items }) {
@@ -17,8 +17,18 @@ function ProjectList({ items }) {
 }
 const ProjectRow = memo(function ProjectRow({ label }) {
   const [open, setOpen] = useState(false);
-  return <li id={'row-' + label} onClick={() => setOpen(!open)}>{label}{open ? ' (open)' : ''}</li>;
+  return <li id={'row-' + label} onClick={() => setOpen(!open)}>{label}{open ? ' (open)' : ''}{open && <Details label={label} />}</li>;
 });
+// Mounts only after a click, then updates its own state in the next commit,
+// re-rendering Seen, so the summary lists it as a source.
+function Details({ label }) {
+  const [seen, setSeen] = useState(false);
+  useLayoutEffect(() => setSeen(true), []);
+  return <Seen label={label} seen={seen} />;
+}
+function Seen({ label, seen }) {
+  return <i data-detail={label} data-seen={String(seen)} />;
+}
 
 createRoot(document.getElementById('root')).render(<ProjectList items={['a', 'b']} />);
 `;
@@ -126,8 +136,67 @@ describe('Chippy on a minified production React build', () => {
         const named = await av.bridge.evalAvalancheWithNames({ action: 'hot-sources' }, av, null);
         return { stats: named.nameRecovery, sourceIds: named.payload.items.map((item: any) => item.sourceId) };
       });
-      expect(result.stats).toMatchObject({ types: 1, resolved: 1, named: 1 });
-      expect(result.sourceIds).toEqual([expect.stringMatching(/^ProjectRow#/)]);
+      // The click opens the row, which mounts Details; both update their own state.
+      expect(result.stats).toMatchObject({ types: 2, resolved: 2, named: 2 });
+      expect(result.sourceIds.sort()).toEqual([expect.stringMatching(/^Details#/), expect.stringMatching(/^ProjectRow#/)]);
+    } finally { await page.close(); }
+  }, 30000);
+
+  it('renames a component that mounts during the capture in every output', async () => {
+    const page = await openPage();
+    try {
+      await page.locator('#row-a').click();
+      await page.locator('[data-detail="a"][data-seen="true"]').waitFor({ state: 'attached' });
+      const result = await page.evaluate(async () => {
+        const av = (window as any).__AVALANCHE__;
+        const run = (command: Record<string, unknown>) => av.bridge.evalAvalancheWithNames(command, av, null);
+        // DOM anchors name Details only as text, so dom-diff must recover it by name.
+        const domDiff = await run({ action: 'dom-diff' });
+        const commitIds = Object.keys(av.report(Infinity).renderedByCommit).map(Number).sort((a, b) => a - b);
+        // Peek each commit in turn, as an agent would; Details first renders mid-capture.
+        let mount: any = null;
+        for (const commitId of commitIds) {
+          const peek = await run({ action: 'commit-peek', commitId, include: ['rendered'] });
+          if (peek.payload.rendered.some((entry: any) => entry.name === 'Details')) {
+            mount = peek;
+            break;
+          }
+        }
+        const summary = await run({ action: 'summary' });
+        const exported = await run({ action: 'export' });
+        return {
+          rendered: mount?.payload.rendered.find((entry: any) => entry.name === 'Details') ?? null,
+          dom: domDiff.payload.commits.flatMap((commit: any) => commit.changes.map((change: any) => change.at)),
+          domNames: domDiff.componentNames ?? [],
+          peekNames: mount?.componentNames ?? [],
+          summaryIds: summary.payload.topCommits.flatMap((commit: any) => commit.sources.map((source: any) => source.sourceId)),
+          summaryOwners: summary.payload.topCommits.flatMap((commit: any) => commit.latestAction?.targetFiber?.ownerNames ?? []),
+          timeline: summary.payload.timeline.text,
+          summaryNames: summary.componentNames ?? [],
+          exportNames: exported.payload.meta.componentNames ?? [],
+          exportRendered: Object.values(exported.payload.renderedByCommit).flat()
+            .filter((entry: any) => entry.minifiedName).map((entry: any) => entry.name),
+        };
+      });
+      const minifiedName = result.rendered?.minifiedName;
+      expect(result.rendered).toMatchObject({ name: 'Details', minifiedName: expect.any(String) });
+      expect(minifiedName).not.toBe('Details');
+      const details = { name: 'Details', minifiedName };
+      expect(result.peekNames).toContainEqual(details);
+      // DOM anchors are stored as text when the commit is recorded.
+      expect(result.dom.some((at: string) => at.split(' › ').includes('Details'))).toBe(true);
+      expect(result.dom.some((at: string) => at.split(' › ').includes(minifiedName))).toBe(false);
+      expect(result.domNames).toContainEqual(details);
+      expect(result.summaryIds).toContainEqual(expect.stringMatching(/^Details#/));
+      expect(result.timeline).toMatch(/\bDetails\b/);
+      expect(result.timeline).not.toMatch(new RegExp(`\\b${minifiedName}\\b`));
+      // The clicked row's owner is stored as text when the click is captured.
+      expect(result.summaryOwners).toContain('ProjectList');
+      expect(result.summaryNames).toContainEqual(details);
+      // Seen re-renders but the summary never names it.
+      expect(result.summaryNames.map((rename: any) => rename.name)).not.toContain('Seen');
+      expect(result.exportNames).toContainEqual(details);
+      expect(result.exportRendered).toContain('Details');
     } finally { await page.close(); }
   }, 30000);
 });

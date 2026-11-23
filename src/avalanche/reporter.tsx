@@ -21,6 +21,7 @@ import { serializeReport } from './report-serializer';
 import type { InputEventDetails } from './input-details';
 import type { PropKeyDiff } from './prop-key-diff';
 import type { AvalancheHookResult } from './avalanche-hooks';
+import type { ComponentRename } from './rendered-names';
 import {
   type CommitMetricsAdapter,
   type CommitMetricsDelta,
@@ -306,6 +307,12 @@ export interface ReportMeta {
    * (performance.now()) enters the capture.
    */
   capture?: CaptureStatus;
+  /**
+   * Authored names recovered from source maps for components that ran under a
+   * minified name. Report text already uses `name`; `minifiedName` is the
+   * runtime name. Absent when no name was recovered.
+   */
+  componentNames?: ComponentRename[];
   /** Amplifier summary (when detectionMode: 'amplifierMetrics') */
   amplifiersMetrics?: {
     totalHookThrashes: number;
