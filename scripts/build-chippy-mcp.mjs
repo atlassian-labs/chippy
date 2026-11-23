@@ -37,3 +37,12 @@ await build({
   banner: { js: '#!/usr/bin/env node\n// Generated from src/avalanche/offline-cli.ts by `yarn chippy:mcp:build`; do not edit.' },
 });
 chmodSync(analyzer, 0o755);
+
+// Helper-side stack symbolication: maps production hook frames through the
+// script's source map in the helper process, so the page decodes nothing.
+const symbolication = '.agents/skills/chippy/scripts/stack-symbolication.cjs';
+await build({
+  entryPoints: ['src/chippy-bridge/stack-symbolication.ts'], outfile: symbolication,
+  bundle: true, platform: 'node', format: 'cjs', target: 'node22',
+  banner: { js: '// Generated from src/chippy-bridge/stack-symbolication.ts by `yarn chippy:mcp:build`; do not edit.' },
+});

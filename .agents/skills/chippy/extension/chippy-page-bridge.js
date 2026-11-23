@@ -479,7 +479,42 @@
     return true;
   }
 
+  // ─── Own-work spans ──────────────────────────────────────────────────────
+  // Chrome leaves extension scripts out of long animation frame attribution,
+  // so Avalanche cannot tell a frame Chippy caused from the page's own. Each
+  // command is timed from receipt to its result, and each snapshot, so the
+  // perf summary can leave those frames out.
+  const pendingCommandStarts = new Map();
+
+  function noteOwnWork(start, label) {
+    try { getBridge()?.noteOwnWork?.(start, performance.now(), label); } catch (e) {}
+  }
+
+  function noteResultSent(message) {
+    const requestId = message && message.requestId;
+    if (!requestId || !pendingCommandStarts.has(requestId)) return;
+    const started = pendingCommandStarts.get(requestId);
+    pendingCommandStarts.delete(requestId);
+    noteOwnWork(started.at, started.type);
+  }
+
+  function runTimedCommand(command) {
+    const at = performance.now();
+    const requestId = command && command.requestId;
+    if (requestId) {
+      pendingCommandStarts.set(requestId, { at, type: String(command.type || '') });
+      // A command that never answers must not keep its start forever.
+      if (pendingCommandStarts.size > 50) pendingCommandStarts.delete(pendingCommandStarts.keys().next().value);
+    }
+    try {
+      handleCommand(command);
+    } finally {
+      if (!requestId) noteOwnWork(at, String(command?.type || ''));
+    }
+  }
+
   function send(message) {
+    noteResultSent(message);
     if (!socket || socket.readyState !== WebSocket.OPEN) return false;
     if (sendRawResult(message)) return true;
     let text;
@@ -522,6 +557,15 @@
   }
 
   function publishSnapshot(reason) {
+    const startedAt = performance.now();
+    try {
+      return publishSnapshotNow(reason);
+    } finally {
+      noteOwnWork(startedAt, 'snapshot');
+    }
+  }
+
+  function publishSnapshotNow(reason) {
     const sequence = ++snapshotSequence;
     const mode = resolveBuildMode();
     const markers = summarizeMarkers();
@@ -1873,7 +1917,7 @@
           helperAcceptsRawResults = payload.rawResults === true;
         }
         if (payload.type === 'command') {
-          handleCommand(payload.command);
+          runTimedCommand(payload.command);
         }
       } catch (e) {
         console.error('[chippy-bridge] message parse error:', e?.message || e);

@@ -5,6 +5,7 @@
  * ordering, so presentation changes do not alter hot-path collection.
  */
 
+import { ownWorkSince, type OwnWorkSpan } from './own-work';
 import type { RenderedEvidenceStatus } from './rendered-evidence-store';
 import type { ComponentType, ChangedHook, Fiber, ThrashInfo } from './internals';
 import { CS_RESTARTS } from './commit-stats-indices';
@@ -509,6 +510,13 @@ export interface Report {
    * computed on read. Absent before report v9.
    */
   perfEntries?: PerfEntry[];
+
+  /**
+   * Spans of Chippy's own work in the page (bridge commands and snapshots), so
+   * long frames Chippy caused can be left out of page metrics. Absent when
+   * Chippy recorded none.
+   */
+  ownWork?: OwnWorkSpan[];
 
   /**
    * Results of plugin Avalanche hooks (packs' onStart/onStep/onEnd), keyed by
@@ -1150,6 +1158,7 @@ export function buildReport(
     renderedByCommit: state.renderedByCommit,
     networkRequests: state.networkRequests.slice(),
     ...(state.perfEntries && { perfEntries: state.perfEntries.slice() }),
+    ...(ownWorkSince().length > 0 && { ownWork: ownWorkSince() }),
     ...(state.screenByCommit && Object.keys(state.screenByCommit).length > 0 && { screenByCommit: { ...state.screenByCommit } }),
     ...(state.domByCommit && Object.keys(state.domByCommit).length > 0 && { domByCommit: { ...state.domByCommit } }),
     ...(hasMetricsData && { metricsByCommit: state.metricsByCommit }),

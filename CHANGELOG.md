@@ -28,6 +28,19 @@ must stay compatible with the extension version in the store.
 
 ### Added
 
+- `avalanche-debug-hook` maps production call stacks to authored source. The
+  page keeps only each frame's script URL; the helper fetches the script's
+  tail and its source map when the command runs, caches the six most recent
+  scripts, and returns each frame's authored `source`, `code`, and, where the
+  map names them, `calls` and `fn`, with a `sourceMaps` status. React's own
+  frames are dropped. Nothing is fetched or decoded unless a command asks.
+
+- The perf summary and timeline leave long frames caused by Chippy's own
+  commands out of `longFrames`, `totalBlockingMs`, and `worstFrame`, and count
+  them in `chippyFrames`. Chrome omits extension scripts from long frame
+  attribution, so the bridge records when each command ran (report `ownWork`).
+  Extension 0.5.2.
+
 - `fiber-invoke` passes a synthetic event to handlers that read one. An
   argument written as `{"$event": "click"}` (extra fields such as `"key"`
   become event fields) is replaced with a React-style event whose `target` and
@@ -35,13 +48,15 @@ must stay compatible with the extension version in the store.
   `stopPropagation`, `persist`, and a matching `nativeEvent`. The result adds
   `event`: the methods the handler called and the fields it read that the
   event lacks. A handler that throws a `TypeError` without one gets a `hint`.
-  The event is never dispatched. Extension 0.5.2.
+  The event is never dispatched.
 
 - `avalanche-summary <clientId> [top] [maxItems]` (MCP `summary` action) reads
   a live capture in one call: commit totals, the interaction timeline, the top
   commits by collateral with timing, sources, changed hooks, and latest input,
   and each pack hook's result. `avalanche-offline <file> summary` returns the
-  same digest, now with those fields too.
+  same digest, now with those fields too. The timeline comes as text only
+  (`avalanche-timeline` has the structured waits, screen, and boundaries), and
+  zero counts are dropped, which keeps the digest near a third of its earlier size.
 
 - Avalanche records the browser's performance entries while it captures and
   keeps them in exports (report version 9: `perfEntries` and `meta.perf`):

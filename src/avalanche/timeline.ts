@@ -36,6 +36,7 @@
  */
 
 import type { NetworkRequest } from './network-capture';
+import { isOwnFrame, type OwnWorkSpan } from './own-work';
 import type { PerfEntry } from './perf-capture';
 import type { ScreenChange } from './screen-changes';
 import { screenStability, settleMapSvg, type ScreenFrame, type ScreenStability } from './screen-stability';
@@ -52,6 +53,7 @@ type ReportLike = {
   interactionsByCommit?: Record<string, Array<{ id?: unknown; action?: unknown; timestamp?: unknown; location?: { dom?: { nearestTestId?: unknown; text?: unknown; tag?: unknown } }; event?: { trusted?: unknown; key?: unknown; modifiers?: unknown } }>>;
   networkRequests?: NetworkRequest[];
   perfEntries?: PerfEntry[];
+  ownWork?: OwnWorkSpan[];
   [key: string]: unknown;
 };
 
@@ -111,6 +113,8 @@ export interface TimelinePerf {
   value: number | null;
   /** Commits that started inside the entry's span. */
   commits: number[];
+  /** Long frames: true when Chippy's own work caused the frame; such frames stay out of the blocking totals. */
+  chippy?: true;
 }
 export interface TimelineSuspense {
   /** `b<id>` from the detector, or `@<depth>` for reports without boundary ids. */
@@ -287,7 +291,7 @@ export function buildTimeline(report: ReportLike, options: TimelineOptions = {})
   const kept = [...drawable].sort((a, b) => b.duration - a.duration).slice(0, options.maxRequests ?? 30)
     .sort((a, b) => a.startTime - b.startTime);
   const network = kept.map(toRequest);
-  const perfLane = perfLaneOf(report.perfEntries ?? [], origin, windowEnd, ids.map((id) => ({ id, start: startOf(id) })), rel, options.maxMarks ?? 40);
+  const perfLane = perfLaneOf(report.perfEntries ?? [], report.ownWork, origin, windowEnd, ids.map((id) => ({ id, start: startOf(id) })), rel, options.maxMarks ?? 40);
 
   // Pair Suspense enter/leave events by boundary (the detector's id, else the
   // depth), from the start of the report so a wait that began before the
@@ -417,7 +421,7 @@ const SHIFT_MIN = 0.001;
 const EVENT_MIN_MS = 50;
 
 function perfLaneOf(
-  entries: PerfEntry[], origin: number, windowEnd: number,
+  entries: PerfEntry[], ownWork: OwnWorkSpan[] | undefined, origin: number, windowEnd: number,
   commitStarts: Array<{ id: number; start: number }>, rel: (t: number) => number, maxMarks: number,
 ): { lane: TimelinePerf[]; omittedMarks: number } {
   const lane: TimelinePerf[] = [];
@@ -429,12 +433,15 @@ function perfLaneOf(
     let kind: TimelinePerfKind | null = null;
     let label = e.name;
     let value: number | null = null;
+    let chippy = false;
     if (e.entryType === 'long-animation-frame' || e.entryType === 'longtask') {
       kind = 'frame';
       // Long tasks carry no blocking time; count what ran past 50 ms, as total blocking time does.
       value = e.entryType === 'longtask' ? round(Math.max(0, e.duration - 50)) : e.blockingDuration ?? null;
       const script = e.scripts?.[0];
       label = script ? [script.invoker, script.sourceFunctionName, script.sourceURL?.split('/').pop()].filter(Boolean).join(' ') : '';
+      chippy = isOwnFrame(e, ownWork);
+      if (chippy) label = 'Chippy';
     } else if (e.entryType === 'measure' && e.duration >= 1) kind = 'measure';
     else if (e.entryType === 'measure' || e.entryType === 'mark') {
       if (marks >= maxMarks) { omittedMarks += 1; continue; }
@@ -458,6 +465,7 @@ function perfLaneOf(
     lane.push({
       id: e.id, kind, label: label.trim(), start: rel(e.startTime), end: rel(end), durationMs: round(e.duration || 0), value,
       commits: commitStarts.filter((c) => c.start >= e.startTime && c.start <= end).map((c) => c.id),
+      ...(chippy && { chippy: true as const }),
     });
   }
   return { lane, omittedMarks };
@@ -569,10 +577,14 @@ function renderText(result: TimelineResult): string {
     header.push(`Painted late (the commit's task kept running): ${worst.map((c) => `c${c.commitId} +${c.t} → painted +${c.paintAt} (${c.paintAt! - c.t}ms)`).join(', ')}.`);
   }
 
-  const frames = result.lanes.perf.filter((p) => p.kind === 'frame');
+  const frames = result.lanes.perf.filter((p) => p.kind === 'frame' && !p.chippy);
+  const ownFrames = result.lanes.perf.filter((p) => p.kind === 'frame' && p.chippy);
   if (frames.length) {
     const worst = [...frames].sort((a, b) => b.durationMs - a.durationMs).slice(0, 3);
     header.push(`Long frames (no paint inside): ${frames.length}, ${Math.round(frames.reduce((sum, p) => sum + (p.value ?? 0), 0))}ms blocking; longest ${worst.map((p) => `+${p.start} ${p.durationMs}ms${p.commits.length ? ' (' + commitSpan(p.commits) + ')' : ''}`).join(', ')}.`);
+  }
+  if (ownFrames.length) {
+    header.push(`Chippy's own long frames, left out of the totals: ${ownFrames.length}, ${Math.round(ownFrames.reduce((sum, p) => sum + (p.value ?? 0), 0))}ms blocking.`);
   }
 
   type Row = { t: number; lane: string; text: string };
