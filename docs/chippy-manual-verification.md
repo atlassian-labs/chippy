@@ -158,6 +158,24 @@ Pass criteria:
 - pre/post hook summaries show `asyncCount` increased by one and `lastAction` became `"async"`
 - refreshed page text shows `async=1` and `last=async`
 
+### Step 4b — fiber-invoke with a synthetic event
+
+Agent invokes the event-reading button, first without an event, then with one:
+
+```bash
+find-fibers <clientId> --testid manual-on-event --max 5
+fiber-prop-contract <clientId> <fiberId> onClick
+fiber-invoke <clientId> <fiberId> onClick --args '[]'
+fiber-invoke <clientId> <fiberId> onClick --args '[{"$event":"click"}]'
+request-snapshot <clientId>
+page <clientId> full
+```
+
+Pass criteria:
+- the bare invoke has `ok: false`, `threw: true`, and a `hint` naming `$event`
+- the event invoke has `ok: true`, `returnValue: true`, and `event` with `synthetic: true`, `target: 'button[data-testid="manual-on-event"]'`, `calls: ["preventDefault", "stopPropagation"]`, and `missing: []`
+- refreshed page text shows `event=1` and `last=event:click:save`
+
 ### Step 5 — class component `this` binding
 
 Agent invokes the class button twice:

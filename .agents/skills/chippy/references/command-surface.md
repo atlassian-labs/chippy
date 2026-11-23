@@ -63,7 +63,7 @@ Start value traces with `probe-dom`, then owners, then props. Open the reported 
 | `inspect-fiber-structure` | Return one hook and its neighboring folder structure; may use dispatcher replay and reports replay warnings. |
 | `page-click` | Click exactly one resolved DOM target. Active stimulus; requires an anchor contract. |
 | `fiber-prop-contract` | Inspect a function prop before invocation. Read-only. |
-| `fiber-invoke` | Invoke one proven function prop, optionally with JSON arguments. Active stimulus. |
+| `fiber-invoke` | Invoke one proven function prop, optionally with JSON arguments; `{"$event":"click"}` passes a synthetic event. Active stimulus. |
 | `fiber-schedule-update` | Schedule one DevTools renderer update on a current composite fiber. Active stimulus; does not mutate a hook or prop. |
 
 Run the [debug replay preflight](active-stimulus.md#debug-replay-preflight) before `explain-component`, `describe-component`, or `inspect-fiber-structure`.

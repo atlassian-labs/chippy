@@ -199,7 +199,7 @@ Read-only inspection. Reads `memoizedProps[propName]` from the remembered fiber 
 ```js
 { type: 'fiber-invoke', requestId, fiberId, propName, args? }
 ```
-Active stimulus. Reads `memoizedProps[propName]` from the remembered fiber and invokes it if it is a function. Use only after `fiber-prop-contract` and source inspection prove the callback argument contract. Returns `{ ok, fiberId, fiberName, propName, propType, fnLength, invoked, args, async, returnValue }` or a refusal/throw/rejection payload.
+Active stimulus. Reads `memoizedProps[propName]` from the remembered fiber and invokes it if it is a function. Use only after `fiber-prop-contract` and source inspection prove the callback argument contract. An `args` entry `{ $event: type, ...fields }` is replaced with a synthetic event targeting the fiber's first element (see [active-stimulus](active-stimulus.md#event-arguments)). Returns `{ ok, fiberId, fiberName, propName, propType, fnLength, invoked, args, async, returnValue, event? }` or a refusal/throw/rejection payload; a throw may carry a `hint`.
 
 ### `fiber-schedule-update`
 
