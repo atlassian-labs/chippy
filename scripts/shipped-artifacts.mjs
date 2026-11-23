@@ -9,6 +9,7 @@ export const SHIPPED_ARTIFACTS = [
   '.agents/skills/chippy/extension/avalanche.es.js.map',
   '.agents/skills/chippy/scripts/chippy-mcp.cjs',
   '.agents/skills/chippy/scripts/avalanche-analyze.cjs',
+  '.agents/skills/chippy/scripts/stack-symbolication.cjs',
 ];
 
 const BUILD_SCRIPTS = ['scripts/sync-avalanche.mjs', 'scripts/build-chippy-mcp.mjs'];

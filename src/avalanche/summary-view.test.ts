@@ -11,7 +11,7 @@ function report() {
     commitStats: { 1: tuple(2, 1), 2: tuple(9, 2), 3: tuple(9, 1) },
     commitTimings: {
       1: { startTime: 100, endTime: 104, ticks: 1, render: { workMs: 3 } },
-      2: { startTime: 120, endTime: 130, paintAt: 145, ticks: 2, render: { workMs: 8.5 } },
+      2: { startTime: 120, endTime: 130, paintAt: 145, ticks: 2, render: { workMs: 8.500000047683716 } },
     },
     sourcesByCommit: {
       2: [
@@ -45,6 +45,13 @@ describe('buildSummaryView', () => {
       hooks: { 'demo.count': { n: 2 } },
     });
     expect(commit.latestAction).not.toBeNull();
+    // Zero counters are left out, and render time is rounded to 0.1 ms.
+    expect(commit.stat).toEqual({ collateral: 9, sources: 2, performedWork: 11 });
+  });
+
+  it('carries the timeline as text, leaving structured waits and boundaries to avalanche-timeline', () => {
+    const { timeline } = buildSummaryView(report());
+    expect(Object.keys(timeline).sort()).toEqual(['omitted', 'origin', 'text', 'window']);
   });
 
   it('reports missing timings and evidence as null or empty, not zero', () => {

@@ -89,7 +89,7 @@ Load [active-stimulus](active-stimulus.md) before an active command. A `fiber:*`
 | `avalanche-network` | List the network requests that finished during the capture, with the commits each started after, started during, or landed before. |
 | `avalanche-perf` | List the browser performance entries recorded during the capture (marks, measures, long frames, layout shifts, slow events, LCP, paint, navigation) with page metrics and the commits near each entry. |
 | `avalanche-dom-diff` | List what each commit changed in the DOM, commits in order: inserted, removed, updated (each prop before and after), moved, and Suspense-hidden or shown nodes, each with the components above it. Each commit is one change set with no order inside it. |
-| `avalanche-debug-hook` | Interrogate one captured `sourceId + hookIndex`. |
+| `avalanche-debug-hook` | Interrogate one captured `sourceId + hookIndex`. In production builds the helper maps the hook's frames to authored source through the scripts' source maps. |
 | `avalanche-export` | Return the full export, optionally written to a file; `lastN` does not trim it. Use `avalanche-save ... N` for the last N commits. Do not open this first. |
 | `avalanche-save` | Save a full or bounded export for repeated offline analysis. Waits up to 60 s for a large export. |
 | `avalanche-offline` | Run `summary`, `commit-list`, `commit-peek`, `hot-sources`, `describe-action`, `network`, `timeline`, `dom-diff`, or `source-search --name` over a saved export; shapes match the live commands. |
@@ -181,7 +181,7 @@ avalanche-dom-diff <clientId> [fromCommit] [toCommit] [match] [maxItems] [top]
 avalanche-install <clientId> [detectionMode]
 avalanche-uninstall <clientId>
 avalanche-recapture <clientId> [detectionMode]
-avalanche-debug-hook <clientId> <sourceId> <hookIndex> [window]
+avalanche-debug-hook <clientId> <sourceId> <hookIndex> [window] [sourceMaps=true|false]
 avalanche-save <clientId> <file> [count]
 avalanche-offline <file> <summary|commit-list|commit-peek|hot-sources|describe-action|network|timeline|dom-diff|source-search> [args...]
 eval-page <clientId> <snippet-file-or-name|-> [--allow replay] [--script-timeout ms] [--key value ...]

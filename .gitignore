@@ -30,6 +30,7 @@ links/
 /.agents/skills/chippy/extension/avalanche.es.js.map
 /.agents/skills/chippy/scripts/chippy-mcp.cjs
 /.agents/skills/chippy/scripts/avalanche-analyze.cjs
+/.agents/skills/chippy/scripts/stack-symbolication.cjs
 
 # Built npm library and its packaged skill
 /lib/
