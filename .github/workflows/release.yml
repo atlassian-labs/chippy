@@ -2,9 +2,12 @@ name: Release
 
 # Users install the skill from `main` without building it, so `main` must carry
 # the bundles built from its sources. Development lands on `dev`, which does not
-# commit them. Run this workflow on `dev` to build them and open a pull request
+# commit them. Run this workflow to build them and open a pull request
 # that moves `main` to `dev` plus the built bundles. Merge that pull request with
 # a merge commit so `main` keeps `dev`'s history.
+#
+# It always releases `dev`, whichever branch it is started from: the Actions tab
+# offers `main`, the default branch, first.
 on:
   workflow_dispatch:
 
@@ -16,7 +19,6 @@ concurrency:
 jobs:
   release:
     name: Open release pull request
-    if: github.ref == 'refs/heads/dev'
     runs-on: ubuntu-latest
     permissions:
       contents: write # push the release branch
@@ -25,6 +27,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: dev
           fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
