@@ -28,6 +28,15 @@ must stay compatible with the extension version in the store.
 
 ### Added
 
+- `fiber-invoke` passes a synthetic event to handlers that read one. An
+  argument written as `{"$event": "click"}` (extra fields such as `"key"`
+  become event fields) is replaced with a React-style event whose `target` and
+  `currentTarget` are the fiber's element, with `preventDefault`,
+  `stopPropagation`, `persist`, and a matching `nativeEvent`. The result adds
+  `event`: the methods the handler called and the fields it read that the
+  event lacks. A handler that throws a `TypeError` without one gets a `hint`.
+  The event is never dispatched. Extension 0.5.2.
+
 - `avalanche-summary <clientId> [top] [maxItems]` (MCP `summary` action) reads
   a live capture in one call: commit totals, the interaction timeline, the top
   commits by collateral with timing, sources, changed hooks, and latest input,

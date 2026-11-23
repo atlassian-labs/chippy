@@ -87,7 +87,7 @@ OODA **Act** is an evidence move; it is not Chippy **Apply**. Load [operating-mo
 
 - Before source edits, state in plain language what the probe resolved to, which layer the edit affects, and how the same signal will verify it.
 - Before `page-click`, `fiber-invoke`, `fiber-schedule-update`, or `stability-nudge`, state the anchor contract: exact target, exact stimulus, and what becomes polluted or ambiguous afterward.
-- Before `fiber-invoke`, prove the callback contract with `fiber-prop-contract` and source inspection. Never infer callback arguments from a prop name.
+- Before `fiber-invoke`, prove the callback contract with `fiber-prop-contract` and source inspection. Never infer callback arguments from a prop name. When the source reads an event (`e.preventDefault()`, `e.currentTarget`), pass `{"$event":"click"}` in its argument position; the result's `event` lists what the handler did with it.
 - When `confidence` is low or a probe resolves to `null`, request a fresh snapshot or refresh. Do not guess.
 
 ### Never substitute an easier-looking signal
