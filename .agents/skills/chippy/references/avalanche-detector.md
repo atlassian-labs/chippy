@@ -106,6 +106,8 @@ The first read of a capture, in one call. It answers what an analysis asks first
 - `perf`: the [`avalanche-perf`](#avalanche-perf-clientid-types-top-match-fromcommit-tocommit) `summary` over the whole capture; `null` when the report has no performance entries.
 - `meta`: the capture metadata.
 
+Each top commit also has `rebuiltProps`, read from `renderedByCommit`, or `null` when no rendered entry has a key diff: `sameShallow`, `keysChanged`, and `notCompared` count the `ref-changed` object and array prop changes of each kind, and `groups` (the first `maxItems`, then `omittedGroups`) merges identical changes of one prop across components, by `components` received: `prop`, the first `component` and `sourceId` in render order, and `sameShallow: true` or `changedKeys` (key names) with `changedKeyCount`. A large group with `sameShallow: true` is one rebuilt object that rendered many components for nothing.
+
 Each top commit also has `longFrame`: the long animation frame it ran in (`atMs`, `durationMs`, `blockingMs`) and every commit that started in that frame, or `null`.
 
 `sameContent: true` on a changed hook means a new reference with equal content: identity churn. Drill down with `avalanche-commit-peek`, `avalanche-timeline`, or `avalanche-dom-diff`.
@@ -499,7 +501,20 @@ PropChangeEvidence = {
   name:     string,                // prop key
   kind:     'added' | 'removed' | 'scalar-changed' | 'ref-changed',  // unchanged props are not listed
   prev?:    string,                // value summary; absent for 'added', and for 'ref-changed' when the shape did not change
-  current?: string                 // value summary; absent for 'removed'
+  current?: string,                // value summary; absent for 'removed'
+  // 'ref-changed' plain objects and arrays only, not in `stats` mode:
+  sameShallow?:          true,     // every key holds the same value: only the identity changed
+  changedKeys?:          PropKeyChange[],  // first 8 keys whose values differ, in key order; [] when sameShallow
+  changedKeyCount?:      number,   // all keys that differ
+  changedKeysTruncated?: true,     // changedKeys lists fewer than changedKeyCount
+  keysNotCompared?:      number    // instead of the fields above: the value has more than 1000 keys, its key count
+}
+
+PropKeyChange = {
+  key:      string,                // array index as a string for arrays
+  kind:     'added' | 'removed' | 'scalar-changed' | 'ref-changed',  // 'ref-changed': a nested object or function with a new identity
+  prev?:    string,                // value summary, for 'scalar-changed' and 'removed'
+  current?: string                 // value summary, for 'scalar-changed' and 'added'
 }
 ```
 
@@ -515,6 +530,14 @@ A value summary is one bounded line:
 | other object | `object{id,title,"a,b",…+3}`: the first five keys, quoted when not plain names, and how many more |
 
 A `ref-changed` prop with only `current` got a new identity with the same shape: an equal-looking object or callback was recreated.
+
+On a `ref-changed` plain object or array, the key diff compares the previous and current value one level deep with `Object.is`, at commit time:
+
+- `sameShallow: true` with `changedKeys: []`: a new object with the same values. The component received nothing new through this prop; if it is the only changed prop, the render was wasted and the fix is upstream, where the object is rebuilt.
+- `changedKeys` lists the keys that do carry new values. A `scalar-changed` key is a real data change; a `ref-changed` key is a nested object or function with a new identity, which may itself hold the same values (the diff does not go deeper).
+- No key diff fields: a callback, React element, class instance, Map, or Set, or a capture in `stats` mode.
+
+Mutating an object in place keeps its identity, so it never shows up as `ref-changed`.
 
 Saves made before this format use the older expanded entries: `prev`/`current` as objects with `type`, `isFunction`, `preview` and `keysTop`, plus `hasPropChanges` and default-valued fields.
 
@@ -550,7 +573,7 @@ Reading rules:
 | 2 | `added` / `removed` optional props | Parent toggled a feature or branch. | **conditional prop / branch change** | Verify the toggle is intentional; inspect the parent conditional if unexpected. |
 | 3 | no `propChanges` and no `isSelfSource` | Parent/ancestor rendered and this component came along. | **cascade collateral** | Walk to `parentSourceId`; do not blame this component. |
 | 4 | `ref-changed` function prop | Callback identity changed. | **identity churn** or legitimate callback update. | Walk to parent; inspect `useCallback` deps or inline function creation. |
-| 5 | `ref-changed` object/array prop | Object identity changed. Contents may still be equal. | **identity leak** or legitimate data object change. | Walk to parent; inspect literal creation, selectors, `useMemo`, data normalization. |
+| 5 | `ref-changed` object/array prop | Object identity changed. `sameShallow: true` means the contents are equal; `changedKeys` names the keys that changed. | `sameShallow`: **identity leak**. `changedKeys`: legitimate data change for those keys, unless the component reads none of them. | Walk to parent; inspect literal creation, selectors, `useMemo`, data normalization. |
 | 6 | `ref-changed` `children` | JSX children identity changed. | **caller-created ReactElement churn** | Caller-only fix: hoist/memoize children at the caller. |
 | 7 | any prop changes plus `trasherCounts > 0` | Prop churn and local hook churn are both present. | **mixed leak + amplifier** | Separate caller leak from local amplifier; prove both before editing. |
 

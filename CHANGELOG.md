@@ -28,6 +28,17 @@ must stay compatible with the extension version in the store.
 
 ### Added
 
+- Avalanche `propChanges` entries of kind `ref-changed` on plain objects and
+  arrays say which top-level keys changed: `changedKeys` (the first 8, each
+  `added`, `removed`, `scalar-changed` with both summaries, or `ref-changed`),
+  `changedKeyCount`, and `changedKeysTruncated`. A new object with the same
+  values reports `sameShallow: true` with `changedKeys: []`, which tells a
+  wasted render from a real state change. Values over 1000 keys report
+  `keysNotCompared` instead. The comparison is shallow, runs in every mode but
+  `stats`, and is computed once for children that receive the same object
+  pair. `avalanche-summary` top commits add `rebuiltProps`, which groups these
+  changes by prop across the commit's rendered components.
+
 - `avalanche-debug-hook` maps production call stacks to authored source. The
   page keeps only each frame's script URL; the helper fetches the script's
   tail and its source map when the command runs, caches the six most recent

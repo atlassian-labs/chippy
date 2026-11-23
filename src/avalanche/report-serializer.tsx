@@ -214,6 +214,28 @@ export interface UnmountSampleDTO {
 
 export type PropChangeKindDTO = 'same' | 'ref-changed' | 'scalar-changed' | 'added' | 'removed';
 
+/** One key of a `ref-changed` object or array prop whose value differs. */
+export interface PropKeyChangeDTO {
+  key: string;
+  kind: 'scalar-changed' | 'ref-changed' | 'added' | 'removed';
+  prev?: PropValueSummaryDTO;
+  current?: PropValueSummaryDTO;
+}
+
+/** Shallow key diff of a `ref-changed` plain object or array prop. */
+export interface PropKeyDiffDTO {
+  /** Present, and true, when every key holds the same value: only the identity changed. */
+  sameShallow?: true;
+  /** The first keys that differ, in key order; empty when `sameShallow`. */
+  changedKeys?: PropKeyChangeDTO[];
+  /** How many keys differ in total. */
+  changedKeyCount?: number;
+  /** Present, and true, when `changedKeys` lists fewer keys than `changedKeyCount`. */
+  changedKeysTruncated?: true;
+  /** Set instead of the fields above when a value has too many keys to compare: its key count. */
+  keysNotCompared?: number;
+}
+
 /**
  * A prop value as one bounded line, such as `21`, `"text"`,
  * `function onClick`, `array(3)[1, 2, 3]` or `object{id,title}`.
@@ -224,9 +246,12 @@ export type PropValueSummaryDTO = string;
 /**
  * One changed prop. `removed` has only `prev`; `added` only `current`;
  * `scalar-changed` has both. `ref-changed` has `current`, plus `prev` only
- * when the previous value's summary differs (its shape changed).
+ * when the previous value's summary differs (its shape changed). A
+ * `ref-changed` plain object or array also carries its shallow key diff
+ * (`sameShallow`, `changedKeys`, ...; see `prop-key-diff.ts`), except in
+ * `stats` mode.
  */
-export interface PropChangeEvidenceDTO {
+export interface PropChangeEvidenceDTO extends PropKeyDiffDTO {
   name: string;
   kind: PropChangeKindDTO;
   prev?: PropValueSummaryDTO;

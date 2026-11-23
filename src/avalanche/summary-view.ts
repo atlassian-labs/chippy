@@ -10,6 +10,7 @@
 import { hookStepsAt, summarizeHookResults } from './avalanche-hooks';
 import { compactLatestAction, tupleToStats, UPSTREAM_COMMIT_STAT_KEYS } from './commit-stats';
 import { linkPerfEntries, perfSummary, type PerfSummary } from './perf-signals';
+import { summarizeRebuiltProps, type RebuiltPropsSummary } from './rebuilt-props';
 import { buildTimeline, type TimelineResult } from './timeline';
 
 export const SUMMARY_DEFAULT_TOP = 5;
@@ -43,6 +44,11 @@ export type SummaryCommit = {
   paintDelayMs: number | null;
   sourcesTotal: number;
   sources: SummarySource[];
+  /**
+   * Object and array props that got a new identity, grouped, with whether
+   * any key changed value. Null without rendered evidence or key diffs.
+   */
+  rebuiltProps: RebuiltPropsSummary | null;
   latestAction: unknown;
   /** Each pack hook's onStep result for this commit; empty without packs. */
   hooks: Record<string, unknown>;
@@ -192,6 +198,7 @@ export function buildSummaryView(report: Report, options: SummaryOptions = {}): 
         paintDelayMs: paint !== null && end !== null && paint >= end ? ms(paint - end) : null,
         sourcesTotal: list.length,
         sources: sourceRows(list, maxItems),
+        rebuiltProps: summarizeRebuiltProps(at(report.renderedByCommit, commitId), maxItems),
         latestAction: Array.isArray(actions) && actions.length ? compactLatestAction(actions[actions.length - 1]) : null,
         hooks: hookStepsAt(report.hooks, commitId),
         longFrame: frameOf(frames, commitId, origin),

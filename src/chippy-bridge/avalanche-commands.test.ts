@@ -72,7 +72,7 @@ function makeApi(overrides: Partial<AvalancheApi> = {}): AvalancheApi {
           depth: 2,
           parentSourceId: 'parent',
           ownerSourceId: 'parent',
-          propChanges: [{ name: 'onSave', kind: 'ref-changed', current: 'function onSave' }],
+          propChanges: [{ name: 'onSave', kind: 'ref-changed', current: 'function onSave' }, { name: 'appState', kind: 'ref-changed', current: 'object{theme}', sameShallow: true, changedKeys: [], changedKeyCount: 0 }],
           trasherCounts: { effects: 0, callbacks: 1, memos: 0 },
         }],
       },
@@ -304,7 +304,7 @@ describe('evalAvalanche', () => {
       depth: 2,
       parentSourceId: 'parent',
       ownerSourceId: 'parent',
-      propChanges: [{ name: 'onSave', kind: 'ref-changed', current: 'function onSave' }],
+      propChanges: [{ name: 'onSave', kind: 'ref-changed', current: 'function onSave' }, { name: 'appState', kind: 'ref-changed', current: 'object{theme}', sameShallow: true, changedKeys: [], changedKeyCount: 0 }],
       trasherCounts: { effects: 0, callbacks: 1, memos: 0 },
     }]);
   });

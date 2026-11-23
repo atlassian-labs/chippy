@@ -242,6 +242,7 @@ Pass criteria:
 - `renderedTotal > 0`
 - rendered entries include `sourceId`, `name` and `depth`, plus `propChanges` and `trasherCounts` where present
 - for the fixture's `TrasherChild`, `propChanges` shows `ref-changed` for `payload` and/or `onReport`
+- the `payload` change carries a key diff: `changedKeys` with `{ key: "id", kind: "scalar-changed" }` when the tick changed, or `sameShallow: true` with `changedKeys: []` when it did not; `onReport` has no key diff
 - at least one relevant entry has non-zero `trasherCounts.effects` or `trasherCounts.memos`
 
 If `rendered` is empty, stop and recover in this order: reload, reconnect and resolve the current `clientId`, run `avalanche-install <currentClientId> full`, run `avalanche-clear <currentClientId>`, then repeat the trigger. Reload discards the prior detector instance. Do not mark the step passed with empty rendered evidence.

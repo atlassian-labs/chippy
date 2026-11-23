@@ -80,6 +80,7 @@ import { describeSuspenseLocation } from './suspense-location';
 import { createRenderTickTracker } from './render-ticks';
 import { createRenderedNames } from './rendered-names';
 import { createPropSummarizer } from './prop-summary';
+import { createPropKeyDiffer } from './prop-key-diff';
 import { createRenderedEvidenceStore, DEFAULT_MAX_RENDERED_ENTRIES, type RenderedEvidenceStatus } from './rendered-evidence-store';
 import {
   CS_UNMOUNTED_COMPONENTS,
@@ -519,6 +520,8 @@ export function createAvalancheDetector(options: DetectorOptions = {}) {
   }
 
   const summarizePropValue = createPropSummarizer();
+  // `stats` stays the cheapest mode: it records which props changed, not which keys.
+  const diffPropKeys = enableSourceTracking ? createPropKeyDiffer(summarizePropValue) : null;
 
   // Runs for every rendered component; most props are unchanged, so the common
   // path allocates nothing beyond the result array.
@@ -548,12 +551,16 @@ export function createAvalancheDetector(options: DetectorOptions = {}) {
       // Recreated callbacks keep their name, so their summary cannot differ.
       const prevSummary = typeof prevValue === 'function' && typeof currentValue === 'function' &&
         prevValue.name === currentValue.name ? currentSummary : summarizePropValue(prevValue);
+      if (!isRef) {
+        changes.push({ name, kind: 'scalar-changed', prev: prevSummary, current: currentSummary });
+        continue;
+      }
       // A new identity with the same shape needs one summary, not two.
-      changes.push(isRef
-        ? (prevSummary === currentSummary
-          ? { name, kind: 'ref-changed', current: currentSummary }
-          : { name, kind: 'ref-changed', prev: prevSummary, current: currentSummary })
-        : { name, kind: 'scalar-changed', prev: prevSummary, current: currentSummary });
+      const refChange: PropChangeEvidence = prevSummary === currentSummary
+        ? { name, kind: 'ref-changed', current: currentSummary }
+        : { name, kind: 'ref-changed', prev: prevSummary, current: currentSummary };
+      const keyDiff = diffPropKeys?.(prevValue, currentValue);
+      changes.push(keyDiff ? Object.assign(refChange, keyDiff) : refChange);
     }
     for (const name in current) {
       if (!hasOwn.call(current, name) || hasOwn.call(prev, name)) continue;
