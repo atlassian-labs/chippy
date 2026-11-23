@@ -8,7 +8,7 @@
  */
 
 import { isComponentFiber, type Fiber } from './internals';
-import { describeComponent, describeFiberTarget } from '../layout-lab/fiber-walk';
+import { describeComponent, describeFiberTarget, getOwnerChainFibers } from '../layout-lab/fiber-walk';
 import { describeInputEvent } from './input-details';
 import type { CommitInteractionAction, InteractionAction, InteractionCaptureLevel } from './reporter';
 
@@ -43,7 +43,15 @@ export interface InteractionCaptureState {
   byCommit: Record<number, CommitInteractionAction[]>;
 }
 
-export function createInteractionCapture(options: InteractionCaptureOptions = {}) {
+/**
+ * `noteName` is called with each component name a location stores and the
+ * type it names, so the detector can rename it once the authored name is
+ * recovered (see recorded-names.ts).
+ */
+export function createInteractionCapture(
+  options: InteractionCaptureOptions = {},
+  noteName?: (name: string, type: unknown) => void,
+) {
   const {
     interactionCapture = 'explicit',
     interactionEvents = [],
@@ -105,6 +113,14 @@ export function createInteractionCapture(options: InteractionCaptureOptions = {}
     const fiber = nearestComponentFiber(target);
     const describedTarget = describeFiberTarget(fiber as any, domTarget);
     const describedComponent = describeComponent(fiber as any);
+    if (describedComponent && fiber && noteName) {
+      if (describedComponent.name) noteName(describedComponent.name, fiber.type);
+      // describeComponent lists the owners in this order.
+      const owners = getOwnerChainFibers(fiber as any).fibers;
+      describedComponent.owners.forEach((owner, index) => {
+        if (owner.name && owners[index]) noteName(owner.name, owners[index].type);
+      });
+    }
     return {
       dom: {
         tag: describedTarget?.domTag || null,

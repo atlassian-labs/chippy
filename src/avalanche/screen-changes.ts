@@ -305,12 +305,12 @@ export function findChangedHosts(
   return { found, truncated };
 }
 
-function regionLabel(node: Node, fiber: Fiber): string {
+function regionLabel(node: Node, fiber: Fiber, nameOf: (fiber: Fiber) => string): string {
   const element = node.nodeType === 1 ? (node as Element) : node.parentElement;
   const testId = element?.closest?.('[data-testid]')?.getAttribute('data-testid');
   if (testId) return testId;
   for (let f: Fiber | null = fiber.return; f; f = f.return) {
-    if (isComponentFiber(f.tag)) return getComponentName(f);
+    if (isComponentFiber(f.tag)) return nameOf(f);
   }
   return element?.tagName?.toLowerCase() || 'unknown';
 }
@@ -355,7 +355,12 @@ export function measureVisible(node: Node, geometry: ScreenGeometry): Array<{ no
   return out;
 }
 
-export function createScreenCapture(options: ScreenCaptureOptions = {}, geometry: ScreenGeometry = domScreenGeometry) {
+/** `nameOf` names a region by its component; the detector records them for renaming. */
+export function createScreenCapture(
+  options: ScreenCaptureOptions = {},
+  geometry: ScreenGeometry = domScreenGeometry,
+  nameOf: (fiber: Fiber) => string = getComponentName,
+) {
   const enabled = options.screenCapture !== false && typeof document !== 'undefined' && typeof window !== 'undefined';
   const byCommit: Record<number, ScreenChange> = {};
   // Last box of every node measured during this capture, so a later removal
@@ -390,7 +395,7 @@ export function createScreenCapture(options: ScreenCaptureOptions = {}, geometry
         const area = rectArea(clipped);
         (isRemoved ? removed : changed).add(clipped);
         rects.push({ rect: clipped, area });
-        const label = regionLabel(measured, fiber);
+        const label = regionLabel(measured, fiber, nameOf);
         regions.set(label, (regions.get(label) || 0) + area);
       }
     }

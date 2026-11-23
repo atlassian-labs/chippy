@@ -39,6 +39,17 @@ must stay compatible with the extension version in the store.
   pair. `avalanche-summary` top commits add `rebuiltProps`, which groups these
   changes by prop across the commit's rendered components.
 
+- Avalanche output on production builds uses authored component names
+  everywhere. Reading a capture recovers the source-mapped name of each
+  component type the result mentions, once per type, and renames it in source
+  ids, `renderedByCommit` entries, DOM change anchors, Suspense locations,
+  screen regions, perf owners, unmount samples, interaction targets, and the
+  summary and timeline text. Previously a component that first mounted during
+  the capture kept its minified name in commit peeks. Renamed rendered entries
+  keep `minifiedName`; results list the renames that apply to them in
+  `componentNames`, and exports and saved files carry `meta.componentNames`.
+  Nothing is resolved during a commit.
+
 - `avalanche-debug-hook` maps production call stacks to authored source. The
   page keeps only each frame's script URL; the helper fetches the script's
   tail and its source map when the command runs, caches the six most recent
