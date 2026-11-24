@@ -70,6 +70,82 @@ function compactLatestAction(action) {
   };
 }
 
+// src/avalanche/console-signals.ts
+var DEFAULT_CONSOLE_TOP = 50;
+var round = (value) => Math.round(value * 10) / 10;
+function commitStarts(report) {
+  return Object.entries(report.commitTimings ?? {}).map(([id, timing]) => ({ id: Number(id), start: Number(timing?.startTime) })).filter((c) => Number.isFinite(c.id) && Number.isFinite(c.start)).sort((a, b) => a.start - b.start);
+}
+function linkConsoleEntries(report, entries = report.consoleEntries ?? []) {
+  const commits = commitStarts(report);
+  return entries.map((entry) => {
+    let before = null;
+    for (const c of commits) {
+      if (c.start > entry.time) break;
+      before = c;
+    }
+    return { ...entry, commit: before ? { commitId: before.id, gapMs: round(entry.time - before.start) } : null };
+  });
+}
+function consoleSummary(report, entries = report.consoleEntries ?? []) {
+  const page = entries.filter((e) => !e.chippy);
+  const count = (keep) => page.filter(keep).reduce((sum, e) => sum + e.repeat, 0);
+  const first = page.find((e) => e.level === "error");
+  const firstLinked = first ? linkConsoleEntries(report, [first])[0] : null;
+  return {
+    errors: count((e) => e.level === "error"),
+    warnings: count((e) => e.level === "warn"),
+    other: count((e) => e.level !== "error" && e.level !== "warn"),
+    uncaught: count((e) => e.source === "uncaught"),
+    rejections: count((e) => e.source === "rejection"),
+    chippy: entries.length - page.length,
+    firstError: firstLinked ? { id: firstLinked.id, time: firstLinked.time, message: firstLinked.message, location: firstLinked.location, commitId: firstLinked.commit?.commitId ?? null } : null
+  };
+}
+function commitStart(report, id) {
+  const n = Number(id);
+  if (id === void 0 || id === null || id === "" || !Number.isFinite(n)) return null;
+  const start = Number(report.commitTimings?.[String(n)]?.startTime);
+  return Number.isFinite(start) ? start : null;
+}
+function consoleView(report, options = {}) {
+  const status = report.meta?.console ?? null;
+  if (!Array.isArray(report.consoleEntries)) {
+    return {
+      error: status && !status.enabled ? "console capture is switched off for this detector" : "this report has no consoleEntries: it was recorded before report version 10, or by a runtime without console capture"
+    };
+  }
+  const top = Number(options.top) > 0 ? Math.floor(Number(options.top)) : DEFAULT_CONSOLE_TOP;
+  const levels = Array.isArray(options.levels) ? options.levels.map(String) : typeof options.levels === "string" && options.levels ? options.levels.split(",").map((l) => l.trim()).filter(Boolean) : null;
+  let match = null;
+  if (typeof options.match === "string" && options.match) {
+    try {
+      match = new RegExp(options.match, "i");
+    } catch (error) {
+      return { error: `invalid match pattern: ${error.message}` };
+    }
+  }
+  const includeChippy = options.chippy === true || options.chippy === "true";
+  const from = commitStart(report, options.fromCommit);
+  const last = commitStart(report, options.toCommit);
+  const next = last === null ? null : commitStarts(report).find((c) => c.start > last)?.start ?? Infinity;
+  const windowed = report.consoleEntries.filter((e) => (from === null || (e.lastTime ?? e.time) >= from) && (next === null || e.time < next));
+  const selected = windowed.filter((e) => (includeChippy || !e.chippy) && (!levels || levels.includes(e.level)) && (!match || match.test(e.message)));
+  return {
+    payload: {
+      status,
+      summary: consoleSummary(report, windowed),
+      count: selected.length,
+      truncated: selected.length > top,
+      entries: linkConsoleEntries(report, selected.slice(0, top))
+    }
+  };
+}
+function consoleForCommit(report, commitId, maxItems = DEFAULT_CONSOLE_TOP) {
+  const near = linkConsoleEntries(report).filter((e) => !e.chippy && e.commit?.commitId === commitId);
+  return { total: near.length, items: near.slice(0, maxItems) };
+}
+
 // src/avalanche/own-work.ts
 function isOwnFrame(frame, own) {
   const scripts = frame.scripts ?? [];
@@ -84,12 +160,12 @@ function isOwnFrame(frame, own) {
 // src/avalanche/perf-signals.ts
 var DEFAULT_PERF_TOP = 20;
 var MAX_LINKED_COMMITS = 10;
-var round = (value) => Math.round(value * 10) / 10;
-function commitStarts(report) {
+var round2 = (value) => Math.round(value * 10) / 10;
+function commitStarts2(report) {
   return Object.entries(report.commitTimings ?? {}).map(([id, timing]) => ({ id: Number(id), start: Number(timing?.startTime) })).filter((c) => Number.isFinite(c.id) && Number.isFinite(c.start)).sort((a, b) => a.start - b.start);
 }
 function linkPerfEntries(report, entries = report.perfEntries ?? []) {
-  const commits = commitStarts(report);
+  const commits = commitStarts2(report);
   return entries.map((entry) => {
     const from = entry.startTime;
     const to = entry.startTime + (entry.duration || 0);
@@ -105,7 +181,7 @@ function linkPerfEntries(report, entries = report.perfEntries ?? []) {
       commits: {
         during: during.slice(0, MAX_LINKED_COMMITS),
         duringCount: during.length,
-        before: before ? { commitId: before.id, gapMs: round(from - before.start) } : null
+        before: before ? { commitId: before.id, gapMs: round2(from - before.start) } : null
       }
     };
   });
@@ -153,8 +229,8 @@ function perfSummary(report, entries = report.perfEntries ?? []) {
     cls: cumulativeLayoutShift(of("layout-shift")),
     layoutShifts: of("layout-shift").length,
     longFrames: frames.length || tasks.length,
-    totalBlockingMs: round(blocking),
-    chippyFrames: { count: chippyLong.length, blockingMs: round(chippyLong.reduce((sum, e) => sum + blockingOf(e), 0)) },
+    totalBlockingMs: round2(blocking),
+    chippyFrames: { count: chippyLong.length, blockingMs: round2(chippyLong.reduce((sum, e) => sum + blockingOf(e), 0)) },
     worstFrame: worstLinked ? {
       id: worstLinked.id,
       startTime: worstLinked.startTime,
@@ -179,7 +255,7 @@ var RANK = {
   event: (e) => e.duration,
   measure: (e) => e.duration
 };
-function commitStart(report, id) {
+function commitStart2(report, id) {
   const n = Number(id);
   if (id === void 0 || id === null || id === "" || !Number.isFinite(n)) return null;
   const start = Number(report.commitTimings?.[String(n)]?.startTime);
@@ -202,9 +278,9 @@ function perfView(report, options = {}) {
       return { error: `invalid match pattern: ${error.message}` };
     }
   }
-  const from = commitStart(report, options.fromCommit);
-  const last = commitStart(report, options.toCommit);
-  const next = last === null ? null : commitStarts(report).find((c) => c.start > last)?.start ?? Infinity;
+  const from = commitStart2(report, options.fromCommit);
+  const last = commitStart2(report, options.toCommit);
+  const next = last === null ? null : commitStarts2(report).find((c) => c.start > last)?.start ?? Infinity;
   const selected = report.perfEntries.filter((e) => (!requested || requested.includes(e.entryType)) && (!match || match.test(e.name)) && (from === null || e.startTime + (e.duration || 0) >= from) && (next === null || e.startTime < next));
   const byType = {};
   for (const type of new Set(selected.map((e) => e.entryType))) {
@@ -291,9 +367,9 @@ function grid(frames) {
   }
   return { width, height, cols, rows, cw, ch, last };
 }
-function timeAtShare(times, total, share, floor) {
+function timeAtShare(times2, total, share, floor) {
   if (total === 0) return null;
-  const sorted = times.slice().sort((a, b) => a - b);
+  const sorted = times2.slice().sort((a, b) => a - b);
   const needed = Math.ceil(total * share);
   const missing = total - sorted.length;
   if (needed <= missing) return floor;
@@ -329,9 +405,9 @@ function settleMapSvg(frames, title = "When each part of the screen last changed
   const sorted = frames.filter((f) => f.change.rects.length > 0).sort((a, b) => a.t - b.t);
   if (sorted.length === 0) return null;
   const g = grid(sorted);
-  const times = Array.from(g.last).filter((v) => !Number.isNaN(v));
-  const min = Math.min(...times);
-  const max = Math.max(...times);
+  const times2 = Array.from(g.last).filter((v) => !Number.isNaN(v));
+  const min = Math.min(...times2);
+  const max = Math.max(...times2);
   const bucket = (t) => max === min ? RAMP.length - 1 : Math.min(RAMP.length - 1, Math.floor((t - min) / (max - min) * RAMP.length));
   const scale = Math.min(1, 640 / g.width);
   const w = Math.round(g.width * scale);
@@ -445,7 +521,7 @@ function inputDetail(event) {
 function inputLabel(i) {
   return i.action + (i.detail ? " " + i.detail : "") + (i.target ? " " + i.target : "");
 }
-var round2 = (n) => Math.round(n);
+var round3 = (n) => Math.round(n);
 function requestLabel(url) {
   try {
     const parsed = new URL(url, "http://local.invalid");
@@ -458,7 +534,7 @@ function requestLabel(url) {
     return url.slice(0, 60);
   }
 }
-function commitStart2(report, id) {
+function commitStart3(report, id) {
   const start = Number(report.commitTimings?.[String(id)]?.startTime);
   return Number.isFinite(start) ? start : null;
 }
@@ -485,9 +561,9 @@ function kindOf(events) {
   return enters && leaves ? "swap" : enters ? "lock" : leaves ? "unlock" : "update";
 }
 function buildTimeline(report, options = {}) {
-  const ids = Object.keys(report.commitTimings ?? {}).map(Number).filter((id) => Number.isFinite(id) && commitStart2(report, id) !== null).sort((a, b) => a - b);
+  const ids = Object.keys(report.commitTimings ?? {}).map(Number).filter((id) => Number.isFinite(id) && commitStart3(report, id) !== null).sort((a, b) => a - b);
   if (ids.length === 0) return { ok: false, error: "report has no commit timings (report version 6 or later is required)" };
-  const startOf = (id) => commitStart2(report, id);
+  const startOf = (id) => commitStart3(report, id);
   const shownOf = (id) => commitPaint(report, id, startOf(id)) ?? startOf(id);
   const interactions = /* @__PURE__ */ new Map();
   for (const list of Object.values(report.interactionsByCommit ?? {})) {
@@ -510,7 +586,7 @@ function buildTimeline(report, options = {}) {
   const windowEnd = startOf(windowIds[windowIds.length - 1]);
   const originInput = inputs.find((input2) => input2.t <= windowStart && windowStart - input2.t <= 5e3);
   const origin = originInput ? originInput.t : windowStart;
-  const rel = (t) => round2(t - origin);
+  const rel = (t) => round3(t - origin);
   const input = inputs.filter((i) => i.t >= origin && i.t <= windowEnd).map((i) => ({ ...i, t: rel(i.t) }));
   let exclude = null;
   try {
@@ -525,13 +601,22 @@ function buildTimeline(report, options = {}) {
     label: requestLabel(r.url),
     start: rel(r.startTime),
     end: rel(r.endTime),
-    durationMs: round2(r.duration),
+    durationMs: round3(r.duration),
     initiatorType: r.initiatorType,
     cached: !!r.cached
   });
   const drawable = inWindow.filter((r) => r.duration >= minRequestMs);
   const kept = [...drawable].sort((a, b) => b.duration - a.duration).slice(0, options.maxRequests ?? 30).sort((a, b) => a.startTime - b.startTime);
   const network = kept.map(toRequest);
+  const nextAfterWindow = ids.find((id) => id > windowIds[windowIds.length - 1]);
+  const consoleLane = consoleLaneOf(
+    report.consoleEntries,
+    origin,
+    nextAfterWindow === void 0 ? Infinity : startOf(nextAfterWindow),
+    ids.map((id) => ({ id, start: startOf(id) })),
+    rel,
+    options.maxLogs ?? 20
+  );
   const perfLane = perfLaneOf(report.perfEntries ?? [], report.ownWork, origin, windowEnd, ids.map((id) => ({ id, start: startOf(id) })), rel, options.maxMarks ?? 40);
   const boundaryKey = (event) => typeof event.boundary === "number" ? "b" + event.boundary : "@" + Number(event.depth);
   const open = /* @__PURE__ */ new Map();
@@ -638,8 +723,9 @@ function buildTimeline(report, options = {}) {
     boundaries: boundaryKeys.map((key) => ({ boundary: key, depth: boundaryInfo.get(key).depth, label: labelByKey.get(key) ?? null, location: boundaryInfo.get(key).location })),
     screen: screenStability(frames),
     ...options.settleMap && { settleMapSvg: settleMapSvg(frames) },
-    lanes: { input, network, suspense, commits, perf: perfLane.lane },
-    omitted: { requests: inWindow.length - kept.length, commits: allCommits.length - commits.length, marks: perfLane.omittedMarks },
+    lanes: { input, network, suspense, commits, perf: perfLane.lane, console: consoleLane.lane },
+    omitted: { requests: inWindow.length - kept.length, commits: allCommits.length - commits.length, marks: perfLane.omittedMarks, logs: consoleLane.omittedLogs },
+    console: consoleLane.summary,
     mermaid: "",
     text: ""
   };
@@ -647,9 +733,72 @@ function buildTimeline(report, options = {}) {
   result.text = renderText(result);
   return result;
 }
+var CONSOLE_LABEL_MAX = 140;
+var MAX_CONSOLE_ALERTS = 50;
+var ALERT_LEVELS = /* @__PURE__ */ new Set(["error", "warn"]);
+function shortLocation(location) {
+  if (!location) return null;
+  const match = /([^/]*:\d+:\d+)$/.exec(location);
+  return match ? match[1] : location;
+}
+function consoleLaneOf(entries, origin, end, commitStarts3, rel, maxLogs) {
+  if (!Array.isArray(entries)) return { lane: [], omittedLogs: 0, summary: null };
+  const page = entries.filter((e) => !e.chippy && (e.lastTime ?? e.time) >= origin && e.time < end).sort((a, b) => a.time - b.time);
+  const toItem = (e) => {
+    let after = null;
+    for (const c of commitStarts3) {
+      if (c.start > e.time) break;
+      after = c.id;
+    }
+    const first = String(e.message).split("\n").map((line) => line.trim()).find(Boolean) ?? "";
+    return {
+      id: e.id,
+      level: e.level,
+      source: e.source,
+      label: first.length > CONSOLE_LABEL_MAX ? first.slice(0, CONSOLE_LABEL_MAX - 1) + "\u2026" : first,
+      t: rel(e.time),
+      repeat: e.repeat,
+      location: shortLocation(e.location),
+      afterCommit: after
+    };
+  };
+  const alerts = page.filter((e) => ALERT_LEVELS.has(e.level));
+  const others = page.filter((e) => !ALERT_LEVELS.has(e.level));
+  const keptAlerts = alerts.slice(0, MAX_CONSOLE_ALERTS);
+  const keptOthers = others.slice(0, maxLogs);
+  const lane = [...keptAlerts, ...keptOthers].sort((a, b) => a.time - b.time).map(toItem);
+  const count = (keep) => page.filter(keep).reduce((n, e) => n + e.repeat, 0);
+  const firstError = page.find((e) => e.level === "error");
+  return {
+    lane,
+    omittedLogs: alerts.length - keptAlerts.length + others.length - keptOthers.length,
+    summary: {
+      errors: count((e) => e.level === "error"),
+      warnings: count((e) => e.level === "warn"),
+      other: count((e) => !ALERT_LEVELS.has(e.level)),
+      firstError: firstError ? toItem(firstError) : null
+    }
+  };
+}
+function grouped(items, key) {
+  const groups = /* @__PURE__ */ new Map();
+  for (const item of items) {
+    const k = key(item);
+    const group = groups.get(k);
+    if (group) group.count += 1;
+    else groups.set(k, { item, count: 1 });
+  }
+  return Array.from(groups.values());
+}
+var times = (count) => count > 1 ? ` \xD7${count}` : "";
+var waitKey = (w) => `${w.label || "@" + w.depth}|${w.from}|${w.until}|${w.lockedBy}|${w.unlockedBy}`;
+var suspenseKey = (s) => `${s.label || "@" + s.depth}|${s.start}|${s.end}|${s.enteredAt}|${s.leftAt}`;
+var drawnStart = (p) => Math.max(p.start, 0);
+var beforeOrigin = (p) => p.start < 0 ? `, started ${-p.start}ms before the origin` : "";
+var consoleText = (c) => `${c.source === "uncaught" ? "uncaught " : ""}${c.label}${c.repeat > 1 ? ` \xD7${c.repeat}` : ""}${c.location ? " \xB7 " + c.location : ""}`;
 var SHIFT_MIN = 1e-3;
 var EVENT_MIN_MS = 50;
-function perfLaneOf(entries, ownWork, origin, windowEnd, commitStarts2, rel, maxMarks) {
+function perfLaneOf(entries, ownWork, origin, windowEnd, commitStarts3, rel, maxMarks) {
   const lane = [];
   let marks = 0;
   let omittedMarks = 0;
@@ -661,7 +810,7 @@ function perfLaneOf(entries, ownWork, origin, windowEnd, commitStarts2, rel, max
     let chippy = false;
     if (e.entryType === "long-animation-frame" || e.entryType === "longtask") {
       kind = "frame";
-      value = e.entryType === "longtask" ? round2(Math.max(0, e.duration - 50)) : e.blockingDuration ?? null;
+      value = e.entryType === "longtask" ? round3(Math.max(0, e.duration - 50)) : e.blockingDuration ?? null;
       const script = e.scripts?.[0];
       label = script ? [script.invoker, script.sourceFunctionName, script.sourceURL?.split("/").pop()].filter(Boolean).join(" ") : "";
       chippy = isOwnFrame(e, ownWork);
@@ -695,9 +844,9 @@ function perfLaneOf(entries, ownWork, origin, windowEnd, commitStarts2, rel, max
       label: label.trim(),
       start: rel(e.startTime),
       end: rel(end),
-      durationMs: round2(e.duration || 0),
+      durationMs: round3(e.duration || 0),
       value,
-      commits: commitStarts2.filter((c) => c.start >= e.startTime && c.start <= end).map((c) => c.id),
+      commits: commitStarts3.filter((c) => c.start >= e.startTime && c.start <= end).map((c) => c.id),
       ...chippy && { chippy: true }
     });
   }
@@ -735,16 +884,21 @@ function renderMermaid(result) {
   if (browser.length) {
     lines.push("  section Browser (long frames, measures)");
     for (const p of browser) {
-      const name = p.kind === "frame" ? `long frame ${p.durationMs}ms${p.commits.length ? " " + commitSpan(p.commits) : ""}` : `${p.label} ${p.durationMs}ms`;
-      lines.push(`  ${safe(name)} :${p.kind === "frame" ? "crit, " : ""}perf${p.id}, ${bar(p.start, p.end)}`);
+      const name = (p.kind === "frame" ? `long frame ${p.durationMs}ms${p.commits.length ? " " + commitSpan(p.commits) : ""}` : `${p.label} ${p.durationMs}ms`) + (p.start < 0 ? " from before" : "");
+      lines.push(`  ${safe(name)} :${p.kind === "frame" ? "crit, " : ""}perf${p.id}, ${bar(drawnStart(p), p.end)}`);
     }
+  }
+  const alerts = result.lanes.console.filter((c) => c.level === "error" || c.level === "warn").slice(0, 15);
+  if (alerts.length) {
+    lines.push("  section Console (errors, warnings)");
+    for (const c of alerts) lines.push(`  ${safe(`${c.level} ${c.label.slice(0, 60)}${c.repeat > 1 ? " \xD7" + c.repeat : ""}`)} :${c.level === "error" ? "crit, " : ""}milestone, log${c.id}, ${c.t}, ${c.t}`);
   }
   if (suspense.length) {
     lines.push("  section User waits (fallback shown)");
-    suspense.forEach((s, n) => {
+    grouped(suspense, suspenseKey).forEach(({ item: s, count }, n) => {
       const stop = s.end ?? end;
       const label = s.end === null ? "still waiting" : `${stop - s.start}ms`;
-      lines.push(`  ${safe(s.label || "@" + s.depth)} ${label} :${s.end === null ? "active" : "crit"}, sus${n}, ${bar(s.start, stop)}`);
+      lines.push(`  ${safe((s.label || "@" + s.depth) + times(count))} ${label} :${s.end === null ? "active" : "crit"}, sus${n}, ${bar(s.start, stop)}`);
     });
   }
   const screen = commits.filter((c) => c.kind !== "update");
@@ -777,10 +931,10 @@ function renderText(result) {
   const header = [];
   if (p.waits.length === 0) header.push("No Suspense fallback was shown in this window.");
   else {
-    header.push(p.settledAt !== null ? `Fallbacks first shown at +${p.firstLockAt}, all cleared at +${p.settledAt}; ${p.updatesAfterSettled.commits} updates (${p.updatesAfterSettled.rendered} rendered) ran after that, before the next input.` : `Fallbacks first shown at +${p.firstLockAt}; still waiting at the end: ${p.stillWaiting.map((key) => result.boundaries.find((b) => b.boundary === key)?.label || key).join(", ")}.`);
-    for (const w of p.waits.slice(0, 5)) {
+    header.push(p.settledAt !== null ? `Fallbacks first shown at +${p.firstLockAt}, all cleared at +${p.settledAt}; ${p.updatesAfterSettled.commits} updates (${p.updatesAfterSettled.rendered} rendered) ran after that, before the next input.` : `Fallbacks first shown at +${p.firstLockAt}; still waiting at the end: ${Array.from(new Set(p.stillWaiting.map((key) => result.boundaries.find((b) => b.boundary === key)?.label || key))).join(", ")}.`);
+    for (const { item: w, count } of grouped(p.waits, waitKey).slice(0, 5)) {
       const last = w.lastRequests[0];
-      header.push(`  wait ${w.label || "@" + w.depth} ${w.waitedMs}ms (+${w.from} \u2192 ${w.until === null ? "end" : "+" + w.until}), ${w.updatesDuring.commits} updates (${w.updatesDuring.rendered} rendered) meanwhile` + (last ? `, last request before unlock: ${last.label} (+${last.end}, ${last.gapMs}ms before)` : ""));
+      header.push(`  wait ${w.label || "@" + w.depth}${times(count)} ${w.waitedMs}ms (+${w.from} \u2192 ${w.until === null ? "end" : "+" + w.until}), ${w.updatesDuring.commits} updates (${w.updatesDuring.rendered} rendered) meanwhile` + (last ? `, last request before unlock: ${last.label} (+${last.end}, ${last.gapMs}ms before)` : ""));
     }
   }
   const sc = result.screen;
@@ -803,11 +957,16 @@ function renderText(result) {
   if (ownFrames.length) {
     header.push(`Chippy's own long frames, left out of the totals: ${ownFrames.length}, ${Math.round(ownFrames.reduce((sum, p2) => sum + (p2.value ?? 0), 0))}ms blocking.`);
   }
+  const cs = result.console;
+  if (cs && cs.errors + cs.warnings > 0) {
+    const fe = cs.firstError;
+    header.push(`Console: ${cs.errors} errors, ${cs.warnings} warnings` + (fe ? `; first error +${fe.t}${fe.afterCommit !== null ? ` (after c${fe.afterCommit})` : ""}: ${consoleText(fe)}` : "") + ".");
+  }
   const rows = [];
   for (const i of result.lanes.input) rows.push({ t: i.t, lane: "input", text: inputLabel(i) });
   for (const r of result.lanes.network) rows.push({ t: r.start, lane: "net", text: `${r.label}  \u2192 +${r.end} (${r.durationMs}ms${r.cached ? ", cached" : ""})` });
-  for (const s of result.lanes.suspense) {
-    rows.push({ t: s.start, lane: "wait", text: `fallback ${s.label || "@" + s.depth} ` + (s.end === null ? "still shown at the end" : `until +${s.end} (${s.end - s.start}ms, c${s.enteredAt}\u2192c${s.leftAt})`) });
+  for (const { item: s, count } of grouped(result.lanes.suspense, suspenseKey)) {
+    rows.push({ t: s.start, lane: "wait", text: `fallback ${s.label || "@" + s.depth}${times(count)} ` + (s.end === null ? "still shown at the end" : `until +${s.end} (${s.end - s.start}ms, c${s.enteredAt}\u2192c${s.leftAt})`) });
   }
   for (const c of result.lanes.commits) {
     const lane = c.kind === "update" ? "react" : "SCRN";
@@ -817,10 +976,11 @@ function renderText(result) {
   }
   for (const p2 of result.lanes.perf) {
     const commits = p2.commits.length ? ` \xB7 ${commitSpan(p2.commits)}` : "";
-    const text = p2.kind === "frame" ? `long frame ${p2.durationMs}ms (${p2.value ?? 0}ms blocking) \u2192 +${p2.end}${p2.label ? " \xB7 " + p2.label : ""}${commits}` : p2.kind === "measure" ? `measure ${p2.label} \u2192 +${p2.end} (${p2.durationMs}ms)` : p2.kind === "mark" ? `mark ${p2.label}` : p2.kind === "shift" ? `layout shift ${p2.value}${p2.label ? " \xB7 " + p2.label : ""}` : p2.kind === "event" ? `slow ${p2.label} ${p2.durationMs}ms (input delay ${p2.value ?? 0}ms)` : `LCP${p2.label ? " " + p2.label : ""}`;
-    rows.push({ t: p2.start, lane: p2.kind === "frame" ? "frame" : "perf", text });
+    const text = p2.kind === "frame" ? `long frame ${p2.durationMs}ms (${p2.value ?? 0}ms blocking${beforeOrigin(p2)}) \u2192 +${p2.end}${p2.label ? " \xB7 " + p2.label : ""}${commits}` : p2.kind === "measure" ? `measure ${p2.label} \u2192 +${p2.end} (${p2.durationMs}ms${beforeOrigin(p2)})` : p2.kind === "mark" ? `mark ${p2.label}` : p2.kind === "shift" ? `layout shift ${p2.value}${p2.label ? " \xB7 " + p2.label : ""}` : p2.kind === "event" ? `slow ${p2.label} ${p2.durationMs}ms (input delay ${p2.value ?? 0}ms)` : `LCP${p2.label ? " " + p2.label : ""}`;
+    rows.push({ t: drawnStart(p2), lane: p2.kind === "frame" ? "frame" : "perf", text });
   }
-  const order = { input: 0, net: 1, wait: 2, SCRN: 3, react: 4, frame: 5, perf: 6 };
+  for (const c of result.lanes.console) rows.push({ t: c.t, lane: c.level, text: consoleText(c) });
+  const order = { input: 0, net: 1, wait: 2, SCRN: 3, react: 4, frame: 5, perf: 6, error: 7, warn: 7, info: 7, log: 7, debug: 7 };
   rows.sort((a, b) => a.t - b.t || order[a.lane] - order[b.lane]);
   const width = Math.max(...rows.map((r) => String(r.t).length), 1);
   return [...header, "", ...rows.map((r) => `+${String(r.t).padStart(width)}  ${r.lane.padEnd(5)}  ${r.text}`)].join("\n");
@@ -934,6 +1094,7 @@ function buildSummaryView(report, options = {}) {
     topCommits,
     hooks: summarizeHookResults(report.hooks),
     perf: Array.isArray(report.perfEntries) ? perfSummary(report) : null,
+    console: Array.isArray(report.consoleEntries) ? consoleSummary(report) : null,
     meta: report.meta ?? null
   };
 }
@@ -988,20 +1149,20 @@ function componentNamesIn(value, renames) {
 // src/avalanche/network-signals.ts
 var DEFAULT_NETWORK_WINDOW_MS = 250;
 var NETWORK_SORT_KEYS = ["start", "end", "duration"];
-var round3 = (value) => Math.round(value * 10) / 10;
+var round4 = (value) => Math.round(value * 10) / 10;
 function commitAnchors(commitTimings) {
   const anchors = [];
   for (const [id, timing] of Object.entries(commitTimings ?? {})) {
-    const commitStart3 = Number(timing?.startTime);
+    const commitStart4 = Number(timing?.startTime);
     const commitEnd = Number(timing?.endTime);
-    if (!Number.isFinite(commitStart3) || !Number.isFinite(commitEnd)) continue;
+    if (!Number.isFinite(commitStart4) || !Number.isFinite(commitEnd)) continue;
     const renderStart = Number(timing?.render?.renderStart);
-    const renderStartKnown = Number.isFinite(renderStart) && renderStart <= commitStart3;
+    const renderStartKnown = Number.isFinite(renderStart) && renderStart <= commitStart4;
     anchors.push({
       commitId: Number(id),
-      renderStart: renderStartKnown ? renderStart : commitStart3,
+      renderStart: renderStartKnown ? renderStart : commitStart4,
       renderStartKnown,
-      commitStart: commitStart3,
+      commitStart: commitStart4,
       commitEnd
     });
   }
@@ -1021,7 +1182,7 @@ function linkRequest(request, anchors, windowMs) {
   const { startTime, endTime } = request;
   const afterIndex = firstAtOrAfter(anchors, startTime, "commitEnd") - 1;
   const after = afterIndex >= 0 ? anchors[afterIndex] : null;
-  const startedAfter = after && startTime - after.commitEnd <= windowMs ? { commitId: after.commitId, gapMs: round3(startTime - after.commitEnd) } : null;
+  const startedAfter = after && startTime - after.commitEnd <= windowMs ? { commitId: after.commitId, gapMs: round4(startTime - after.commitEnd) } : null;
   const rendering = anchors[firstAtOrAfter(anchors, startTime, "commitStart")];
   const startedDuringRender = rendering && rendering.renderStartKnown && rendering.renderStart <= startTime ? rendering.commitId : null;
   let landedBefore = null;
@@ -1029,7 +1190,7 @@ function linkRequest(request, anchors, windowMs) {
     const anchor = anchors[i];
     if (anchor.renderStart - endTime > windowMs) break;
     if (anchor.renderStart >= endTime) {
-      landedBefore = { commitId: anchor.commitId, gapMs: round3(anchor.renderStart - endTime) };
+      landedBefore = { commitId: anchor.commitId, gapMs: round4(anchor.renderStart - endTime) };
       break;
     }
   }
@@ -1349,7 +1510,7 @@ function runAvalanche(command, api, mod, report) {
           return { ok: false, available: true, action, error: "commit-peek requires numeric commitId" };
         }
         const include = Array.isArray(command?.include) && command.include.length ? command.include : ["stats", "sources", "timing", "metrics", "hooks"];
-        const allowedInclude = ["stats", "sources", "timing", "metrics", "hooks", "unmounts", "actions", "rendered", "network", "dom", "perf"];
+        const allowedInclude = ["stats", "sources", "timing", "metrics", "hooks", "unmounts", "actions", "rendered", "network", "dom", "perf", "console"];
         const invalidInclude = include.filter((key) => !allowedInclude.includes(key));
         if (invalidInclude.length) {
           return {
@@ -1429,6 +1590,11 @@ function runAvalanche(command, api, mod, report) {
           const perf = perfForCommit(ser, commitId, maxItems);
           out.perf = perf.items;
           out.perfTotal = perf.total;
+        }
+        if (include.includes("console")) {
+          const logged = consoleForCommit(ser, commitId, maxItems);
+          out.console = logged.items;
+          out.consoleTotal = logged.total;
         }
         if (include.includes("unmounts")) {
           const raw = r.raw || {};
@@ -1543,6 +1709,22 @@ function runAvalanche(command, api, mod, report) {
           match: command?.match,
           fromCommit: command?.fromCommit,
           toCommit: command?.toCommit
+        });
+        if ("error" in view) return { ok: false, available: true, action, error: view.error };
+        return { ok: true, available: true, action, payload: view.payload };
+      }
+      case "console": {
+        const r = report();
+        if (!r || "error" in r) {
+          return { ok: false, available: true, action, error: r && "error" in r ? r.error : "report() unavailable" };
+        }
+        const view = consoleView(r.serial, {
+          levels: command?.levels,
+          top: command?.top,
+          match: command?.match,
+          fromCommit: command?.fromCommit,
+          toCommit: command?.toCommit,
+          chippy: command?.includeChippy
         });
         if ("error" in view) return { ok: false, available: true, action, error: view.error };
         return { ok: true, available: true, action, payload: view.payload };
@@ -1731,6 +1913,19 @@ function analyzeSavedReport(report, command, args) {
         ...typeof match === "string" && match && { match },
         fromCommit: number("fromCommit", 3),
         toCommit: number("toCommit", 4)
+      });
+    }
+    case "console": {
+      const levels = args.levels ?? positional[0];
+      const match = args.match ?? positional[2];
+      return dispatch(report, {
+        action: "console",
+        ...typeof levels === "string" && levels && { levels },
+        top: number("top", 1),
+        ...typeof match === "string" && match && { match },
+        fromCommit: number("fromCommit", 3),
+        toCommit: number("toCommit", 4),
+        ...(args.includeChippy === true || args.includeChippy === "true") && { includeChippy: true }
       });
     }
     case "timeline": {

@@ -104,6 +104,7 @@ The first read of a capture, in one call. It answers what an analysis asks first
 - `topCommits`: the `top` commits (default 5) with the most collateral, ties by id. Each has `stat`, `atMs` (from the timeline origin, the last interaction; negative for commits before it), `renderMs`, `ticks`, `paintDelayMs` (commit end to paint), `sourcesTotal`, `sources` (the first `maxItems`, default 3: `sourceId`, `collateralAtCommit`, and `changedHooks` with `index` and `sameContent`, true when the new value equals the old one by content), `latestAction`, and `hooks` (each pack hook's step for that commit). A missing timing is `null`, not 0.
 - `hooks`: each pack hook's start, end, step count, and errors; `null` when no pack hooks ran.
 - `perf`: the [`avalanche-perf`](#avalanche-perf-clientid-types-top-match-fromcommit-tocommit) `summary` over the whole capture; `null` when the report has no performance entries.
+- `console`: the [`avalanche-console`](#avalanche-console-clientid-levels-top-match-fromcommit-tocommit) `summary` over the whole capture; `null` before report version 10.
 - `meta`: the capture metadata.
 
 Each top commit also has `rebuiltProps`, read from `renderedByCommit`, or `null` when no rendered entry has a key diff: `sameShallow`, `keysChanged`, and `notCompared` count the `ref-changed` object and array prop changes of each kind, and `groups` (the first `maxItems`, then `omittedGroups`) merges identical changes of one prop across components, by `components` received: `prop`, the first `component` and `sourceId` in render order, and `sameShallow: true` or `changedKeys` (key names) with `changedKeyCount`. A large group with `sameShallow: true` is one rebuilt object that rendered many components for nothing.
@@ -159,6 +160,8 @@ stats,sources,timing,metrics,hooks,unmounts,actions,rendered,network,dom,perf
 
 `perf` returns `perf`, the browser performance entries near this commit (those whose span holds the commit's start, and those that started after it and before the next commit), longest first and cut to `maxItems`, in the `avalanche-perf` entry shape, and `perfTotal`, their untrimmed count.
 
+`console` returns `console`, the page's console entries logged after this commit started and before the next commit, earliest first and cut to `maxItems`, in the `avalanche-console` entry shape, and `consoleTotal`, their untrimmed count.
+
 `unmounts` returns bounded branch-start samples for this one commit. It is a zoom-in surface, not a full export: use `commit-list ... unmountedComponents` / `unmountedSubtrees` for counts first, then `commit-peek N ... unmounts` to ask where teardown started and how large each sampled branch was.
 
 `sources` rows: `sourceId`, `depth`, `collateralAtCommit`, `rankAtCommit` (position among all sources ranked by total waste), `trashers` (`[{ index, prevValue, currentValue }]` for changed hooks when the detection mode records amplifiers; primitives are exact and long strings are cut, while objects and arrays are bounded copies two levels deep with up to 8 entries, and DOM nodes, React elements, fibers, functions, promises, maps, sets, and repeated references become short `[...]` markers), `causedUpdatesTotal`, and `collateralUpdatesTotal`. `missing: true` marks an id that has no aggregate source row.
@@ -205,6 +208,21 @@ Every entry has `id`, `entryType`, `name`, `startTime`, `duration`, and `commits
 
 A long frame lists every commit that started inside it under `commits.during`: those commits ran without a paint between them, so the user saw none of them until the frame ended. Layout shifts and LCP are reported at the frame after the DOM moved, so read `before` for them; for long frames, events, and measures read `during`. Every link is temporal proximity, not proof of cause. A report recorded before version 9 has no entries and returns an error that says so.
 
+### `avalanche-console <clientId> [levels] [top] [match] [fromCommit] [toCommit]`
+```bash
+chippy.sh avalanche-console my-client
+chippy.sh avalanche-console my-client error,warn
+chippy.sh avalanche-console my-client '' 100 'fetch|timeout'
+chippy.sh avalanche-console my-client error '' '' 30 42
+```
+Lists the console messages Avalanche recorded during the capture: `console.error`, `warn`, `info`, `log`, and `debug` calls, uncaught errors, and unhandled promise rejections. `levels` is a CSV of `error`, `warn`, `info`, `log`, and `debug` (default all). `top` caps entries, earliest first (default 50). `match` is a case-insensitive regex on the message. `fromCommit` and `toCommit` keep entries from the first commit's start until the commit after the last one starts. Pass `""` to skip a position. Messages Chippy writes itself (`[avalanche] …`, `[Chippy …`) are left out; the MCP tool's `includeChippy` adds them.
+
+`payload` holds `status` (`meta.console`), `summary`, `count` (entries that matched), `truncated`, and `entries`. `summary` counts occurrences of the page's own messages over the window, repeats included: `errors`, `warnings`, `other` (`info`, `log`, `debug`), `uncaught`, `rejections`, `chippy` (Chippy's entries, left out of the other counts), and `firstError` (`id`, `time`, `message`, `location`, `commitId`), usually the lead.
+
+Every entry has `id`, `level`, `source` (`console`, `uncaught`, or `rejection`), `time` (`performance.now()`), `repeat` and `lastTime` (consecutive identical messages collapse into one entry), `message` (rejections start with `Uncaught (in promise)`; format tokens such as `%s` substituted, objects previewed two levels deep, cut to 1500 characters), `location` (`url:line:column` of the caller for errors and warnings, of the throw for an uncaught error or a rejected `Error`; `null` for other levels and for code without a script URL), `stack` (for errors and warnings; a logged `Error`'s own stack when there is one, otherwise the call stack, eight frames), `chippy: true` on Chippy's own messages, and `commit` (`{commitId, gapMs}`, the last commit that started at or before it). A warning React writes while rendering a commit links to that commit; every link is timing, not cause.
+
+Capture runs only while the detector is installed. It wraps the console methods, so DevTools shows Chippy's bundle as the caller of each message unless that bundle is ignore-listed; `location` keeps the real caller. Each level keeps 200 entries, dropping its own oldest first, so log noise cannot push out errors; `meta.console.dropped` counts what went. A failed image or script load is not recorded (read `avalanche-network`). A report recorded before version 10 has no entries and returns an error that says so.
+
 ### `avalanche-network <clientId> [top] [by] [match] [initiators] [windowMs]`
 ```bash
 chippy.sh avalanche-network my-client
@@ -235,9 +253,9 @@ chippy.sh avalanche-timeline my-client
 chippy.sh avalanche-timeline my-client 40 90 100 'analytics|beacon'
 chippy.sh avalanche-offline capture.json timeline --fromCommit 40 --format full
 ```
-Puts user input, network requests, Suspense fallbacks, and commits on one clock, in milliseconds from an origin. Use it to answer why an interaction or load felt slow, not only why it cost CPU. Defaults: the window runs from the first commit after the first recorded interaction to the last commit. Requests shorter than 50 ms are left out, and the 30 longest are kept (`--top` offline, `top` over HTTP). `exclude` is a case-insensitive URL regex. Pass `""` to skip a position.
+Puts user input, network requests, Suspense fallbacks, commits, browser performance entries, and console errors on one clock, in milliseconds from an origin. Use it to answer why an interaction or load felt slow, not only why it cost CPU. Defaults: the window runs from the first commit after the first recorded interaction to the last commit. Requests shorter than 50 ms are left out, and the 30 longest are kept (`--top` offline, `top` over HTTP). `exclude` is a case-insensitive URL regex. Pass `""` to skip a position.
 
-The origin is the first interaction up to 5 s before the window's first commit, else that commit (`origin.kind`). Times before the origin are negative.
+The origin is the first interaction up to 5 s before the window's first commit, else that commit (`origin.kind`). Times before the origin are negative. A performance entry that started before the origin, such as a measure from navigation start, keeps its negative `start` in `lanes.perf` but is drawn from the origin; its text row says how long before the origin it started, and its chart bar is marked `from before`.
 
 Commits are classified by what the user can see:
 - `lock`: a Suspense boundary showed its fallback.
@@ -249,15 +267,17 @@ When the capture records `paintAt`, everything the user sees is placed at paint 
 
 Lock, unlock, and swap commits are always kept. Updates are ranked by rendered components (`maxCommits` 25), and the rest are counted in `omitted`.
 
-Output: `payload: {origin, window, perceived, screen, boundaries, omitted, mermaid, text}`. `format map` adds `settleMapSvg`; `format full` adds `settleMapSvg` and `lanes`.
+Console entries are part of the story: errors (including uncaught errors and unhandled rejections) and warnings appear as `error` and `warn` rows at the time they were logged, with the caller's `file:line:column`, a `×N` repeat count, and the first line of the message that has text. Other levels follow, up to `maxLogs` (default 20); errors and warnings are kept up to 50, and the rest are counted in `omitted.logs`. The console span runs from the origin until the commit after the window starts, or to the end of the capture, so an error logged after the last commit is still shown. The text header adds `Console: N errors, M warnings; first error +t (after cX): …`. Chippy's own messages are left out; read them, stacks, and every entry with `avalanche-console`.
+
+Output: `payload: {origin, window, perceived, screen, boundaries, console, omitted, mermaid, text}`. `console` is `{errors, warnings, other, firstError}` over the console span, or null when the report has no console entries. `format map` adds `settleMapSvg`; `format full` adds `settleMapSvg` and `lanes`.
 - `screen`: Visually Complete times from the recorded screen changes (null when the capture recorded none). `vc50`, `vc90`, `vc100` are the times by which 50%, 90%, and 100% of the viewport reached its final state; VC90 is when the page looks mostly finished, and lower is better. Areas that never changed count as complete from the origin. `changedShare` is the share of the viewport that changed at all, `changedVc90` is VC90 over that changed area only, and `late[]` lists the regions (`label`, `at`, `commitId`, `share`) that kept changing after it.
 - `boundaries[]`: one entry per Suspense boundary with `boundary` (key `b<id>`), `depth`, `label`, and `location`. Waits carry the same `boundary` key, and `perceived.stillWaiting` lists these keys. `location.chain` lists five component parents, then up to five owners not already listed (`via: parent | owner | both`), each with `name`, `source` when known, and identifying string props such as `name`, `team`, `packageName`, or `testId`. `label` is the boundary's own `name` prop or key when set, else the first chain entry the other boundaries do not share, so a common wrapper is skipped. Waits, commits, and the chart use the label instead of `@depth`. Owners exist only in development builds.
 - `settleMapSvg` (`format map` or `full`): an SVG of the viewport with each area colored by when it last changed, grey where nothing changed, and the last three regions labelled. Save it to a `.svg` file to view it.
 - `perceived.waits[]`, longest first: `depth`, `from`, `until` (null while still shown), `waitedMs`, `lockedBy`, `unlockedBy`, `lastRequests` (up to three requests that overlapped the wait and finished before it cleared, latest first, with `gapMs` before the unlock), and `updatesDuring` (`{commits, rendered}` of update commits while the fallback was on screen).
 - `perceived.firstLockAt`, `settledAt`, `stillWaiting`, `updatesAfterSettled`: waits that start after the next input belong to that input, so `settledAt` is the last unlock of the opening interaction, or null while one of its fallbacks is still shown.
-- `mermaid`: a gantt chart with sections Input, Network (the three longest are `crit`), User waits, Screen (lock and unlock milestones), Screen changed (one milestone per commit that changed at least 1% of the viewport, with its share and region, plus a `VC90` milestone), and Updates (the three heaviest are `crit`; each shows its screen share). Render it in a ```` ```mermaid ```` block.
-- `text`: the `perceived` summary followed by one aligned row per event.
-- `lanes` (`format full`): `input`, `network`, `suspense`, `commits`. Commit rows have `commitId`, `t`, `renderStart`, `rendered`, `kind`, `suspense`, and `sources` (top two source names).
+- `mermaid`: a gantt chart with sections Input, Network (the three longest are `crit`), User waits, Screen (lock and unlock milestones), Screen changed (one milestone per commit that changed at least 1% of the viewport, with its share and region, plus a `VC90` milestone), Updates (the three heaviest are `crit`; each shows its screen share), and Console (up to 15 error and warning milestones; errors are `crit`). Render it in a ```` ```mermaid ```` block.
+- `text`: the `perceived` summary followed by one aligned row per event. Waits that repeat exactly (same label, same span, same commits), as sibling boundaries rendered by one component do, appear once with `×N` in the summary, the rows, and the chart; `perceived.waits` and `lanes.suspense` still list each one.
+- `lanes` (`format full`): `input`, `network`, `suspense`, `commits`, `perf`, `console`. Console rows have `id` (the `avalanche-console` entry id), `level`, `source`, `label`, `t`, `repeat`, `location`, and `afterCommit`. Commit rows have `commitId`, `t`, `renderStart`, `rendered`, `kind`, `suspense`, and `sources` (top two source names).
 
 Limits:
 - Waits are paired by the detector's boundary id, so sibling boundaries at one depth stay apart and a boundary that remounts reads as a new boundary. Reports saved before boundary ids existed pair by depth, and their keys read `@<depth>`.
@@ -335,7 +355,7 @@ chippy.sh avalanche-offline .chippy-captures/raf-1846.json source-search --name 
 ```
 Use saved captures without a live page. `commit-list`, `commit-peek`, `hot-sources`, `describe-action`, `network`, `perf`, `timeline`, and `dom-diff` run the same code as the live commands and return the same shapes, so sort keys and include values match the live tables above (`unmounts` is live-only; a saved capture always returns it empty).
 
-Offline arguments: `commit-list [top] [by]`, `commit-peek <commitId> [include] [maxItems]` (no `depth`; the third value is maxItems, default 50), `hot-sources [limit]`, `describe-action <actionId>`, `network [top] [by] [match] [initiators] [windowMs]`, `perf [types] [top] [match] [fromCommit] [toCommit]`, `timeline [fromCommit] [toCommit] [minRequestMs] [exclude]` (`--top N` keeps the N longest requests, `--format full` adds lanes), `dom-diff [fromCommit] [toCommit] [match] [maxItems]` (`--top N` caps commits), and `source-search --name <regex> [--top N]` (default top 50). Flags such as `--top`, `--by`, `--include`, `--maxItems`, `--match`, `--initiators`, and `--window` are accepted in place of positional values.
+Offline arguments: `commit-list [top] [by]`, `commit-peek <commitId> [include] [maxItems]` (no `depth`; the third value is maxItems, default 50), `hot-sources [limit]`, `describe-action <actionId>`, `network [top] [by] [match] [initiators] [windowMs]`, `perf [types] [top] [match] [fromCommit] [toCommit]`, `console [levels] [top] [match] [fromCommit] [toCommit]`, `timeline [fromCommit] [toCommit] [minRequestMs] [exclude]` (`--top N` keeps the N longest requests, `--format full` adds lanes), `dom-diff [fromCommit] [toCommit] [match] [maxItems]` (`--top N` caps commits), and `source-search --name <regex> [--top N]` (default top 50). Flags such as `--top`, `--by`, `--include`, `--maxItems`, `--match`, `--initiators`, and `--window` are accepted in place of positional values.
 
 `summary [top] [maxItems]` returns the `avalanche-summary` digest, with its fields at the top level beside `ok` and `action`. `source-search --name <regex>` matches aggregate sources by `sourceId` and rendered components by name with per-instance render and self-source counts.
 
@@ -408,7 +428,9 @@ Start with these fields:
 - suspense events carry `boundary` (a stable id per boundary within the capture) and `location` (the parent and owner chain described under `avalanche-timeline`)
 - `perfEntries[]` — browser performance entries recorded during the capture, in arrival order (`avalanche-perf` entry fields without the commit links)
 - `meta.perf` — `{enabled, observed, unsupported, windowStart, entries, byType, dropped, pausedAt}`: whether capture is on, the entry types this browser lets it observe and those it does not, when the capture window opened, how many entries are kept (in total and by type), how many of the oldest of each type were dropped past 300 per type, and when the capture was paused
-- `meta.version` — report format; 8 adds `networkRequests` and `meta.network`; 9 adds `perfEntries` and `meta.perf`
+- `consoleEntries[]` — console messages, uncaught errors, and unhandled rejections recorded during the capture, in arrival order (`avalanche-console` entry fields without the commit link)
+- `meta.console` — `{enabled, installed, windowStart, entries, byLevel, dropped, pausedAt}`: whether capture is on and the console wrapped, when the window opened, how many entries are kept (in total and by level), how many of the oldest of each level were dropped past 200, and when the capture was paused
+- `meta.version` — report format; 8 adds `networkRequests` and `meta.network`; 9 adds `perfEntries` and `meta.perf`; 10 adds `consoleEntries` and `meta.console`
 
 ### Render ticks
 

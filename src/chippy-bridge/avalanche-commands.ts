@@ -19,6 +19,7 @@ import { buildDomDiffView } from '../avalanche/dom-diff-view';
 import { compactLatestAction, tupleToStats, UPSTREAM_COMMIT_STAT_KEYS } from '../avalanche/commit-stats';
 import { buildSummaryView } from '../avalanche/summary-view';
 import { perfForCommit, perfView } from '../avalanche/perf-signals';
+import { consoleForCommit, consoleView } from '../avalanche/console-signals';
 
 export { tupleToStats, UPSTREAM_COMMIT_STAT_KEYS };
 
@@ -38,6 +39,8 @@ export type AvalancheApiStatus = {
   metricsAdapter?: string | null;
   /** Network requests captured so far. Absent on bundles before network capture. */
   networkRequests?: number;
+  /** Console entries captured so far. Absent on bundles before console capture. */
+  consoleEntries?: number;
   /** `renderedByCommit` budget and what it dropped. Absent on bundles before the budget. */
   renderedEvidence?: { maxEntries: number; entries: number; commits: number; evicted: { commits: number; entries: number; throughCommit: number } | null } | null;
 };
@@ -67,6 +70,10 @@ export type AvalancheCommand = {
   initiators?: string[];
   /** `perf`: performance entry types to list, such as mark, measure, or long-animation-frame. */
   types?: string[] | string;
+  /** `console`: levels to list, such as error,warn. */
+  levels?: string[] | string;
+  /** `console`: include messages Chippy itself wrote. */
+  includeChippy?: boolean;
   /** `timeline`, `dom-diff`, `perf`: first and last commit ids of the window. */
   fromCommit?: number;
   toCommit?: number;
@@ -302,7 +309,7 @@ function runAvalanche(
         const include = Array.isArray(command?.include) && command!.include!.length
           ? command!.include!
           : ['stats', 'sources', 'timing', 'metrics', 'hooks'];
-        const allowedInclude = ['stats', 'sources', 'timing', 'metrics', 'hooks', 'unmounts', 'actions', 'rendered', 'network', 'dom', 'perf'];
+        const allowedInclude = ['stats', 'sources', 'timing', 'metrics', 'hooks', 'unmounts', 'actions', 'rendered', 'network', 'dom', 'perf', 'console'];
         const invalidInclude = include.filter((key) => !allowedInclude.includes(key));
         if (invalidInclude.length) {
           return {
@@ -394,6 +401,11 @@ function runAvalanche(
           const perf = perfForCommit(ser as Parameters<typeof perfForCommit>[0], commitId, maxItems);
           out.perf = perf.items;
           out.perfTotal = perf.total;
+        }
+        if (include.includes('console')) {
+          const logged = consoleForCommit(ser as Parameters<typeof consoleForCommit>[0], commitId, maxItems);
+          out.console = logged.items;
+          out.consoleTotal = logged.total;
         }
         if (include.includes('unmounts')) {
           // Live identity samples live on the raw report (not in DTO/export).
@@ -516,6 +528,22 @@ function runAvalanche(
           match: command?.match,
           fromCommit: command?.fromCommit,
           toCommit: command?.toCommit,
+        });
+        if ('error' in view) return { ok: false, available: true, action, error: view.error };
+        return { ok: true, available: true, action, payload: view.payload };
+      }
+      case 'console': {
+        const r = report();
+        if (!r || 'error' in r) {
+          return { ok: false, available: true, action, error: (r && 'error' in r ? r.error : 'report() unavailable') };
+        }
+        const view = consoleView(r.serial as Parameters<typeof consoleView>[0], {
+          levels: command?.levels,
+          top: command?.top,
+          match: command?.match,
+          fromCommit: command?.fromCommit,
+          toCommit: command?.toCommit,
+          chippy: command?.includeChippy,
         });
         if ('error' in view) return { ok: false, available: true, action, error: view.error };
         return { ok: true, available: true, action, payload: view.payload };

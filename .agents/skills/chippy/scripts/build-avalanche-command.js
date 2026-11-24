@@ -32,6 +32,9 @@ function buildAvalancheCommand(body = {}, requestId = 'test-request-id') {
   if (Array.isArray(body.initiators)) command.initiators = body.initiators.map(String);
   if (Array.isArray(body.types)) command.types = body.types.map(String);
   else if (typeof body.types === 'string') command.types = body.types;
+  if (Array.isArray(body.levels)) command.levels = body.levels.map(String);
+  else if (typeof body.levels === 'string') command.levels = body.levels;
+  if (body.includeChippy != null) command.includeChippy = body.includeChippy === true || body.includeChippy === 'true';
   if (body.fromCommit != null) command.fromCommit = Number(body.fromCommit);
   if (body.toCommit != null) command.toCommit = Number(body.toCommit);
   if (body.minRequestMs != null) command.minRequestMs = Number(body.minRequestMs);

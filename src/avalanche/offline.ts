@@ -163,6 +163,19 @@ export function analyzeSavedReport(report: SavedReport, command: string, args: {
         toCommit: number('toCommit', 4),
       });
     }
+    case 'console': {
+      const levels = args.levels ?? positional[0];
+      const match = args.match ?? positional[2];
+      return dispatch(report, {
+        action: 'console',
+        ...(typeof levels === 'string' && levels && { levels }),
+        top: number('top', 1),
+        ...(typeof match === 'string' && match && { match }),
+        fromCommit: number('fromCommit', 3),
+        toCommit: number('toCommit', 4),
+        ...((args.includeChippy === true || args.includeChippy === 'true') && { includeChippy: true }),
+      });
+    }
     case 'timeline': {
       const exclude = args.exclude ?? positional[3];
       return dispatch(report, {

@@ -219,6 +219,22 @@ describe('sibling boundaries', () => {
     expect(t.boundaries.map((x) => [x.boundary, x.label])).toEqual([['b1', 'Header'], ['b2', 'Body']]);
     expect(t.lanes.suspense.map((s) => [s.label, s.enteredAt, s.leftAt])).toEqual([['Header', 1, 3], ['Body', 1, 5]]);
   });
+
+  it('tells identical waits once, with a count', () => {
+    const a = { chain: [{ via: 'parent' as const, name: 'Header' }] };
+    const t = buildTimeline({
+      ...report,
+      suspenseByCommit: {
+        1: [{ depth: 10, boundary: 1, entered: true, left: false, location: a }, { depth: 10, boundary: 2, entered: true, left: false, location: a }],
+        3: [{ depth: 10, boundary: 1, entered: false, left: true }, { depth: 10, boundary: 2, entered: false, left: true }],
+      },
+    } as never, { toCommit: 4 }) as TimelineResult;
+    expect(t.lanes.suspense).toHaveLength(2);
+    expect(t.text.match(/wait Header ×2 /g)).toHaveLength(1);
+    expect(t.text.match(/fallback Header/g)).toEqual(['fallback Header']);
+    expect(t.text).toContain('fallback Header ×2 until +500');
+    expect(t.mermaid.match(/Header ×2 /g)).toHaveLength(1);
+  });
 });
 
 describe('perf lane', () => {
@@ -266,11 +282,65 @@ describe('perf lane', () => {
     expect(result.text).toContain("Chippy's own long frames, left out of the totals: 1, 150ms blocking.");
   });
 
+  it('draws a measure that started before the origin from the origin, and says so', () => {
+    const perfEntries = [{ id: 1, entryType: 'measure', name: 'bundle-ready', startTime: 0, duration: 1484 }];
+    const result = buildTimeline({ ...report, perfEntries } as never);
+    if ('error' in result) throw new Error(result.error);
+    expect(result.lanes.perf[0]).toMatchObject({ kind: 'measure', start: -1000, end: 484 });
+    expect(result.text).toMatch(/\+ *0 +perf +measure bundle-ready → \+484 \(1484ms, started 1000ms before the origin\)/);
+    expect(result.text).not.toContain('+-');
+    expect(result.mermaid).toContain('bundle-ready 1484ms from before :perf1, 0, 484');
+  });
+
   it('counts long task time over 50 ms as blocking where frames are missing', () => {
     const perfEntries = [{ id: 1, entryType: 'longtask', name: 'self', startTime: 1090, duration: 120 }];
     const result = buildTimeline({ ...report, perfEntries } as never);
     if ('error' in result) throw new Error(result.error);
     expect(result.lanes.perf).toEqual([{ id: 1, kind: 'frame', label: '', start: 90, end: 210, durationMs: 120, value: 70, commits: [1, 2] }]);
+  });
+  it('tells console errors, warnings, and logs on the timeline, linked to commits', () => {
+    const entry = (id: number, level: string, source: string, time: number, message: string, extra = {}) =>
+      ({ id, level, source, time, repeat: 1, message, stack: null, location: null, ...extra });
+    const consoleEntries = [
+      entry(1, 'log', 'console', 900, 'before the click'),
+      entry(2, 'warn', 'console', 1150, 'Each child should have a unique key', { repeat: 3, lastTime: 1160, location: 'https://app.test/src/List.tsx:12:5' }),
+      entry(3, 'error', 'uncaught', 1510, 'TypeError: x is undefined\n    at render', { location: 'https://app.test/src/Item.tsx:40:9' }),
+      entry(4, 'info', 'console', 1520, 'one'),
+      entry(5, 'info', 'console', 1530, 'two'),
+      entry(6, 'error', 'console', 1540, 'chippy says hi', { chippy: true }),
+      entry(7, 'error', 'rejection', 2000, 'Uncaught (in promise) late'),
+      entry(8, 'error', 'console', 3200, 'after commit 5 starts'),
+    ];
+    const result = buildTimeline({ ...report, consoleEntries } as never, { toCommit: 4, maxLogs: 1 });
+    if ('error' in result) throw new Error(result.error);
+    expect(result.lanes.console.map((c) => [c.id, c.level, c.t, c.afterCommit])).toEqual([
+      [2, 'warn', 150, 1], [3, 'error', 510, 3], [4, 'info', 520, 3], [7, 'error', 1000, 4],
+    ]);
+    expect(result.lanes.console[1]).toMatchObject({ label: 'TypeError: x is undefined', location: 'Item.tsx:40:9' });
+    expect(result.omitted.logs).toBe(1);
+    expect(result.console).toMatchObject({ errors: 2, warnings: 3, other: 2, firstError: { id: 3 } });
+    expect(result.text).toContain('Console: 2 errors, 3 warnings; first error +510 (after c3): uncaught TypeError: x is undefined · Item.tsx:40:9.');
+    expect(result.text).toMatch(/\+ *150 +warn +Each child should have a unique key ×3 · List\.tsx:12:5/);
+    expect(result.text).not.toContain('chippy says hi');
+    expect(result.mermaid).toContain('section Console (errors, warnings)');
+    expect(result.mermaid).toMatch(/:crit, milestone, log3, 510, 510/);
+    const whole = buildTimeline({ ...report, consoleEntries } as never);
+    if ('error' in whole) throw new Error(whole.error);
+    expect(whole.lanes.console.at(-1)).toMatchObject({ id: 8, t: 2200, afterCommit: 6 });
+  });
+
+  it('labels a console message by its first line with text', () => {
+    const consoleEntries = [{ id: 1, level: 'warn', source: 'console', time: 1150, repeat: 1, message: '\n  \nWarning: blank first line\nmore', stack: null, location: null }];
+    const result = buildTimeline({ ...report, consoleEntries } as never);
+    if ('error' in result) throw new Error(result.error);
+    expect(result.lanes.console[0].label).toBe('Warning: blank first line');
+  });
+
+  it('has no console lane or summary when the report has no console entries', () => {
+    const t = built();
+    expect(t.lanes.console).toEqual([]);
+    expect(t.console).toBeNull();
+    expect(t.text).not.toContain('Console:');
   });
 });
 
