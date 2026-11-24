@@ -9,7 +9,7 @@
   const MARKER_COLORS = { '1': '#F87168', '2': '#4BCE97' };
   const MARKER_SIZE = 36;
   const DOCK_GAP = 12;
-  const PANEL_WIDTH = 340;
+  const PANEL_WIDTH = 380;
   const PANEL_LAUNCHER_SIZE = 48;
   // How close (px) to dock centre to snap back
   const DOCK_SNAP_RADIUS = 80;
@@ -153,7 +153,7 @@
     panel.setAttribute('role', 'region');
     panel.setAttribute('aria-label', 'Chippy');
     panel.style.cssText = panelState.expanded ? `
-      position:fixed;${panelState.side}:20px;bottom:20px;width:${PANEL_WIDTH}px;
+      position:fixed;${panelState.side}:20px;bottom:20px;width:${PANEL_WIDTH}px;max-width:calc(100vw - 40px);
       max-height:calc(100vh - 40px);overflow:auto;box-sizing:border-box;
       pointer-events:auto;padding:14px;border-radius:18px;
       background:#1F1F21;color:#CECFD2;
@@ -1186,11 +1186,18 @@
     return CONN_STYLES[state]?.label || CONN_STYLES.unknown.label;
   }
 
+  // The connection pill's tooltip also names the route that loaded Chippy
+  // (extension, import, …), so the header stays short.
   function renderConnPill() {
     const s = getConnState();
     const style = CONN_STYLES[s] || CONN_STYLES.unknown;
-    const title = escapeAttr(getConnTitle(s));
-    return `<span data-chippy-key="connection-pill" data-chippy-conn-pill title="${title}" style="
+    const integration = getIntegration();
+    const route = integration?.kind
+      ? `Loaded via ${integration.kind}: ${[integration.who, integration.reloadAction].filter(Boolean).join('. ')}`
+      : '';
+    const title = escapeAttr([getConnTitle(s), route].filter(Boolean).join('\n'));
+    const kind = integration?.kind ? ` data-chippy-integration="${escapeAttr(integration.kind)}"` : '';
+    return `<span data-chippy-key="connection-pill" data-chippy-conn-pill${kind} title="${title}" style="
       font-size:10px;color:${style.color};font-family:monospace;letter-spacing:.04em;white-space:nowrap;flex-shrink:0;
     ">${style.label}</span>`;
   }
@@ -1201,18 +1208,6 @@
 
   function isExtensionIntegration() {
     return getIntegration()?.kind === 'extension';
-  }
-
-  // How Chippy reached this page, shown next to the connection state so the
-  // user does not have to open settings to learn it.
-  function renderIntegrationPill() {
-    const integration = getIntegration();
-    if (!integration?.kind) return '';
-    const title = [integration.who, integration.reloadAction].filter(Boolean).join('. ');
-    return `<span data-chippy-key="integration-pill" data-chippy-integration-pill="${escapeAttr(integration.kind)}" title="${escapeAttr(title)}" style="
-      font-size:10px;color:#A9ABAF;font-family:monospace;letter-spacing:.04em;
-      white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;
-    ">via ${escapeAttr(integration.kind)}</span>`;
   }
 
   // ─── Avalanche recording controls ────────────────────────────────────────
@@ -1378,7 +1373,6 @@
             ${CHIPPY_LOGO}
             <div style="font-weight:650;font-size:14px;color:#CECFD2;">Chippy</div>
             ${renderConnPill()}
-            ${renderIntegrationPill()}
           </div>
           <div style="display:flex;align-items:center;gap:6px;">
             ${settingsButton}

@@ -9,6 +9,7 @@
  */
 import { hookStepsAt, summarizeHookResults } from './avalanche-hooks';
 import { compactLatestAction, tupleToStats, UPSTREAM_COMMIT_STAT_KEYS } from './commit-stats';
+import { consoleSummary, type ConsoleSummary } from './console-signals';
 import { linkPerfEntries, perfSummary, type PerfSummary } from './perf-signals';
 import { summarizeRebuiltProps, type RebuiltPropsSummary } from './rebuilt-props';
 import { buildTimeline, type TimelineResult } from './timeline';
@@ -79,6 +80,8 @@ export type SummaryView = {
   hooks: ReturnType<typeof summarizeHookResults>;
   /** Browser performance metrics over the whole capture; null when the report has no performance entries. */
   perf: PerfSummary | null;
+  /** Console errors, warnings, and the first error. Null before report v10. */
+  console: ConsoleSummary | null;
   meta: unknown;
 };
 
@@ -215,6 +218,7 @@ export function buildSummaryView(report: Report, options: SummaryOptions = {}): 
     topCommits,
     hooks: summarizeHookResults(report.hooks),
     perf: Array.isArray(report.perfEntries) ? perfSummary(report) : null,
+    console: Array.isArray(report.consoleEntries) ? consoleSummary(report) : null,
     meta: report.meta ?? null,
   };
 }

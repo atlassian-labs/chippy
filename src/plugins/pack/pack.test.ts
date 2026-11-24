@@ -181,6 +181,38 @@ describe('registerPack', () => {
     expect(listPacks().map((pack) => pack.id)).toEqual(['init-fails']);
   });
 
+  it('runs the function onInit returns when the pack unregisters', () => {
+    const host = window as { __PACK_LIVE?: boolean };
+    registerPack({ id: 'cleans', avalancheExtensions: { slot: { onInit: 'window.__PACK_LIVE = true; return () => { delete window.__PACK_LIVE; };' } } });
+    expect(host.__PACK_LIVE).toBe(true);
+    expect(unregisterPack('cleans')).toBe(true);
+    expect(host.__PACK_LIVE).toBeUndefined();
+  });
+
+  it('cleans up the old version before a same-id pack initializes', () => {
+    const host = window as { __PACK_LOG?: string[] };
+    host.__PACK_LOG = [];
+    const version = (v: number) => ({
+      id: 'upgrades',
+      avalancheExtensions: { slot: { onInit: `window.__PACK_LOG.push('init ${v}'); return () => window.__PACK_LOG.push('cleanup ${v}');` } },
+    });
+    registerPack(version(1));
+    const status = registerPack(version(2));
+    expect(host.__PACK_LOG).toEqual(['init 1', 'cleanup 1', 'init 2']);
+    expect(status.initErrors).toEqual([]);
+    resetPacks();
+    expect(host.__PACK_LOG).toEqual(['init 1', 'cleanup 1', 'init 2', 'cleanup 2']);
+    delete host.__PACK_LOG;
+  });
+
+  it('reports a throwing cleanup in the replacing version and still registers it', () => {
+    const throwing = { id: 'bad-cleanup', avalancheExtensions: { slot: { onInit: 'return () => { throw new Error("stuck"); };' } } };
+    registerPack(throwing);
+    const status = registerPack(throwing);
+    expect(status.initErrors).toEqual(['bad-cleanup.slot cleanup: Error: stuck']);
+    expect(listPacks().map((pack) => pack.id)).toEqual(['bad-cleanup']);
+  });
+
   it('composes named extensions with separate state, results, and instructions', () => {
     registerPack({
       id: 'combo',

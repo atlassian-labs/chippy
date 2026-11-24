@@ -103,6 +103,15 @@ describe('buildAvalancheCommand — wire forwarding contract', () => {
     expect(buildAvalancheCommand({ types: 3 as never }, 'r').types).toBeUndefined();
   });
 
+  it('forwards console levels and the includeChippy flag', () => {
+    expect(buildAvalancheCommand({ levels: ['error', 'warn'] }, 'r').levels).toEqual(['error', 'warn']);
+    expect(buildAvalancheCommand({ levels: 'error,warn' }, 'r').levels).toBe('error,warn');
+    expect(buildAvalancheCommand({ levels: 3 as never }, 'r').levels).toBeUndefined();
+    expect(buildAvalancheCommand({ includeChippy: true }, 'r').includeChippy).toBe(true);
+    expect(buildAvalancheCommand({ includeChippy: 'false' as never }, 'r').includeChippy).toBe(false);
+    expect(buildAvalancheCommand({}, 'r')).not.toHaveProperty('includeChippy');
+  });
+
   it('does not forward non-array initiators', () => {
     expect(buildAvalancheCommand({ initiators: 'fetch' as never }, 'r').initiators).toBeUndefined();
   });

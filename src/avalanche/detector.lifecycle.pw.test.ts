@@ -19,7 +19,7 @@ import { STORYBOOK_ORIGIN, STORYBOOK_PORT, assertChippyLabIdentity } from '../te
  *   - Enter + leave are recorded in different commits
  *   - Regression: CommitStats always has exactly 10 positions
  *   - Regression: report always carries suspenseByCommit (never undefined)
- *   - Regression: report version is 9
+ *   - Regression: report version is 10
  *   - A page fetch is recorded and linked to the commit its response scheduled; Chippy requests are excluded
  */
 
@@ -228,14 +228,14 @@ describe('Avalanche report shape — regression', () => {
     }
   }, 30000);
 
-  it('report version is 9', async () => {
+  it('report version is 10', async () => {
     const page = await openAvalanchePage();
     try {
       const { report } = await runScenario(
         page,
         `await new Promise(r => setTimeout(r, 100));`,
       );
-      expect(report.meta.version).toBe(9);
+      expect(report.meta.version).toBe(10);
     } finally {
       await page.close();
     }
