@@ -466,7 +466,8 @@ function consoleLaneOf(
   const toItem = (e: ConsoleEntry): TimelineConsole => {
     let after: number | null = null;
     for (const c of commitStarts) { if (c.start > e.time) break; after = c.id; }
-    const first = String(e.message).split('\n')[0].trim();
+    // Messages can open with a blank line; label them by their first text.
+    const first = String(e.message).split('\n').map((line) => line.trim()).find(Boolean) ?? '';
     return {
       id: e.id, level: e.level, source: e.source,
       label: first.length > CONSOLE_LABEL_MAX ? first.slice(0, CONSOLE_LABEL_MAX - 1) + '…' : first,
@@ -491,6 +492,25 @@ function consoleLaneOf(
     },
   };
 }
+
+/** Identical entries (same boundary label, same span) collapse into one with a count. */
+function grouped<T>(items: T[], key: (item: T) => string): Array<{ item: T; count: number }> {
+  const groups = new Map<string, { item: T; count: number }>();
+  for (const item of items) {
+    const k = key(item);
+    const group = groups.get(k);
+    if (group) group.count += 1;
+    else groups.set(k, { item, count: 1 });
+  }
+  return Array.from(groups.values());
+}
+const times = (count: number) => (count > 1 ? ` ×${count}` : '');
+const waitKey = (w: PerceivedWait) => `${w.label || '@' + w.depth}|${w.from}|${w.until}|${w.lockedBy}|${w.unlockedBy}`;
+const suspenseKey = (s: TimelineSuspense) => `${s.label || '@' + s.depth}|${s.start}|${s.end}|${s.enteredAt}|${s.leftAt}`;
+
+/** Where a perf entry is drawn: entries that began before the origin start at it. */
+const drawnStart = (p: TimelinePerf) => Math.max(p.start, 0);
+const beforeOrigin = (p: TimelinePerf) => (p.start < 0 ? `, started ${-p.start}ms before the origin` : '');
 
 const consoleText = (c: TimelineConsole) =>
   `${c.source === 'uncaught' ? 'uncaught ' : ''}${c.label}${c.repeat > 1 ? ` ×${c.repeat}` : ''}${c.location ? ' · ' + c.location : ''}`;
@@ -587,8 +607,9 @@ function renderMermaid(result: TimelineResult): string {
   if (browser.length) {
     lines.push('  section Browser (long frames, measures)');
     for (const p of browser) {
-      const name = p.kind === 'frame' ? `long frame ${p.durationMs}ms${p.commits.length ? ' ' + commitSpan(p.commits) : ''}` : `${p.label} ${p.durationMs}ms`;
-      lines.push(`  ${safe(name)} :${p.kind === 'frame' ? 'crit, ' : ''}perf${p.id}, ${bar(p.start, p.end)}`);
+      const name = (p.kind === 'frame' ? `long frame ${p.durationMs}ms${p.commits.length ? ' ' + commitSpan(p.commits) : ''}` : `${p.label} ${p.durationMs}ms`) +
+        (p.start < 0 ? ' from before' : '');
+      lines.push(`  ${safe(name)} :${p.kind === 'frame' ? 'crit, ' : ''}perf${p.id}, ${bar(drawnStart(p), p.end)}`);
     }
   }
   const alerts = result.lanes.console.filter((c) => c.level === 'error' || c.level === 'warn').slice(0, 15);
@@ -598,10 +619,10 @@ function renderMermaid(result: TimelineResult): string {
   }
   if (suspense.length) {
     lines.push('  section User waits (fallback shown)');
-    suspense.forEach((s, n) => {
+    grouped(suspense, suspenseKey).forEach(({ item: s, count }, n) => {
       const stop = s.end ?? end;
       const label = s.end === null ? 'still waiting' : `${stop - s.start}ms`;
-      lines.push(`  ${safe(s.label || '@' + s.depth)} ${label} :${s.end === null ? 'active' : 'crit'}, sus${n}, ${bar(s.start, stop)}`);
+      lines.push(`  ${safe((s.label || '@' + s.depth) + times(count))} ${label} :${s.end === null ? 'active' : 'crit'}, sus${n}, ${bar(s.start, stop)}`);
     });
   }
   const screen = commits.filter((c) => c.kind !== 'update');
@@ -637,10 +658,10 @@ function renderText(result: TimelineResult): string {
   else {
     header.push(p.settledAt !== null
       ? `Fallbacks first shown at +${p.firstLockAt}, all cleared at +${p.settledAt}; ${p.updatesAfterSettled.commits} updates (${p.updatesAfterSettled.rendered} rendered) ran after that, before the next input.`
-      : `Fallbacks first shown at +${p.firstLockAt}; still waiting at the end: ${p.stillWaiting.map((key) => result.boundaries.find((b) => b.boundary === key)?.label || key).join(', ')}.`);
-    for (const w of p.waits.slice(0, 5)) {
+      : `Fallbacks first shown at +${p.firstLockAt}; still waiting at the end: ${Array.from(new Set(p.stillWaiting.map((key) => result.boundaries.find((b) => b.boundary === key)?.label || key))).join(', ')}.`);
+    for (const { item: w, count } of grouped(p.waits, waitKey).slice(0, 5)) {
       const last = w.lastRequests[0];
-      header.push(`  wait ${w.label || '@' + w.depth} ${w.waitedMs}ms (+${w.from} → ${w.until === null ? 'end' : '+' + w.until})` +
+      header.push(`  wait ${w.label || '@' + w.depth}${times(count)} ${w.waitedMs}ms (+${w.from} → ${w.until === null ? 'end' : '+' + w.until})` +
         `, ${w.updatesDuring.commits} updates (${w.updatesDuring.rendered} rendered) meanwhile` +
         (last ? `, last request before unlock: ${last.label} (+${last.end}, ${last.gapMs}ms before)` : ''));
     }
@@ -681,8 +702,8 @@ function renderText(result: TimelineResult): string {
   const rows: Row[] = [];
   for (const i of result.lanes.input) rows.push({ t: i.t, lane: 'input', text: inputLabel(i) });
   for (const r of result.lanes.network) rows.push({ t: r.start, lane: 'net', text: `${r.label}  → +${r.end} (${r.durationMs}ms${r.cached ? ', cached' : ''})` });
-  for (const s of result.lanes.suspense) {
-    rows.push({ t: s.start, lane: 'wait', text: `fallback ${s.label || '@' + s.depth} ` + (s.end === null ? 'still shown at the end' : `until +${s.end} (${s.end - s.start}ms, c${s.enteredAt}→c${s.leftAt})`) });
+  for (const { item: s, count } of grouped(result.lanes.suspense, suspenseKey)) {
+    rows.push({ t: s.start, lane: 'wait', text: `fallback ${s.label || '@' + s.depth}${times(count)} ` + (s.end === null ? 'still shown at the end' : `until +${s.end} (${s.end - s.start}ms, c${s.enteredAt}→c${s.leftAt})`) });
   }
   for (const c of result.lanes.commits) {
     const lane = c.kind === 'update' ? 'react' : 'SCRN';
@@ -693,13 +714,13 @@ function renderText(result: TimelineResult): string {
   for (const p of result.lanes.perf) {
     const commits = p.commits.length ? ` · ${commitSpan(p.commits)}` : '';
     const text =
-      p.kind === 'frame' ? `long frame ${p.durationMs}ms (${p.value ?? 0}ms blocking) → +${p.end}${p.label ? ' · ' + p.label : ''}${commits}` :
-        p.kind === 'measure' ? `measure ${p.label} → +${p.end} (${p.durationMs}ms)` :
+      p.kind === 'frame' ? `long frame ${p.durationMs}ms (${p.value ?? 0}ms blocking${beforeOrigin(p)}) → +${p.end}${p.label ? ' · ' + p.label : ''}${commits}` :
+        p.kind === 'measure' ? `measure ${p.label} → +${p.end} (${p.durationMs}ms${beforeOrigin(p)})` :
           p.kind === 'mark' ? `mark ${p.label}` :
             p.kind === 'shift' ? `layout shift ${p.value}${p.label ? ' · ' + p.label : ''}` :
               p.kind === 'event' ? `slow ${p.label} ${p.durationMs}ms (input delay ${p.value ?? 0}ms)` :
                 `LCP${p.label ? ' ' + p.label : ''}`;
-    rows.push({ t: p.start, lane: p.kind === 'frame' ? 'frame' : 'perf', text });
+    rows.push({ t: drawnStart(p), lane: p.kind === 'frame' ? 'frame' : 'perf', text });
   }
   for (const c of result.lanes.console) rows.push({ t: c.t, lane: c.level, text: consoleText(c) });
   const order: Record<string, number> = { input: 0, net: 1, wait: 2, SCRN: 3, react: 4, frame: 5, perf: 6, error: 7, warn: 7, info: 7, log: 7, debug: 7 };
