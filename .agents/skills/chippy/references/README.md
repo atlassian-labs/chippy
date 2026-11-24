@@ -29,6 +29,7 @@ Choose the Chippy decision in front of you—position evidence, trace the page, 
 | Choose the fix layer | [Fixing performance](fixing-performance.md) | Source/boundary/collateral classification and targeted remediation |
 | Grade one subtree | [Stability render](stability-render.md) | Deterministic nudge procedure and clean/leak/cascade/trasher verdicts |
 | Identify one captured hook | [Debug-hook](debug-hook.md) | Hook primitive, custom-hook ownership, confidence, and remediation branch |
+| Read or write a pack | [Packs](packs.md) | Pack shape, script lifecycle and cleanup, reading extension results, and the live authoring loop |
 
 These pages are siblings, not substitutes. Start with Avalanche for a real slow interaction or load, use stability-render for a known subtree, and use debug-hook only when a capture already produced `sourceId + hookIndex`.
 

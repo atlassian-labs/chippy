@@ -32,28 +32,34 @@ export type PackStatus = {
   }>;
   /** Scripts the page refused to compile, for example under a strict CSP. */
   compileErrors: string[];
-  /** What an extension's `onInit` threw, as `<report key>: <error>`. */
+  /**
+   * What an extension's `onInit` threw, as `<report key>: <error>`, plus what the
+   * replaced version's cleanup threw, as `<report key> cleanup: <error>`.
+   */
   initErrors: string[];
 };
 
 export type PackLoadResult = { ok: true; pack: PackStatus } | { ok: false; error: string };
 
-const packs = new Map<string, { status: PackStatus; unregister: () => void }>();
+/** `unregister` runs the pack's onInit cleanups and returns what they threw. */
+const packs = new Map<string, { status: PackStatus; unregister: () => string[] }>();
 
 /** Validate, compile, register, and enable one pack. Throws on an invalid pack. */
 export function registerPack(input: unknown): PackStatus {
   const pack: ChippyPack = parsePack(input);
   const contextProvider = compileComponents(pack) ?? undefined;
   const { extensions, hooks, compileErrors } = compileScripts(pack);
-  packs.get(pack.id)?.unregister();
+  // A replaced pack cleans up first, so the new onInit sees a page without it.
+  const initErrors: string[] = packs.get(pack.id)?.unregister() ?? [];
   // Init first: it creates the host globals the page and the other phases read.
-  const initErrors: string[] = [];
+  const cleanups: Array<{ id: string; cleanup: () => unknown }> = [];
   for (const { id, init } of extensions) {
     if (!init) continue;
     try {
-      init({ id });
+      const cleanup = init({ id });
+      if (typeof cleanup === 'function') cleanups.push({ id, cleanup: cleanup as () => unknown });
     } catch (error) {
-      initErrors.push(`${id}: ${error instanceof Error ? `${error.name}: ${error.message}` : String(error)}`);
+      initErrors.push(`${id}: ${messageOf(error)}`);
     }
   }
   const unregister = registerPlugin({
@@ -82,9 +88,23 @@ export function registerPack(input: unknown): PackStatus {
     unregister: () => {
       unregister();
       packs.delete(pack.id);
+      // Undo onInit's page side effects (observers, wrapped functions, globals), newest first.
+      const errors: string[] = [];
+      for (const { id, cleanup } of cleanups.reverse()) {
+        try {
+          cleanup();
+        } catch (error) {
+          errors.push(`${id} cleanup: ${messageOf(error)}`);
+        }
+      }
+      return errors;
     },
   });
   return status;
+}
+
+function messageOf(error: unknown): string {
+  return error instanceof Error ? `${error.name}: ${error.message}` : String(error);
 }
 
 /** Register many packs; one bad pack does not stop the others. */

@@ -272,5 +272,42 @@ describe('perf lane', () => {
     if ('error' in result) throw new Error(result.error);
     expect(result.lanes.perf).toEqual([{ id: 1, kind: 'frame', label: '', start: 90, end: 210, durationMs: 120, value: 70, commits: [1, 2] }]);
   });
+  it('tells console errors, warnings, and logs on the timeline, linked to commits', () => {
+    const entry = (id: number, level: string, source: string, time: number, message: string, extra = {}) =>
+      ({ id, level, source, time, repeat: 1, message, stack: null, location: null, ...extra });
+    const consoleEntries = [
+      entry(1, 'log', 'console', 900, 'before the click'),
+      entry(2, 'warn', 'console', 1150, 'Each child should have a unique key', { repeat: 3, lastTime: 1160, location: 'https://app.test/src/List.tsx:12:5' }),
+      entry(3, 'error', 'uncaught', 1510, 'TypeError: x is undefined\n    at render', { location: 'https://app.test/src/Item.tsx:40:9' }),
+      entry(4, 'info', 'console', 1520, 'one'),
+      entry(5, 'info', 'console', 1530, 'two'),
+      entry(6, 'error', 'console', 1540, 'chippy says hi', { chippy: true }),
+      entry(7, 'error', 'rejection', 2000, 'Uncaught (in promise) late'),
+      entry(8, 'error', 'console', 3200, 'after commit 5 starts'),
+    ];
+    const result = buildTimeline({ ...report, consoleEntries } as never, { toCommit: 4, maxLogs: 1 });
+    if ('error' in result) throw new Error(result.error);
+    expect(result.lanes.console.map((c) => [c.id, c.level, c.t, c.afterCommit])).toEqual([
+      [2, 'warn', 150, 1], [3, 'error', 510, 3], [4, 'info', 520, 3], [7, 'error', 1000, 4],
+    ]);
+    expect(result.lanes.console[1]).toMatchObject({ label: 'TypeError: x is undefined', location: 'Item.tsx:40:9' });
+    expect(result.omitted.logs).toBe(1);
+    expect(result.console).toMatchObject({ errors: 2, warnings: 3, other: 2, firstError: { id: 3 } });
+    expect(result.text).toContain('Console: 2 errors, 3 warnings; first error +510 (after c3): uncaught TypeError: x is undefined · Item.tsx:40:9.');
+    expect(result.text).toMatch(/\+ *150 +warn +Each child should have a unique key ×3 · List\.tsx:12:5/);
+    expect(result.text).not.toContain('chippy says hi');
+    expect(result.mermaid).toContain('section Console (errors, warnings)');
+    expect(result.mermaid).toMatch(/:crit, milestone, log3, 510, 510/);
+    const whole = buildTimeline({ ...report, consoleEntries } as never);
+    if ('error' in whole) throw new Error(whole.error);
+    expect(whole.lanes.console.at(-1)).toMatchObject({ id: 8, t: 2200, afterCommit: 6 });
+  });
+
+  it('has no console lane or summary when the report has no console entries', () => {
+    const t = built();
+    expect(t.lanes.console).toEqual([]);
+    expect(t.console).toBeNull();
+    expect(t.text).not.toContain('Console:');
+  });
 });
 
