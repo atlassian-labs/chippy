@@ -51,6 +51,7 @@ so the agent can connect what the user saw to the code that caused it:
 | Input | Each click, key press, and input event, with its DOM target and nearest component, linked to the commit it set off |
 | Network | Requests from Resource Timing, with their timing and cache use, placed next to the commits around them |
 | Browser performance | Layout shifts, long frames, slow interactions (INP), LCP, and your own `performance.mark` and `measure` entries |
+| Console | Console errors, warnings, and logs, uncaught errors, and unhandled promise rejections, with the caller's location and the commit each followed |
 | Snapshots | A fingerprint of every component's props in one state, diffed against another state or another page |
 | Your app | Anything a [pack](#packs) teaches it: your boundary names, your metrics, your data layer |
 

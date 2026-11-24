@@ -433,13 +433,14 @@ const api: AvalancheApi = {
     let commitCount = 0;
     let networkRequests = 0;
     let perfEntries = 0;
+    let consoleEntries = 0;
     let renderedEvidence: RenderedEvidenceStatus | null = null;
     let paused = false;
     let pausedAt: number | null = null;
     try {
       // Counting must not build and walk a full report.
       const counts = detector ? detector.counts() : null;
-      if (counts) ({ commits: commitCount, networkRequests, perfEntries, renderedEvidence, capture: { paused, pausedAt } } = counts);
+      if (counts) ({ commits: commitCount, networkRequests, perfEntries, consoleEntries, renderedEvidence, capture: { paused, pausedAt } } = counts);
     } catch (_) {}
     const integrationMode = detector
       ? (detector as any).getIntegrationMode?.() ?? 'none'
@@ -452,7 +453,7 @@ const api: AvalancheApi = {
     const packs = listPacks().map(({ id, label, instructions, extensions, compileErrors, initErrors }) => ({ id, label, instructions, extensions, compileErrors, initErrors }));
     let hooks: Record<string, AvalancheHookSummary> | null = null;
     try { hooks = summarizeHookResults(detector?.hookResults()); } catch (_) {}
-    return { installed, paused, pausedAt, hasMetricsGlobal, commitCount, integrationMode, detectionMode, metricsAdapter, networkRequests, perfEntries, renderedEvidence, packs, hooks };
+    return { installed, paused, pausedAt, hasMetricsGlobal, commitCount, integrationMode, detectionMode, metricsAdapter, networkRequests, perfEntries, consoleEntries, renderedEvidence, packs, hooks };
   },
   registerCommitMetricsAdapter,
   enablePlugins,

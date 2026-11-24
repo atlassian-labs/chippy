@@ -104,6 +104,7 @@ The first read of a capture, in one call. It answers what an analysis asks first
 - `topCommits`: the `top` commits (default 5) with the most collateral, ties by id. Each has `stat`, `atMs` (from the timeline origin, the last interaction; negative for commits before it), `renderMs`, `ticks`, `paintDelayMs` (commit end to paint), `sourcesTotal`, `sources` (the first `maxItems`, default 3: `sourceId`, `collateralAtCommit`, and `changedHooks` with `index` and `sameContent`, true when the new value equals the old one by content), `latestAction`, and `hooks` (each pack hook's step for that commit). A missing timing is `null`, not 0.
 - `hooks`: each pack hook's start, end, step count, and errors; `null` when no pack hooks ran.
 - `perf`: the [`avalanche-perf`](#avalanche-perf-clientid-types-top-match-fromcommit-tocommit) `summary` over the whole capture; `null` when the report has no performance entries.
+- `console`: the [`avalanche-console`](#avalanche-console-clientid-levels-top-match-fromcommit-tocommit) `summary` over the whole capture; `null` before report version 10.
 - `meta`: the capture metadata.
 
 Each top commit also has `rebuiltProps`, read from `renderedByCommit`, or `null` when no rendered entry has a key diff: `sameShallow`, `keysChanged`, and `notCompared` count the `ref-changed` object and array prop changes of each kind, and `groups` (the first `maxItems`, then `omittedGroups`) merges identical changes of one prop across components, by `components` received: `prop`, the first `component` and `sourceId` in render order, and `sameShallow: true` or `changedKeys` (key names) with `changedKeyCount`. A large group with `sameShallow: true` is one rebuilt object that rendered many components for nothing.
@@ -159,6 +160,8 @@ stats,sources,timing,metrics,hooks,unmounts,actions,rendered,network,dom,perf
 
 `perf` returns `perf`, the browser performance entries near this commit (those whose span holds the commit's start, and those that started after it and before the next commit), longest first and cut to `maxItems`, in the `avalanche-perf` entry shape, and `perfTotal`, their untrimmed count.
 
+`console` returns `console`, the page's console entries logged after this commit started and before the next commit, earliest first and cut to `maxItems`, in the `avalanche-console` entry shape, and `consoleTotal`, their untrimmed count.
+
 `unmounts` returns bounded branch-start samples for this one commit. It is a zoom-in surface, not a full export: use `commit-list ... unmountedComponents` / `unmountedSubtrees` for counts first, then `commit-peek N ... unmounts` to ask where teardown started and how large each sampled branch was.
 
 `sources` rows: `sourceId`, `depth`, `collateralAtCommit`, `rankAtCommit` (position among all sources ranked by total waste), `trashers` (`[{ index, prevValue, currentValue }]` for changed hooks when the detection mode records amplifiers; primitives are exact and long strings are cut, while objects and arrays are bounded copies two levels deep with up to 8 entries, and DOM nodes, React elements, fibers, functions, promises, maps, sets, and repeated references become short `[...]` markers), `causedUpdatesTotal`, and `collateralUpdatesTotal`. `missing: true` marks an id that has no aggregate source row.
@@ -204,6 +207,21 @@ Every entry has `id`, `entryType`, `name`, `startTime`, `duration`, and `commits
 - navigation: `navigationType`, `ttfb`, `domContentLoaded`, `load`, and `transferSize`.
 
 A long frame lists every commit that started inside it under `commits.during`: those commits ran without a paint between them, so the user saw none of them until the frame ended. Layout shifts and LCP are reported at the frame after the DOM moved, so read `before` for them; for long frames, events, and measures read `during`. Every link is temporal proximity, not proof of cause. A report recorded before version 9 has no entries and returns an error that says so.
+
+### `avalanche-console <clientId> [levels] [top] [match] [fromCommit] [toCommit]`
+```bash
+chippy.sh avalanche-console my-client
+chippy.sh avalanche-console my-client error,warn
+chippy.sh avalanche-console my-client '' 100 'fetch|timeout'
+chippy.sh avalanche-console my-client error '' '' 30 42
+```
+Lists the console messages Avalanche recorded during the capture: `console.error`, `warn`, `info`, `log`, and `debug` calls, uncaught errors, and unhandled promise rejections. `levels` is a CSV of `error`, `warn`, `info`, `log`, and `debug` (default all). `top` caps entries, earliest first (default 50). `match` is a case-insensitive regex on the message. `fromCommit` and `toCommit` keep entries from the first commit's start until the commit after the last one starts. Pass `""` to skip a position. Messages Chippy writes itself (`[avalanche] …`, `[Chippy …`) are left out; the MCP tool's `includeChippy` adds them.
+
+`payload` holds `status` (`meta.console`), `summary`, `count` (entries that matched), `truncated`, and `entries`. `summary` counts occurrences of the page's own messages over the window, repeats included: `errors`, `warnings`, `other` (`info`, `log`, `debug`), `uncaught`, `rejections`, `chippy` (Chippy's entries, left out of the other counts), and `firstError` (`id`, `time`, `message`, `location`, `commitId`), usually the lead.
+
+Every entry has `id`, `level`, `source` (`console`, `uncaught`, or `rejection`), `time` (`performance.now()`), `repeat` and `lastTime` (consecutive identical messages collapse into one entry), `message` (rejections start with `Uncaught (in promise)`; format tokens such as `%s` substituted, objects previewed two levels deep, cut to 1500 characters), `location` (`url:line:column` of the caller for errors and warnings, of the throw for an uncaught error or a rejected `Error`; `null` for other levels and for code without a script URL), `stack` (for errors and warnings; a logged `Error`'s own stack when there is one, otherwise the call stack, eight frames), `chippy: true` on Chippy's own messages, and `commit` (`{commitId, gapMs}`, the last commit that started at or before it). A warning React writes while rendering a commit links to that commit; every link is timing, not cause.
+
+Capture runs only while the detector is installed. It wraps the console methods, so DevTools shows Chippy's bundle as the caller of each message unless that bundle is ignore-listed; `location` keeps the real caller. Each level keeps 200 entries, dropping its own oldest first, so log noise cannot push out errors; `meta.console.dropped` counts what went. A failed image or script load is not recorded (read `avalanche-network`). A report recorded before version 10 has no entries and returns an error that says so.
 
 ### `avalanche-network <clientId> [top] [by] [match] [initiators] [windowMs]`
 ```bash
@@ -335,7 +353,7 @@ chippy.sh avalanche-offline .chippy-captures/raf-1846.json source-search --name 
 ```
 Use saved captures without a live page. `commit-list`, `commit-peek`, `hot-sources`, `describe-action`, `network`, `perf`, `timeline`, and `dom-diff` run the same code as the live commands and return the same shapes, so sort keys and include values match the live tables above (`unmounts` is live-only; a saved capture always returns it empty).
 
-Offline arguments: `commit-list [top] [by]`, `commit-peek <commitId> [include] [maxItems]` (no `depth`; the third value is maxItems, default 50), `hot-sources [limit]`, `describe-action <actionId>`, `network [top] [by] [match] [initiators] [windowMs]`, `perf [types] [top] [match] [fromCommit] [toCommit]`, `timeline [fromCommit] [toCommit] [minRequestMs] [exclude]` (`--top N` keeps the N longest requests, `--format full` adds lanes), `dom-diff [fromCommit] [toCommit] [match] [maxItems]` (`--top N` caps commits), and `source-search --name <regex> [--top N]` (default top 50). Flags such as `--top`, `--by`, `--include`, `--maxItems`, `--match`, `--initiators`, and `--window` are accepted in place of positional values.
+Offline arguments: `commit-list [top] [by]`, `commit-peek <commitId> [include] [maxItems]` (no `depth`; the third value is maxItems, default 50), `hot-sources [limit]`, `describe-action <actionId>`, `network [top] [by] [match] [initiators] [windowMs]`, `perf [types] [top] [match] [fromCommit] [toCommit]`, `console [levels] [top] [match] [fromCommit] [toCommit]`, `timeline [fromCommit] [toCommit] [minRequestMs] [exclude]` (`--top N` keeps the N longest requests, `--format full` adds lanes), `dom-diff [fromCommit] [toCommit] [match] [maxItems]` (`--top N` caps commits), and `source-search --name <regex> [--top N]` (default top 50). Flags such as `--top`, `--by`, `--include`, `--maxItems`, `--match`, `--initiators`, and `--window` are accepted in place of positional values.
 
 `summary [top] [maxItems]` returns the `avalanche-summary` digest, with its fields at the top level beside `ok` and `action`. `source-search --name <regex>` matches aggregate sources by `sourceId` and rendered components by name with per-instance render and self-source counts.
 
@@ -408,7 +426,9 @@ Start with these fields:
 - suspense events carry `boundary` (a stable id per boundary within the capture) and `location` (the parent and owner chain described under `avalanche-timeline`)
 - `perfEntries[]` — browser performance entries recorded during the capture, in arrival order (`avalanche-perf` entry fields without the commit links)
 - `meta.perf` — `{enabled, observed, unsupported, windowStart, entries, byType, dropped, pausedAt}`: whether capture is on, the entry types this browser lets it observe and those it does not, when the capture window opened, how many entries are kept (in total and by type), how many of the oldest of each type were dropped past 300 per type, and when the capture was paused
-- `meta.version` — report format; 8 adds `networkRequests` and `meta.network`; 9 adds `perfEntries` and `meta.perf`
+- `consoleEntries[]` — console messages, uncaught errors, and unhandled rejections recorded during the capture, in arrival order (`avalanche-console` entry fields without the commit link)
+- `meta.console` — `{enabled, installed, windowStart, entries, byLevel, dropped, pausedAt}`: whether capture is on and the console wrapped, when the window opened, how many entries are kept (in total and by level), how many of the oldest of each level were dropped past 200, and when the capture was paused
+- `meta.version` — report format; 8 adds `networkRequests` and `meta.network`; 9 adds `perfEntries` and `meta.perf`; 10 adds `consoleEntries` and `meta.console`
 
 ### Render ticks
 

@@ -92,6 +92,7 @@ Usage:
   ./scripts/chippy.sh avalanche-describe-action <clientId> <actionId>
   ./scripts/chippy.sh avalanche-network <clientId> [top] [by] [match] [initiators] [windowMs]
   ./scripts/chippy.sh avalanche-perf <clientId> [types] [top] [match] [fromCommit] [toCommit]
+  ./scripts/chippy.sh avalanche-console <clientId> [levels] [top] [match] [fromCommit] [toCommit]
   ./scripts/chippy.sh avalanche-timeline <clientId> [fromCommit] [toCommit] [minRequestMs] [exclude] [format]
   ./scripts/chippy.sh avalanche-dom-diff <clientId> [fromCommit] [toCommit] [match] [maxItems] [top]
   ./scripts/chippy.sh avalanche-install <clientId> [detectionMode]
@@ -99,7 +100,7 @@ Usage:
   ./scripts/chippy.sh avalanche-recapture <clientId> [detectionMode]
   ./scripts/chippy.sh avalanche-debug-hook <clientId> <sourceId> <hookIndex> [window] [sourceMaps=true|false]
   ./scripts/chippy.sh avalanche-save <clientId> <file> [count]
-  ./scripts/chippy.sh avalanche-offline <file> <summary|commit-list|commit-peek|hot-sources|describe-action|network|perf|timeline|dom-diff|source-search> [args...]
+  ./scripts/chippy.sh avalanche-offline <file> <summary|commit-list|commit-peek|hot-sources|describe-action|network|perf|console|timeline|dom-diff|source-search> [args...]
   ./scripts/chippy.sh eval-page <clientId> <snippet-file-or-name|-> [--allow replay] [--script-timeout ms] [--key value ...]
   ./scripts/chippy.sh eval-snippets
   ./scripts/chippy.sh avalanche-arm <clientId> <origin> [maxCommits] [captureFibers=true|false] [detectionMode=sources|full|stats|amplifiers]
@@ -984,7 +985,7 @@ case "$cmd" in
     max_items="${6:-20}"
     if [[ -z "$client_id" || -z "$commit_id" ]]; then
       echo "avalanche-commit-peek requires <clientId> <commitId> [include] [depth] [maxItems]" >&2
-      echo "  include csv ⊆ stats,sources,timing,metrics,hooks,unmounts,actions,rendered,network,dom,perf (unmounts is live-only)" >&2
+      echo "  include csv ⊆ stats,sources,timing,metrics,hooks,unmounts,actions,rendered,network,dom,perf,console (unmounts is live-only)" >&2
       exit 1
     fi
     include_json="["
@@ -1045,6 +1046,28 @@ case "$cmd" in
     fi
     body="{\"action\":\"perf\""
     if [[ -n "$types" ]]; then body+=",\"types\":$(json_escape "$types")"; fi
+    if [[ -n "$top" ]]; then body+=",\"top\":$top"; fi
+    if [[ -n "$match" ]]; then body+=",\"match\":$(json_escape "$match")"; fi
+    if [[ -n "$from_commit" ]]; then body+=",\"fromCommit\":$from_commit"; fi
+    if [[ -n "$to_commit" ]]; then body+=",\"toCommit\":$to_commit"; fi
+    body+="}"
+    post_avalanche "$client_id" "$body"
+    ;;
+  avalanche-console)
+    client_id="${2:-}"
+    levels="${3:-}"
+    top="${4:-}"
+    match="${5:-}"
+    from_commit="${6:-}"
+    to_commit="${7:-}"
+    if [[ -z "$client_id" ]]; then
+      echo "avalanche-console requires <clientId> [levels] [top] [match] [fromCommit] [toCommit]" >&2
+      echo "  levels csv ⊆ error,warn,info,log,debug (default all)" >&2
+      echo "  top caps entries, earliest first (default 50); match is a regex over messages; pass \"\" to skip a position" >&2
+      exit 1
+    fi
+    body="{\"action\":\"console\""
+    if [[ -n "$levels" ]]; then body+=",\"levels\":$(json_escape "$levels")"; fi
     if [[ -n "$top" ]]; then body+=",\"top\":$top"; fi
     if [[ -n "$match" ]]; then body+=",\"match\":$(json_escape "$match")"; fi
     if [[ -n "$from_commit" ]]; then body+=",\"fromCommit\":$from_commit"; fi
@@ -1180,7 +1203,7 @@ case "$cmd" in
   avalanche-offline)
     shift
     if [[ $# -lt 2 ]]; then
-      echo "avalanche-offline requires <file> <summary|commit-list|commit-peek|hot-sources|describe-action|network|perf|timeline|dom-diff|source-search> [args...]" >&2
+      echo "avalanche-offline requires <file> <summary|commit-list|commit-peek|hot-sources|describe-action|network|perf|console|timeline|dom-diff|source-search> [args...]" >&2
       exit 1
     fi
     node "$SCRIPT_DIR/avalanche-analyze.cjs" "$@"

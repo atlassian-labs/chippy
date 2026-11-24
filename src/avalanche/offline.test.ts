@@ -151,9 +151,41 @@ describe('offline Avalanche analysis', () => {
       const exported = evalAvalanche({ action: 'export' }, { report: () => detector!.report() as any }, null) as any;
       expect(exported.payload.perfEntries).toEqual([expect.objectContaining({ id: 1, entryType: 'mark', name: 'ready' })]);
       expect(exported.payload.meta.perf).toMatchObject({ enabled: true, observed: ['mark', 'long-animation-frame'], entries: 1 });
-      expect(exported.payload.meta.version).toBe(9);
+      expect(exported.payload.meta.version).toBe(10);
     } finally {
       runtime.PerformanceObserver = previous;
+    }
+  });
+
+  it('lists console messages from a saved export like the live page, linked to the commit before them', () => {
+    const quiet = { error: console.error, warn: console.warn };
+    console.error = () => {};
+    console.warn = () => {};
+    try {
+      const { api } = capture(2);
+      console.error('failed to load %s', 'board');
+      console.warn('[avalanche] own note');
+      const saved = JSON.parse(JSON.stringify((evalAvalanche({ action: 'export' }, api, null) as any).payload));
+      const live = evalAvalanche({ action: 'console', levels: 'error,warn' }, api, null) as any;
+      expect(live).toMatchObject({
+        ok: true,
+        action: 'console',
+        payload: {
+          count: 1,
+          summary: { errors: 1, warnings: 0, chippy: 1, firstError: { message: 'failed to load board', commitId: 2 } },
+          entries: [{ level: 'error', source: 'console', message: 'failed to load board', commit: { commitId: 2 } }],
+        },
+      });
+      expect(live.payload.entries[0].location).toMatch(/offline\.test\.ts:\d+:\d+$/);
+      const { ok: _ok, action: _action, ...offline } = analyzeSavedReport(unwrapSavedReport(saved)!, 'console', { _: ['error,warn'] }) as any;
+      expect(offline).toEqual(JSON.parse(JSON.stringify({ payload: live.payload })));
+      const peek = evalAvalanche({ action: 'commit-peek', commitId: 2, include: ['console'] }, api, null) as any;
+      expect(peek.payload).toMatchObject({ consoleTotal: 1, console: [{ message: 'failed to load board' }] });
+      expect((evalAvalanche({ action: 'summary' }, api, null) as any).payload.console).toMatchObject({ errors: 1 });
+      detector!.uninstall();
+      expect(console.error).not.toHaveProperty('name', 'chippyConsoleCapture');
+    } finally {
+      Object.assign(console, quiet);
     }
   });
 

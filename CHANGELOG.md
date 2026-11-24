@@ -28,6 +28,16 @@ must stay compatible with the extension version in the store.
 
 ### Added
 
+- Avalanche records the console while it is installed: `console.error`, `warn`,
+  `info`, `log`, and `debug` calls, uncaught errors, and unhandled promise
+  rejections, each with the caller's location, a stack for errors and warnings,
+  and a repeat count for consecutive identical messages. `avalanche-console
+  <clientId> [levels] [top] [match] [fromCommit] [toCommit]` (also offline and
+  in the MCP `chippy_avalanche` tool) lists them with the commit each followed
+  and a summary naming the first error; `commit-peek` include `console` and
+  `avalanche-summary` `console` carry them too. Chippy's own messages are
+  flagged and left out by default. Reports are version 10 (`consoleEntries`,
+  `meta.console`); `consoleCapture: false` turns capture off.
 - A pack's `onInit` can return a cleanup function. Chippy calls it when
   `unregisterPack(id)` removes the pack and before a same-id pack's `onInit`, so
   loading a newer version replaces the old one instead of leaving its observers

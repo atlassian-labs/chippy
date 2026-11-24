@@ -241,6 +241,7 @@ avalanche-commit-peek <clientId> <commitId> [include] [depth] [maxItems]
 avalanche-describe-action <clientId> <actionId>
 avalanche-network <clientId> [top] [by] [match] [initiators] [windowMs]
 avalanche-perf <clientId> [types] [top] [match] [fromCommit] [toCommit]
+avalanche-console <clientId> [levels] [top] [match] [fromCommit] [toCommit]
 avalanche-timeline <clientId> [fromCommit] [toCommit] [minRequestMs] [exclude] [format]
 avalanche-dom-diff <clientId> [fromCommit] [toCommit] [match] [maxItems] [top]
 avalanche-install <clientId> [detectionMode]
@@ -301,6 +302,7 @@ Choose capture mode from the symptom:
 | Slow click, typing, scroll, route interaction, or live re-render | `avalanche-arm`, then reproduce, then read | Do not reload; capture the real interaction. |
 | First paint, cold start, or initial-load settling | `reload-with-avalanche` | It reloads and may lose early commits; tune the settle window before blaming injection timing. |
 | Layout shift, long frame, slow interaction (INP), late LCP, or a `performance.mark`/`measure` | Either capture above, then `avalanche-perf` | Entries are matched to commits by time: proximity, not cause. Interaction events shorter than 16 ms, and other events shorter than 50 ms, are not recorded. |
+| A console error or warning, an uncaught exception, or an unhandled rejection during the interaction | Either capture above, then `avalanche-console` | Each message links to the last commit that started before it: timing, not cause. Errors and warnings carry the caller's location and a stack. Chippy's own messages are left out unless you ask for them. |
 | How much of a view is a skeleton, or when each section appears | `eval-page <clientId> component-area --watch start --root <testid> --testids ...`, interact, then `--watch stop` | Areas are on-screen square pixels; `placeholder` is Suspense-fallback DOM. Align `startedAt` with commit timings to name the commit that filled a section. |
 | Why it felt slow: what the user waited for, and what the CPU did meanwhile | Either capture above, then `avalanche-timeline` | Suspense lock and unlock are what the user sees; other commits are CPU work that may or may not change the screen. A request ending just before an unlock is a candidate, not proof. |
 | Slow data load, request waterfall, or a commit that waits on a response | Either capture above, then `avalanche-network` | A request is listed once it finishes. Its commit links are proximity within a window (250 ms by default), not cause. No headers or bodies. |

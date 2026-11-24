@@ -12,6 +12,7 @@ import { CS_RESTARTS } from './commit-stats-indices';
 import type { CommitTicks, RenderTickStatus } from './render-ticks';
 import type { NetworkCaptureStatus, NetworkRequest } from './network-capture';
 import type { PerfCaptureStatus, PerfEntry } from './perf-capture';
+import type { ConsoleCaptureStatus, ConsoleEntry } from './console-capture';
 import type { ScreenChange } from './screen-changes';
 import type { DomCommitDiff } from './dom-diff';
 import type { SuspenseLocation } from './suspense-location';
@@ -296,6 +297,11 @@ export interface ReportMeta {
    */
   perf?: PerfCaptureStatus;
   /**
+   * Console capture behind `consoleEntries`: whether it is on, when the window
+   * opened, entries per level, and what was dropped. Absent before v10.
+   */
+  console?: ConsoleCaptureStatus;
+  /**
    * `renderedByCommit` budget and what it dropped. `evicted.throughCommit`:
    * commits up to it may have lost their rendered evidence.
    */
@@ -523,6 +529,13 @@ export interface Report {
   perfEntries?: PerfEntry[];
 
   /**
+   * Console messages (`console.error`, `warn`, `info`, `log`, `debug`), uncaught
+   * errors, and unhandled promise rejections, on the same clock as
+   * `commitTimings`. Commit links are computed on read. Absent before report v10.
+   */
+  consoleEntries?: ConsoleEntry[];
+
+  /**
    * Spans of Chippy's own work in the page (bridge commands and snapshots), so
    * long frames Chippy caused can be left out of page metrics. Absent when
    * Chippy recorded none.
@@ -641,6 +654,16 @@ export interface DetectorOptions {
 
   /** Performance entries kept per entry type; the oldest of a type are dropped first. Default: 300. */
   maxPerfEntries?: number;
+
+  /**
+   * Record console messages, uncaught errors, and unhandled rejections while
+   * the detector is installed. Wraps the console methods; DevTools then shows
+   * Chippy's bundle as the caller unless it is ignore-listed. Default true.
+   */
+  consoleCapture?: boolean;
+
+  /** Console entries kept per level; the oldest of a level are dropped first. Default: 200. */
+  maxConsoleEntries?: number;
 
   /**
    * Commit metrics adapter for host render counters. Defaults to the adapter
@@ -792,6 +815,9 @@ export interface ProfilerState {
   /** Browser performance entries recorded during the capture. */
   perfEntries?: PerfEntry[];
 
+  /** Console messages and uncaught errors recorded during the capture. */
+  consoleEntries?: ConsoleEntry[];
+
   /** Screen area each commit changed. */
   screenByCommit?: Record<number, ScreenChange>;
 
@@ -888,6 +914,8 @@ export function buildReport(
     network?: NetworkCaptureStatus;
     /** Performance entry capture status from the detector. */
     perf?: PerfCaptureStatus;
+    /** Console capture status from the detector. */
+    console?: ConsoleCaptureStatus;
     renderedEvidence?: RenderedEvidenceStatus;
     domDiff?: RenderedEvidenceStatus;
     capture?: CaptureStatus;
@@ -1111,7 +1139,7 @@ export function buildReport(
   const renderTicks: RenderTickStatus = detectorConfig?.renderTicks
     ?? { available: false, sources: [], reason: 'detector not installed' };
   const meta: ReportMeta = {
-    version: 9, // v9: perfEntries + meta.perf; v8: networkRequests + meta.network; v7: meta.timeOrigin, absolute commit and action timestamps
+    version: 10, // v10: consoleEntries + meta.console; v9: perfEntries + meta.perf; v8: networkRequests + meta.network; v7: meta.timeOrigin, absolute commit and action timestamps
     timeOrigin: performance.timeOrigin,
     commits: state.commits,
     config: {
@@ -1149,6 +1177,7 @@ export function buildReport(
     network: detectorConfig?.network
       ?? { supported: false, enabled: false, windowStart: 0, requests: 0, dropped: 0, ignoredOwn: 0, pausedAt: null },
     ...(detectorConfig?.perf && { perf: detectorConfig.perf }),
+    ...(detectorConfig?.console && { console: detectorConfig.console }),
     timing: {
       totalDetectorOverhead,
       avgDetectorOverhead,
@@ -1169,6 +1198,7 @@ export function buildReport(
     renderedByCommit: state.renderedByCommit,
     networkRequests: state.networkRequests.slice(),
     ...(state.perfEntries && { perfEntries: state.perfEntries.slice() }),
+    ...(state.consoleEntries && { consoleEntries: state.consoleEntries.map((entry) => ({ ...entry })) }),
     ...(ownWorkSince().length > 0 && { ownWork: ownWorkSince() }),
     ...(state.screenByCommit && Object.keys(state.screenByCommit).length > 0 && { screenByCommit: { ...state.screenByCommit } }),
     ...(state.domByCommit && Object.keys(state.domByCommit).length > 0 && { domByCommit: { ...state.domByCommit } }),
