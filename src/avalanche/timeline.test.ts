@@ -219,6 +219,22 @@ describe('sibling boundaries', () => {
     expect(t.boundaries.map((x) => [x.boundary, x.label])).toEqual([['b1', 'Header'], ['b2', 'Body']]);
     expect(t.lanes.suspense.map((s) => [s.label, s.enteredAt, s.leftAt])).toEqual([['Header', 1, 3], ['Body', 1, 5]]);
   });
+
+  it('tells identical waits once, with a count', () => {
+    const a = { chain: [{ via: 'parent' as const, name: 'Header' }] };
+    const t = buildTimeline({
+      ...report,
+      suspenseByCommit: {
+        1: [{ depth: 10, boundary: 1, entered: true, left: false, location: a }, { depth: 10, boundary: 2, entered: true, left: false, location: a }],
+        3: [{ depth: 10, boundary: 1, entered: false, left: true }, { depth: 10, boundary: 2, entered: false, left: true }],
+      },
+    } as never, { toCommit: 4 }) as TimelineResult;
+    expect(t.lanes.suspense).toHaveLength(2);
+    expect(t.text.match(/wait Header ×2 /g)).toHaveLength(1);
+    expect(t.text.match(/fallback Header/g)).toEqual(['fallback Header']);
+    expect(t.text).toContain('fallback Header ×2 until +500');
+    expect(t.mermaid.match(/Header ×2 /g)).toHaveLength(1);
+  });
 });
 
 describe('perf lane', () => {
@@ -266,6 +282,16 @@ describe('perf lane', () => {
     expect(result.text).toContain("Chippy's own long frames, left out of the totals: 1, 150ms blocking.");
   });
 
+  it('draws a measure that started before the origin from the origin, and says so', () => {
+    const perfEntries = [{ id: 1, entryType: 'measure', name: 'bundle-ready', startTime: 0, duration: 1484 }];
+    const result = buildTimeline({ ...report, perfEntries } as never);
+    if ('error' in result) throw new Error(result.error);
+    expect(result.lanes.perf[0]).toMatchObject({ kind: 'measure', start: -1000, end: 484 });
+    expect(result.text).toMatch(/\+ *0 +perf +measure bundle-ready → \+484 \(1484ms, started 1000ms before the origin\)/);
+    expect(result.text).not.toContain('+-');
+    expect(result.mermaid).toContain('bundle-ready 1484ms from before :perf1, 0, 484');
+  });
+
   it('counts long task time over 50 ms as blocking where frames are missing', () => {
     const perfEntries = [{ id: 1, entryType: 'longtask', name: 'self', startTime: 1090, duration: 120 }];
     const result = buildTimeline({ ...report, perfEntries } as never);
@@ -301,6 +327,13 @@ describe('perf lane', () => {
     const whole = buildTimeline({ ...report, consoleEntries } as never);
     if ('error' in whole) throw new Error(whole.error);
     expect(whole.lanes.console.at(-1)).toMatchObject({ id: 8, t: 2200, afterCommit: 6 });
+  });
+
+  it('labels a console message by its first line with text', () => {
+    const consoleEntries = [{ id: 1, level: 'warn', source: 'console', time: 1150, repeat: 1, message: '\n  \nWarning: blank first line\nmore', stack: null, location: null }];
+    const result = buildTimeline({ ...report, consoleEntries } as never);
+    if ('error' in result) throw new Error(result.error);
+    expect(result.lanes.console[0].label).toBe('Warning: blank first line');
   });
 
   it('has no console lane or summary when the report has no console entries', () => {

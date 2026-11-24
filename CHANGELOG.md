@@ -184,6 +184,15 @@ must stay compatible with the extension version in the store.
 
 ### Fixed
 
+- `avalanche-timeline` draws a performance entry that started before the
+  origin, such as a measure from navigation start, from the origin and says how
+  long before it started. Previously its row read `+-112608` and its chart bar
+  stretched the axis back to navigation.
+- `avalanche-timeline` tells identical waits once with `×N`, in the summary,
+  the rows, and the chart. Sibling boundaries rendered by one component
+  previously produced duplicate lines.
+- `avalanche-timeline` labels a console message by its first line with text,
+  so a message that opens with a blank line no longer has an empty label.
 - `eval-page` prints a failed script's whole envelope, `log` included, and
   exits 1. The docs had described an HTTP 504 for a script that throws; the
   helper answers 504 only when the page sends no answer.
