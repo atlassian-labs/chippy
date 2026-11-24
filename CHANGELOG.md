@@ -36,7 +36,10 @@ must stay compatible with the extension version in the store.
   in the MCP `chippy_avalanche` tool) lists them with the commit each followed
   and a summary naming the first error; `commit-peek` include `console` and
   `avalanche-summary` `console` carry them too. Chippy's own messages are
-  flagged and left out by default. Reports are version 10 (`consoleEntries`,
+  flagged and left out by default. `avalanche-timeline` tells errors and warnings
+  in the story of the interaction: `error` and `warn` rows with location and
+  repeat count, a `Console:` header line naming the first error, a Console
+  gantt section, and `lanes.console`. Reports are version 10 (`consoleEntries`,
   `meta.console`); `consoleCapture: false` turns capture off.
 - A pack's `onInit` can return a cleanup function. Chippy calls it when
   `unregisterPack(id)` removes the pack and before a same-id pack's `onInit`, so

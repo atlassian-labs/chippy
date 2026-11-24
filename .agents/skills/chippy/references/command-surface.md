@@ -85,7 +85,7 @@ Load [active-stimulus](active-stimulus.md) before an active command. A `fiber:*`
 | `avalanche-commit-list` | Rank compact commits by a supported signal. |
 | `avalanche-commit-peek` | Join bounded detail for one commit. |
 | `avalanche-describe-action` | Expand one action breadcrumb and its owner/parent context. |
-| `avalanche-timeline` | Put input, network requests, Suspense fallbacks, and commits on one timeline from the interaction, with a summary of what the user waited for, VC50/VC90/VC100, labelled Suspense boundaries, and a Mermaid gantt chart. `format` is `summary` (default), `map` (adds a settle-map SVG), or `full` (adds the map and raw lanes). |
+| `avalanche-timeline` | Put input, network requests, Suspense fallbacks, commits, perf entries, and console errors and warnings on one timeline from the interaction, with a summary of what the user waited for, VC50/VC90/VC100, labelled Suspense boundaries, and a Mermaid gantt chart. `format` is `summary` (default), `map` (adds a settle-map SVG), or `full` (adds the map and raw lanes). |
 | `avalanche-network` | List the network requests that finished during the capture, with the commits each started after, started during, or landed before. |
 | `avalanche-perf` | List the browser performance entries recorded during the capture (marks, measures, long frames, layout shifts, slow events, LCP, paint, navigation) with page metrics and the commits near each entry. |
 | `avalanche-console` | List console errors, warnings, and logs, uncaught errors, and unhandled rejections recorded during the capture, with the caller's location, a stack for errors and warnings, and the commit each followed. |
