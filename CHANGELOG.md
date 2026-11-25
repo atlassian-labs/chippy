@@ -28,6 +28,18 @@ must stay compatible with the extension version in the store.
 
 ### Added
 
+- A/B comparison of one page under two flags, builds, or conditions.
+  `ab-capture <clientId> <armDir> [label...]` saves one run (the Avalanche
+  export and a portable fiber-state capture) as the next sample of an arm;
+  `ab-arm <arm>` reports where an arm settled and which keys vary inside it;
+  `ab-compare <armA> <armB>` gates on user-visible behavior (fibers, props,
+  DOM changes, console, network) that is stable inside each arm and differs
+  between them, and reports commits, renders, collateral, and timings against
+  the in-arm noise. Arms take any number of samples; `--skip N` drops warm-up
+  runs. A timing that only climbs or falls across an arm is `drifting`, and an
+  arm with an empty capture makes the verdict `inconclusive`.
+  `fiber-state-capture` gains a `portable` identity that matches across
+  rebuilds. See `references/ab-testing.md`.
 - Avalanche records the console while it is installed: `console.error`, `warn`,
   `info`, `log`, and `debug` calls, uncaught errors, and unhandled promise
   rejections, each with the caller's location, a stack for errors and warnings,

@@ -14,7 +14,7 @@ then helps the user understand what happened, find the cause, and fix it.
 |---|---|---|
 | Explore | What renders here, what is inside it, and where does a value live? | `find-fibers` (`--grep` for values), `explain-component` |
 | Debug | Where does this element, value, or boundary come from? | `probe-owners`, `probe-props`, `probe-boundaries` |
-| Compare | What changed between two states or pages? | `fiber-state-capture` → `fiber-state-compare` |
+| Compare | What changed between two states or pages, or between two flags or builds of one page? | `fiber-state-capture` → `fiber-state-compare`; `ab-capture` → `ab-compare` |
 | Investigate | Why is this slow or re-rendering? | `avalanche-arm`, `reload-with-avalanche` |
 
 Use the running page as evidence. Connect visible React behavior to exact source, explain what the evidence proves, and verify any edit against the same signal.
@@ -22,7 +22,7 @@ Use the running page as evidence. Connect visible React behavior to exact source
 ## Start every task
 
 1. If neither Chippy MCP tools nor this skill's scripts are installed, have the user run `npx skills add atlassian-labs/chippy --skill chippy -g`. Otherwise, resolve the absolute path of the directory that contains this `SKILL.md`, resolving symlinks. It may be a user-level or project-local install; do not assume a home-folder path or a copy in the current repository. Every path you run or give the user starts from that directory: `scripts/chippy.sh`, `scripts/chippy-mcp.cjs`, and the `extension` folder for **Load unpacked**. Prefer available Chippy MCP tools when permitted by the host; otherwise run this skill's `scripts/chippy.sh`.
-2. With MCP available, use `chippy_status` → `chippy_pages` → `chippy_snapshot` (refresh, then read). MCP starts/reuses the helper automatically; follow [MCP setup and tools](references/mcp.md). MCP covers probe and fiber inspection, `find-fibers`, Avalanche capture and analysis, interaction, and annotation waits. Everything else is CLI-only, so use `scripts/chippy.sh` for it: compare (`fiber-state-*`), `page-boundaries`, `get-computed-style`, `probe-owner`, snippets (`eval-page`, including `perf-entries`, and `component-area`), `avalanche-arm`, `avalanche-recapture`, `reload-with-avalanche`, `avalanche-save` / `avalanche-offline`, `page-reload`, probe and status UI control, `recent-pages`, the proxy, `handoff-to-playwright`, and `recipes`. Otherwise run `health` → `pages` → `request-snapshot <clientId>`; helper-contacting shell commands must run outside the agent sandbox. The agent owns helper startup and command execution.
+2. With MCP available, use `chippy_status` → `chippy_pages` → `chippy_snapshot` (refresh, then read). MCP starts/reuses the helper automatically; follow [MCP setup and tools](references/mcp.md). MCP covers probe and fiber inspection, `find-fibers`, Avalanche capture and analysis, interaction, and annotation waits. Everything else is CLI-only, so use `scripts/chippy.sh` for it: compare (`fiber-state-*`, `ab-*`), `page-boundaries`, `get-computed-style`, `probe-owner`, snippets (`eval-page`, including `perf-entries`, and `component-area`), `avalanche-arm`, `avalanche-recapture`, `reload-with-avalanche`, `avalanche-save` / `avalanche-offline`, `page-reload`, probe and status UI control, `recent-pages`, the proxy, `handoff-to-playwright`, and `recipes`. Otherwise run `health` → `pages` → `request-snapshot <clientId>`; helper-contacting shell commands must run outside the agent sandbox. The agent owns helper startup and command execution.
 3. Select the page by URL, title, integration identity, and recency. When no page is connected, choose a route in [Connection and bootstrap](#connection-and-bootstrap); the extension is one route, not a prerequisite. Resolve a fresh `clientId` every turn; a reload or navigation can replace it. When two pages match closely, ask which page is in scope.
 4. Use the first read-only signal to leave ❓ Disorder and name the Cynefin domain. Then iterate with OODA inside that domain: observe one fact, orient it to the invariant and proof gap, decide one permitted move, act, and observe again.
 5. Choose the narrowest route below. Do not edit until the proof packet names the fix layer and a repeatable verification command.
@@ -46,6 +46,7 @@ Before `explain-component`, `describe-component`, or `inspect-fiber-structure`, 
 | What computed CSS does this element, an ancestor, or a descendant have? | `get-computed-style <clientId> <probeId> [parentLevel] [selector]`; matched rules travel in the probe snapshot's `matchedStyles` | The resolved `getComputedStyle` values are read for the exact probed node, its Nth DOM ancestor, or a `selector` match inside it. |
 | What is inside this component? | `explain-component`; use `describe-component` for the detailed hook tree | The component's structure is described, with replay status and warnings disclosed. |
 | What changed between two rendered states or pages? | `fiber-state-capture` before and after → `fiber-state-compare` | The bounded diff names matched fibers and added, removed, or changed props without returning either full capture. |
+| Does a flag, build, or other condition change performance without changing what the user sees? | Load [A/B testing](references/ab-testing.md): per run, reset and stimulate, then `ab-capture <clientId> <armDir>`; 2–3 runs per condition; `ab-arm` → `ab-compare <armA> <armB>` | `verdict` is `equivalent` or `behavior-changed` with stable differences listed, and `performance` names counts that are better or worse beyond in-arm noise. `inconclusive` means more samples are needed. |
 | Why is an interaction slow or re-rendering? | `avalanche-arm` → reproduce the interaction → `avalanche-status` → hot sources / commit list / commit peek | Trigger, hotspot, collateral, and fix layer are distinguished. |
 | Why is initial load slow? | Confirm the page's route records the initial load ([Connection and bootstrap](#connection-and-bootstrap)) → `reload-with-avalanche` → status / hot sources / commit analysis | The measured load window is bounded and repeatable. |
 | Does the user want render evidence in tests or scripts, with no agent at run time? | Point to the standalone Avalanche detector in the [npm package documentation](https://github.com/atlassian-labs/chippy/blob/main/docs/npm-package.md#standalone-avalanche) | The test installs the detector before React DOM loads and reads `detector.report()`. |
@@ -220,6 +221,9 @@ find-fibers <clientId> [--name regex] [--file regex] [--prop name] [--testid reg
 fiber-state-capture <clientId> [label] [maxFibers]
 fiber-state-list
 fiber-state-compare <beforeCaptureId> <afterCaptureId> [maxChanges]
+ab-capture <clientId> <armDir> [label] [maxFibers]
+ab-arm <arm> [--skip N] [--top N]
+ab-compare <armA> <armB> [--skip N] [--top N]
 page-boundaries <clientId> [max]
 inspect-fiber-hooks <clientId> <fiberId>
 inspect-fiber-hooks-summary <clientId> <fiberId>
@@ -265,6 +269,8 @@ proxy-state | proxy-start <targetPort> [originalUrl] | proxy-stop
 `recipes` is a local, dependency-free search over `references/recipes.txt`; it does not contact the helper or page. The corpus keeps one complete recipe per line for direct `rg`/`grep` lookup. The command streams the corpus twice to compute a BM25-style rank with prefix and one-edit typo matching, retains only the requested top results, defaults to five, and accepts limits from 1 through 20.
 
 For before/after investigation, run `fiber-state-capture` in each state, including on different connected pages, then compare the returned `state:*` ids. Captures fingerprint every named fiber's props and stay inside helper memory; commands return only capture summaries and a bounded structural diff. Matching first uses structural ancestry and then a unique component/source/key token when wrappers differ. Function props compare by name and arity, not closure identity. Captures are read-only, survive page navigation or disconnect while the helper remains running, and are evicted oldest-first after 20 entries.
+
+For one page under two conditions (a flag, a build, the React Compiler), compare groups of runs instead of two states. Each `ab-capture` saves one run's Avalanche export and fiber state as a numbered sample in an arm directory; take 2–3 per condition, since early runs often do extra work. `ab-arm` reports whether one arm repeats and from which sample it settled. `ab-compare` counts a behavior key (fiber, prop, DOM change, console error or warning, request) as a difference only when it is stable inside each arm and differs between them, and compares React's work against the arms' own noise. Chippy does not switch the condition; follow [A/B testing](references/ab-testing.md).
 
 Use [command-surface](references/command-surface.md) to select a command and understand important modes. Use [command-output-formats](references/command-output-formats.md) when exact JSON or response semantics matter. The shell wrapper's `help` output is the mechanical signature check.
 
@@ -367,6 +373,7 @@ Open only the reference selected by the current condition. [The reference index]
 | Use an active stimulus | [active-stimulus](references/active-stimulus.md) |
 | Capture or interpret React commits | [avalanche-detector](references/avalanche-detector.md) |
 | Choose the performance fix layer | [fixing-performance](references/fixing-performance.md) |
+| Compare one page under two flags, builds, or conditions | [ab-testing](references/ab-testing.md) |
 | Grade a subtree with a controlled nudge | [stability-render](references/stability-render.md) |
 | Inspect a captured hook | [debug-hook](references/debug-hook.md), [hooks-inspection](references/hooks-inspection.md) |
 | Read a loaded pack's evidence, or write a pack | [packs](references/packs.md) |

@@ -45,8 +45,19 @@ export type FiberStateEntry = {
   props: Record<string, FiberStateProp>;
 };
 
+/**
+ * How fibers and props are identified. `source` keys each fiber by its
+ * generated call site and fingerprints functions by name: the precise default
+ * for two states of one build. `portable` leaves both out, so identities
+ * survive a rebuild (a compiler, another bundle): a fiber is keyed by its tag,
+ * name, key, and tree path, and a function by its arity.
+ */
+export type FiberStateIdentity = 'source' | 'portable';
+
 export type FiberStateCapture = {
   version: 1;
+  /** Captures made before portable identity existed lack it; they are `source`. */
+  identity: FiberStateIdentity;
   capturedAt: string;
   page: { url: string | null; title: string | null };
   fiberCount: number;
@@ -79,7 +90,7 @@ export type FiberStateDiff = {
   changes: Array<Record<string, unknown>>;
 };
 
-type FingerprintBudget = { remaining: number; truncated: boolean };
+type FingerprintBudget = { remaining: number; truncated: boolean; functionNames: boolean };
 
 function fnv1a(value: string): string {
   let hash = 0xcbf29ce484222325n;
@@ -157,7 +168,7 @@ function canonicalValue(value: unknown, seen: Map<object, number>, budget: Finge
   if (type === 'symbol') return `symbol:${String(value)}`;
   if (type === 'function') {
     const fn = value as Function;
-    return `function:${fn.name || 'anonymous'}:${fn.length}`;
+    return budget.functionNames ? `function:${fn.name || 'anonymous'}:${fn.length}` : `function:${fn.length}`;
   }
 
   const object = value as Record<string, unknown>;
@@ -209,8 +220,8 @@ function canonicalValue(value: unknown, seen: Map<object, number>, budget: Finge
   return `${ctor}:{${fields.join(',')}}`;
 }
 
-export function fingerprintFiberProp(value: unknown): FiberStateProp {
-  const budget: FingerprintBudget = { remaining: 10_000, truncated: false };
+export function fingerprintFiberProp(value: unknown, identity: FiberStateIdentity = 'source'): FiberStateProp {
+  const budget: FingerprintBudget = { remaining: 10_000, truncated: false, functionNames: identity === 'source' };
   const canonical = canonicalValue(value, new Map(), budget);
   return {
     kind: valueKind(value),
@@ -244,9 +255,10 @@ function fiberToken(fiber: Fiber, name: string, source: FiberStateEntry['source'
 }
 
 export function captureFiberState(
-  options: { page?: { url?: unknown; title?: unknown }; maxFibers?: unknown } | null | undefined,
+  options: { page?: { url?: unknown; title?: unknown }; maxFibers?: unknown; portable?: unknown } | null | undefined,
   deps: CaptureFiberStateDeps,
 ): FiberStateCapture {
+  const identity: FiberStateIdentity = options?.portable === true ? 'portable' : 'source';
   const maxFibers = Number.isFinite(Number(options?.maxFibers))
     ? Math.max(1, Math.floor(Number(options?.maxFibers)))
     : 100_000;
@@ -268,7 +280,7 @@ export function captureFiberState(
     if (name) {
       if (fibers.length >= maxFibers) { truncated = true; break; }
       const source = readSource(fiber);
-      const token = fiberToken(fiber, runtimeName(fiber, name), source);
+      const token = fiberToken(fiber, runtimeName(fiber, name), identity === 'portable' ? null : source);
       const occurrenceKey = `${parentPath}\u0000${token}`;
       const occurrence = siblingOccurrences.get(occurrenceKey) || 0;
       siblingOccurrences.set(occurrenceKey, occurrence + 1);
@@ -281,7 +293,7 @@ export function captureFiberState(
         for (const propName of propNames) {
           let value: unknown;
           try { value = memoizedProps[propName]; } catch { value = '[getter-threw]'; }
-          props[propName] = fingerprintFiberProp(value);
+          props[propName] = fingerprintFiberProp(value, identity);
         }
       }
       fibers.push({
@@ -304,6 +316,7 @@ export function captureFiberState(
 
   return {
     version: 1,
+    identity,
     capturedAt: new Date().toISOString(),
     page: {
       url: options?.page?.url == null ? null : String(options.page.url),
@@ -326,6 +339,9 @@ export function compareFiberStates(
 ): FiberStateDiff | { ok: false; error: string } {
   if (before?.version !== 1 || after?.version !== 1 || !Array.isArray(before?.fibers) || !Array.isArray(after?.fibers)) {
     return { ok: false, error: 'Two valid fiber state captures are required' };
+  }
+  if ((before.identity ?? 'source') !== (after.identity ?? 'source')) {
+    return { ok: false, error: 'Captures use different identities (source and portable); capture both the same way' };
   }
   const maxChanges = Number.isFinite(Number(options?.maxChanges))
     ? Math.max(1, Math.floor(Number(options?.maxChanges)))

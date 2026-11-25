@@ -101,6 +101,9 @@ Usage:
   ./scripts/chippy.sh avalanche-debug-hook <clientId> <sourceId> <hookIndex> [window] [sourceMaps=true|false]
   ./scripts/chippy.sh avalanche-save <clientId> <file> [count]
   ./scripts/chippy.sh avalanche-offline <file> <summary|commit-list|commit-peek|hot-sources|describe-action|network|perf|console|timeline|dom-diff|source-search> [args...]
+  ./scripts/chippy.sh ab-capture <clientId> <armDir> [label] [maxFibers]
+  ./scripts/chippy.sh ab-arm <arm> [--skip N] [--top N]
+  ./scripts/chippy.sh ab-compare <armA> <armB> [--skip N] [--top N]
   ./scripts/chippy.sh eval-page <clientId> <snippet-file-or-name|-> [--allow replay] [--script-timeout ms] [--key value ...]
   ./scripts/chippy.sh eval-snippets
   ./scripts/chippy.sh avalanche-arm <clientId> <origin> [maxCommits] [captureFibers=true|false] [detectionMode=sources|full|stats|amplifiers]
@@ -1206,6 +1209,32 @@ case "$cmd" in
       echo "avalanche-offline requires <file> <summary|commit-list|commit-peek|hot-sources|describe-action|network|perf|console|timeline|dom-diff|source-search> [args...]" >&2
       exit 1
     fi
+    node "$SCRIPT_DIR/avalanche-analyze.cjs" "$@"
+    ;;
+  ab-capture)
+    client_id="${2:-}"
+    arm_dir="${3:-}"
+    label="${4:-}"
+    max_fibers="${5:-100000}"
+    if [[ -z "$client_id" || -z "$arm_dir" ]]; then
+      echo "ab-capture requires <clientId> <armDir> [label] [maxFibers]" >&2
+      echo "  saves one sample (Avalanche export + portable fiber state) as <armDir>/sample-<n>.json.gz" >&2
+      exit 1
+    fi
+    if [[ ! "$max_fibers" =~ ^[1-9][0-9]*$ ]]; then
+      echo "maxFibers must be a positive integer" >&2
+      exit 1
+    fi
+    mkdir -p "$arm_dir"
+    fiber_file="$arm_dir/.fiber-state.pending.json"
+    # Portable identity: fiber ids and function fingerprints survive a rebuild.
+    fiber_body="{\"command\":\"capture-fiber-state\",\"options\":{\"maxFibers\":$max_fibers,\"portable\":true},\"timeoutMs\":30000}"
+    post_json "/api/pages/$client_id/eval-probe" "$fiber_body" > "$fiber_file" \
+      || printf '{"ok":false,"error":"fiber state capture request failed"}' > "$fiber_file"
+    post_avalanche "$client_id" '{"action":"export","timeoutMs":60000}' \
+      | node "$SCRIPT_DIR/avalanche-analyze.cjs" ab-save "$arm_dir" "$fiber_file" "$label"
+    ;;
+  ab-arm|ab-compare)
     node "$SCRIPT_DIR/avalanche-analyze.cjs" "$@"
     ;;
   eval-snippets)
