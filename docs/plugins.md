@@ -200,6 +200,22 @@ page, and to leave a global the host already owns alone. A throwing `onInit`
 is reported in `status().packs[].initErrors` as `"<report key>: <error>"`; the
 pack still loads.
 
+**Cleaning up.** If `onInit` starts something that outlives a recording (a
+`MutationObserver`, a wrapped page function, a timer), return a function that
+undoes it. Chippy calls that function when `unregisterPack(id)` removes the
+pack, and before the new version's `onInit` when a pack with the same id is
+registered again, so upgrading a pack in place does not leave the old version
+running. A throwing cleanup is reported in the new version's `initErrors` as
+`"<report key> cleanup: <error>"`.
+
+```js
+// onInit
+const observer = new MutationObserver(() => { window.__MY_PACK.mutations++; });
+window.__MY_PACK = { mutations: 0 };
+observer.observe(document.body, { childList: true, subtree: true });
+return () => { observer.disconnect(); delete window.__MY_PACK; };
+```
+
 **Avalanche extensions.** Each extension is separate: it has its own `ctx.state`,
 errors, and report entry under `hooks["<pack id>.<extension name>"]`, so one pack
 can combine, for example, a counter reader and a slot initializer. Extension

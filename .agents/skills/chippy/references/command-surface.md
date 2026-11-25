@@ -55,6 +55,8 @@ Start value traces with `probe-dom`, then owners, then props. Open the reported 
 |---|---|
 | `find-fibers` | Find current fibers by component name, source file, prop, test-id, or text; `--grep` searches prop keys and values, hook state, and opt-in `useDebugValue` labels across the whole tree. |
 | `fiber-state-capture`, `fiber-state-list`, `fiber-state-compare` | Retain compact fiber/prop fingerprints for two rendered states—even on different pages—and return only their bounded structural diff. |
+| `ab-capture` | Save one run's Avalanche export and portable fiber-state capture as the next `sample-<n>.json.gz` of an arm directory. Waits up to 60 s for the export. See [A/B testing](ab-testing.md). |
+| `ab-arm`, `ab-compare` | Offline, no helper: report whether one arm's samples repeat and where they settled, or compare two arms for stable behavior differences and for React work beyond in-arm noise. An arm is a directory or comma-separated sample files; `--skip N` drops each arm's first N samples. |
 | `page-boundaries` | Read the whole page as a nested Error/Suspense-only forest. Ordinary component fibers are removed while declarative-boundary containment is preserved. |
 | `explain-component` | Return compact semantic text by default; use `--complexity` for the bounded complexity section or `--json` for the full transport payload. May use dispatcher replay, with status and warnings in the result. |
 | `describe-component` | Return the detailed hook tree as plain text by default; use `--json` for the full transport payload. May use dispatcher replay and degrades to fiber-only evidence when replay is unavailable. |
@@ -85,9 +87,10 @@ Load [active-stimulus](active-stimulus.md) before an active command. A `fiber:*`
 | `avalanche-commit-list` | Rank compact commits by a supported signal. |
 | `avalanche-commit-peek` | Join bounded detail for one commit. |
 | `avalanche-describe-action` | Expand one action breadcrumb and its owner/parent context. |
-| `avalanche-timeline` | Put input, network requests, Suspense fallbacks, and commits on one timeline from the interaction, with a summary of what the user waited for, VC50/VC90/VC100, labelled Suspense boundaries, and a Mermaid gantt chart. `format` is `summary` (default), `map` (adds a settle-map SVG), or `full` (adds the map and raw lanes). |
+| `avalanche-timeline` | Put input, network requests, Suspense fallbacks, commits, perf entries, and console errors and warnings on one timeline from the interaction, with a summary of what the user waited for, VC50/VC90/VC100, labelled Suspense boundaries, and a Mermaid gantt chart. `format` is `summary` (default), `map` (adds a settle-map SVG), or `full` (adds the map and raw lanes). |
 | `avalanche-network` | List the network requests that finished during the capture, with the commits each started after, started during, or landed before. |
 | `avalanche-perf` | List the browser performance entries recorded during the capture (marks, measures, long frames, layout shifts, slow events, LCP, paint, navigation) with page metrics and the commits near each entry. |
+| `avalanche-console` | List console errors, warnings, and logs, uncaught errors, and unhandled rejections recorded during the capture, with the caller's location, a stack for errors and warnings, and the commit each followed. |
 | `avalanche-dom-diff` | List what each commit changed in the DOM, commits in order: inserted, removed, updated (each prop before and after), moved, and Suspense-hidden or shown nodes, each with the components above it. Each commit is one change set with no order inside it. |
 | `avalanche-debug-hook` | Interrogate one captured `sourceId + hookIndex`. In production builds the helper maps the hook's frames to authored source through the scripts' source maps. |
 | `avalanche-export` | Return the full export, optionally written to a file; `lastN` does not trim it. Use `avalanche-save ... N` for the last N commits. Do not open this first. |
@@ -156,6 +159,9 @@ find-fibers <clientId> [--name regex] [--file regex] [--prop name] [--testid reg
 fiber-state-capture <clientId> [label] [maxFibers]
 fiber-state-list
 fiber-state-compare <beforeCaptureId> <afterCaptureId> [maxChanges]
+ab-capture <clientId> <armDir> [label] [maxFibers]
+ab-arm <arm> [--skip N] [--top N]
+ab-compare <armA> <armB> [--skip N] [--top N]
 page-boundaries <clientId> [max]
 inspect-fiber-hooks <clientId> <fiberId>
 inspect-fiber-hooks-summary <clientId> <fiberId>
@@ -176,6 +182,7 @@ avalanche-commit-peek <clientId> <commitId> [include] [depth] [maxItems]
 avalanche-describe-action <clientId> <actionId>
 avalanche-network <clientId> [top] [by] [match] [initiators] [windowMs]
 avalanche-perf <clientId> [types] [top] [match] [fromCommit] [toCommit]
+avalanche-console <clientId> [levels] [top] [match] [fromCommit] [toCommit]
 avalanche-timeline <clientId> [fromCommit] [toCommit] [minRequestMs] [exclude] [format]
 avalanche-dom-diff <clientId> [fromCommit] [toCommit] [match] [maxItems] [top]
 avalanche-install <clientId> [detectionMode]

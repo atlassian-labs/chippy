@@ -28,6 +28,40 @@ must stay compatible with the extension version in the store.
 
 ### Added
 
+- A/B comparison of one page under two flags, builds, or conditions.
+  `ab-capture <clientId> <armDir> [label...]` saves one run (the Avalanche
+  export and a portable fiber-state capture) as the next sample of an arm;
+  `ab-arm <arm>` reports where an arm settled and which keys vary inside it;
+  `ab-compare <armA> <armB>` gates on user-visible behavior (fibers, props,
+  DOM changes, console, network) that is stable inside each arm and differs
+  between them, and reports commits, renders, collateral, and timings against
+  the in-arm noise. Arms take any number of samples; `--skip N` drops warm-up
+  runs. A timing that only climbs or falls across an arm is `drifting`, and an
+  arm with an empty capture makes the verdict `inconclusive`.
+  `fiber-state-capture` gains a `portable` identity that matches across
+  rebuilds. See `references/ab-testing.md`.
+- Avalanche records the console while it is installed: `console.error`, `warn`,
+  `info`, `log`, and `debug` calls, uncaught errors, and unhandled promise
+  rejections, each with the caller's location, a stack for errors and warnings,
+  and a repeat count for consecutive identical messages. `avalanche-console
+  <clientId> [levels] [top] [match] [fromCommit] [toCommit]` (also offline and
+  in the MCP `chippy_avalanche` tool) lists them with the commit each followed
+  and a summary naming the first error; `commit-peek` include `console` and
+  `avalanche-summary` `console` carry them too. Chippy's own messages are
+  flagged and left out by default. `avalanche-timeline` tells errors and warnings
+  in the story of the interaction: `error` and `warn` rows with location and
+  repeat count, a `Console:` header line naming the first error, a Console
+  gantt section, and `lanes.console`. Reports are version 10 (`consoleEntries`,
+  `meta.console`); `consoleCapture: false` turns capture off.
+- A pack's `onInit` can return a cleanup function. Chippy calls it when
+  `unregisterPack(id)` removes the pack and before a same-id pack's `onInit`, so
+  loading a newer version replaces the old one instead of leaving its observers
+  and wrapped functions running. A throwing cleanup is reported in the new
+  version's `initErrors` as `"<report key> cleanup: <error>"`.
+- The skill's [packs](.agents/skills/chippy/references/packs.md) reference: how
+  to read a loaded pack's evidence and how to write and iterate on a pack. The
+  README describes production profiling, what Chippy senses, and packs.
+
 - Avalanche `propChanges` entries of kind `ref-changed` on plain objects and
   arrays say which top-level keys changed: `changedKeys` (the first 8, each
   `added`, `removed`, `scalar-changed` with both summaries, or `ref-changed`),
@@ -154,8 +188,23 @@ must stay compatible with the extension version in the store.
   documentation. `@atlassian/chippy/plugin` exports the plugin types and helpers;
   the runtime adds `registerPlugin()` and `listPlugins()`.
 
+### Changed
+
+- The Chippy panel is 380 px wide, capped to the viewport, and its header no
+  longer shows "via extension"; hover the connection state for the route that
+  loaded Chippy.
+
 ### Fixed
 
+- `avalanche-timeline` draws a performance entry that started before the
+  origin, such as a measure from navigation start, from the origin and says how
+  long before it started. Previously its row read `+-112608` and its chart bar
+  stretched the axis back to navigation.
+- `avalanche-timeline` tells identical waits once with `×N`, in the summary,
+  the rows, and the chart. Sibling boundaries rendered by one component
+  previously produced duplicate lines.
+- `avalanche-timeline` labels a console message by its first line with text,
+  so a message that opens with a blank line no longer has an empty label.
 - `eval-page` prints a failed script's whole envelope, `log` included, and
   exits 1. The docs had described an HTTP 504 for a script that throws; the
   helper answers 504 only when the page sends no answer.

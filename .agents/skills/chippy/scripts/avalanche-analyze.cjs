@@ -2,8 +2,8 @@
 // Generated from src/avalanche/offline-cli.ts by `yarn chippy:mcp:build`; do not edit.
 
 // src/avalanche/offline-cli.ts
-var import_node_fs = require("node:fs");
-var import_node_zlib = require("node:zlib");
+var import_node_fs2 = require("node:fs");
+var import_node_zlib2 = require("node:zlib");
 
 // src/avalanche/avalanche-hooks.ts
 function summarizeHookResults(results) {
@@ -70,6 +70,82 @@ function compactLatestAction(action) {
   };
 }
 
+// src/avalanche/console-signals.ts
+var DEFAULT_CONSOLE_TOP = 50;
+var round = (value) => Math.round(value * 10) / 10;
+function commitStarts(report) {
+  return Object.entries(report.commitTimings ?? {}).map(([id, timing]) => ({ id: Number(id), start: Number(timing?.startTime) })).filter((c) => Number.isFinite(c.id) && Number.isFinite(c.start)).sort((a, b) => a.start - b.start);
+}
+function linkConsoleEntries(report, entries = report.consoleEntries ?? []) {
+  const commits = commitStarts(report);
+  return entries.map((entry) => {
+    let before = null;
+    for (const c of commits) {
+      if (c.start > entry.time) break;
+      before = c;
+    }
+    return { ...entry, commit: before ? { commitId: before.id, gapMs: round(entry.time - before.start) } : null };
+  });
+}
+function consoleSummary(report, entries = report.consoleEntries ?? []) {
+  const page = entries.filter((e) => !e.chippy);
+  const count = (keep) => page.filter(keep).reduce((sum, e) => sum + e.repeat, 0);
+  const first = page.find((e) => e.level === "error");
+  const firstLinked = first ? linkConsoleEntries(report, [first])[0] : null;
+  return {
+    errors: count((e) => e.level === "error"),
+    warnings: count((e) => e.level === "warn"),
+    other: count((e) => e.level !== "error" && e.level !== "warn"),
+    uncaught: count((e) => e.source === "uncaught"),
+    rejections: count((e) => e.source === "rejection"),
+    chippy: entries.length - page.length,
+    firstError: firstLinked ? { id: firstLinked.id, time: firstLinked.time, message: firstLinked.message, location: firstLinked.location, commitId: firstLinked.commit?.commitId ?? null } : null
+  };
+}
+function commitStart(report, id) {
+  const n = Number(id);
+  if (id === void 0 || id === null || id === "" || !Number.isFinite(n)) return null;
+  const start = Number(report.commitTimings?.[String(n)]?.startTime);
+  return Number.isFinite(start) ? start : null;
+}
+function consoleView(report, options = {}) {
+  const status = report.meta?.console ?? null;
+  if (!Array.isArray(report.consoleEntries)) {
+    return {
+      error: status && !status.enabled ? "console capture is switched off for this detector" : "this report has no consoleEntries: it was recorded before report version 10, or by a runtime without console capture"
+    };
+  }
+  const top = Number(options.top) > 0 ? Math.floor(Number(options.top)) : DEFAULT_CONSOLE_TOP;
+  const levels = Array.isArray(options.levels) ? options.levels.map(String) : typeof options.levels === "string" && options.levels ? options.levels.split(",").map((l) => l.trim()).filter(Boolean) : null;
+  let match = null;
+  if (typeof options.match === "string" && options.match) {
+    try {
+      match = new RegExp(options.match, "i");
+    } catch (error) {
+      return { error: `invalid match pattern: ${error.message}` };
+    }
+  }
+  const includeChippy = options.chippy === true || options.chippy === "true";
+  const from = commitStart(report, options.fromCommit);
+  const last = commitStart(report, options.toCommit);
+  const next = last === null ? null : commitStarts(report).find((c) => c.start > last)?.start ?? Infinity;
+  const windowed = report.consoleEntries.filter((e) => (from === null || (e.lastTime ?? e.time) >= from) && (next === null || e.time < next));
+  const selected = windowed.filter((e) => (includeChippy || !e.chippy) && (!levels || levels.includes(e.level)) && (!match || match.test(e.message)));
+  return {
+    payload: {
+      status,
+      summary: consoleSummary(report, windowed),
+      count: selected.length,
+      truncated: selected.length > top,
+      entries: linkConsoleEntries(report, selected.slice(0, top))
+    }
+  };
+}
+function consoleForCommit(report, commitId, maxItems = DEFAULT_CONSOLE_TOP) {
+  const near = linkConsoleEntries(report).filter((e) => !e.chippy && e.commit?.commitId === commitId);
+  return { total: near.length, items: near.slice(0, maxItems) };
+}
+
 // src/avalanche/own-work.ts
 function isOwnFrame(frame, own) {
   const scripts = frame.scripts ?? [];
@@ -84,12 +160,12 @@ function isOwnFrame(frame, own) {
 // src/avalanche/perf-signals.ts
 var DEFAULT_PERF_TOP = 20;
 var MAX_LINKED_COMMITS = 10;
-var round = (value) => Math.round(value * 10) / 10;
-function commitStarts(report) {
+var round2 = (value) => Math.round(value * 10) / 10;
+function commitStarts2(report) {
   return Object.entries(report.commitTimings ?? {}).map(([id, timing]) => ({ id: Number(id), start: Number(timing?.startTime) })).filter((c) => Number.isFinite(c.id) && Number.isFinite(c.start)).sort((a, b) => a.start - b.start);
 }
 function linkPerfEntries(report, entries = report.perfEntries ?? []) {
-  const commits = commitStarts(report);
+  const commits = commitStarts2(report);
   return entries.map((entry) => {
     const from = entry.startTime;
     const to = entry.startTime + (entry.duration || 0);
@@ -105,7 +181,7 @@ function linkPerfEntries(report, entries = report.perfEntries ?? []) {
       commits: {
         during: during.slice(0, MAX_LINKED_COMMITS),
         duringCount: during.length,
-        before: before ? { commitId: before.id, gapMs: round(from - before.start) } : null
+        before: before ? { commitId: before.id, gapMs: round2(from - before.start) } : null
       }
     };
   });
@@ -153,8 +229,8 @@ function perfSummary(report, entries = report.perfEntries ?? []) {
     cls: cumulativeLayoutShift(of("layout-shift")),
     layoutShifts: of("layout-shift").length,
     longFrames: frames.length || tasks.length,
-    totalBlockingMs: round(blocking),
-    chippyFrames: { count: chippyLong.length, blockingMs: round(chippyLong.reduce((sum, e) => sum + blockingOf(e), 0)) },
+    totalBlockingMs: round2(blocking),
+    chippyFrames: { count: chippyLong.length, blockingMs: round2(chippyLong.reduce((sum, e) => sum + blockingOf(e), 0)) },
     worstFrame: worstLinked ? {
       id: worstLinked.id,
       startTime: worstLinked.startTime,
@@ -179,7 +255,7 @@ var RANK = {
   event: (e) => e.duration,
   measure: (e) => e.duration
 };
-function commitStart(report, id) {
+function commitStart2(report, id) {
   const n = Number(id);
   if (id === void 0 || id === null || id === "" || !Number.isFinite(n)) return null;
   const start = Number(report.commitTimings?.[String(n)]?.startTime);
@@ -202,9 +278,9 @@ function perfView(report, options = {}) {
       return { error: `invalid match pattern: ${error.message}` };
     }
   }
-  const from = commitStart(report, options.fromCommit);
-  const last = commitStart(report, options.toCommit);
-  const next = last === null ? null : commitStarts(report).find((c) => c.start > last)?.start ?? Infinity;
+  const from = commitStart2(report, options.fromCommit);
+  const last = commitStart2(report, options.toCommit);
+  const next = last === null ? null : commitStarts2(report).find((c) => c.start > last)?.start ?? Infinity;
   const selected = report.perfEntries.filter((e) => (!requested || requested.includes(e.entryType)) && (!match || match.test(e.name)) && (from === null || e.startTime + (e.duration || 0) >= from) && (next === null || e.startTime < next));
   const byType = {};
   for (const type of new Set(selected.map((e) => e.entryType))) {
@@ -291,9 +367,9 @@ function grid(frames) {
   }
   return { width, height, cols, rows, cw, ch, last };
 }
-function timeAtShare(times, total, share, floor) {
+function timeAtShare(times2, total, share, floor) {
   if (total === 0) return null;
-  const sorted = times.slice().sort((a, b) => a - b);
+  const sorted = times2.slice().sort((a, b) => a - b);
   const needed = Math.ceil(total * share);
   const missing = total - sorted.length;
   if (needed <= missing) return floor;
@@ -329,9 +405,9 @@ function settleMapSvg(frames, title = "When each part of the screen last changed
   const sorted = frames.filter((f) => f.change.rects.length > 0).sort((a, b) => a.t - b.t);
   if (sorted.length === 0) return null;
   const g = grid(sorted);
-  const times = Array.from(g.last).filter((v) => !Number.isNaN(v));
-  const min = Math.min(...times);
-  const max = Math.max(...times);
+  const times2 = Array.from(g.last).filter((v) => !Number.isNaN(v));
+  const min = Math.min(...times2);
+  const max = Math.max(...times2);
   const bucket = (t) => max === min ? RAMP.length - 1 : Math.min(RAMP.length - 1, Math.floor((t - min) / (max - min) * RAMP.length));
   const scale = Math.min(1, 640 / g.width);
   const w = Math.round(g.width * scale);
@@ -445,7 +521,7 @@ function inputDetail(event) {
 function inputLabel(i) {
   return i.action + (i.detail ? " " + i.detail : "") + (i.target ? " " + i.target : "");
 }
-var round2 = (n) => Math.round(n);
+var round3 = (n) => Math.round(n);
 function requestLabel(url) {
   try {
     const parsed = new URL(url, "http://local.invalid");
@@ -458,7 +534,7 @@ function requestLabel(url) {
     return url.slice(0, 60);
   }
 }
-function commitStart2(report, id) {
+function commitStart3(report, id) {
   const start = Number(report.commitTimings?.[String(id)]?.startTime);
   return Number.isFinite(start) ? start : null;
 }
@@ -485,9 +561,9 @@ function kindOf(events) {
   return enters && leaves ? "swap" : enters ? "lock" : leaves ? "unlock" : "update";
 }
 function buildTimeline(report, options = {}) {
-  const ids = Object.keys(report.commitTimings ?? {}).map(Number).filter((id) => Number.isFinite(id) && commitStart2(report, id) !== null).sort((a, b) => a - b);
+  const ids = Object.keys(report.commitTimings ?? {}).map(Number).filter((id) => Number.isFinite(id) && commitStart3(report, id) !== null).sort((a, b) => a - b);
   if (ids.length === 0) return { ok: false, error: "report has no commit timings (report version 6 or later is required)" };
-  const startOf = (id) => commitStart2(report, id);
+  const startOf = (id) => commitStart3(report, id);
   const shownOf = (id) => commitPaint(report, id, startOf(id)) ?? startOf(id);
   const interactions = /* @__PURE__ */ new Map();
   for (const list of Object.values(report.interactionsByCommit ?? {})) {
@@ -510,7 +586,7 @@ function buildTimeline(report, options = {}) {
   const windowEnd = startOf(windowIds[windowIds.length - 1]);
   const originInput = inputs.find((input2) => input2.t <= windowStart && windowStart - input2.t <= 5e3);
   const origin = originInput ? originInput.t : windowStart;
-  const rel = (t) => round2(t - origin);
+  const rel = (t) => round3(t - origin);
   const input = inputs.filter((i) => i.t >= origin && i.t <= windowEnd).map((i) => ({ ...i, t: rel(i.t) }));
   let exclude = null;
   try {
@@ -525,13 +601,22 @@ function buildTimeline(report, options = {}) {
     label: requestLabel(r.url),
     start: rel(r.startTime),
     end: rel(r.endTime),
-    durationMs: round2(r.duration),
+    durationMs: round3(r.duration),
     initiatorType: r.initiatorType,
     cached: !!r.cached
   });
   const drawable = inWindow.filter((r) => r.duration >= minRequestMs);
   const kept = [...drawable].sort((a, b) => b.duration - a.duration).slice(0, options.maxRequests ?? 30).sort((a, b) => a.startTime - b.startTime);
   const network = kept.map(toRequest);
+  const nextAfterWindow = ids.find((id) => id > windowIds[windowIds.length - 1]);
+  const consoleLane = consoleLaneOf(
+    report.consoleEntries,
+    origin,
+    nextAfterWindow === void 0 ? Infinity : startOf(nextAfterWindow),
+    ids.map((id) => ({ id, start: startOf(id) })),
+    rel,
+    options.maxLogs ?? 20
+  );
   const perfLane = perfLaneOf(report.perfEntries ?? [], report.ownWork, origin, windowEnd, ids.map((id) => ({ id, start: startOf(id) })), rel, options.maxMarks ?? 40);
   const boundaryKey = (event) => typeof event.boundary === "number" ? "b" + event.boundary : "@" + Number(event.depth);
   const open = /* @__PURE__ */ new Map();
@@ -638,8 +723,9 @@ function buildTimeline(report, options = {}) {
     boundaries: boundaryKeys.map((key) => ({ boundary: key, depth: boundaryInfo.get(key).depth, label: labelByKey.get(key) ?? null, location: boundaryInfo.get(key).location })),
     screen: screenStability(frames),
     ...options.settleMap && { settleMapSvg: settleMapSvg(frames) },
-    lanes: { input, network, suspense, commits, perf: perfLane.lane },
-    omitted: { requests: inWindow.length - kept.length, commits: allCommits.length - commits.length, marks: perfLane.omittedMarks },
+    lanes: { input, network, suspense, commits, perf: perfLane.lane, console: consoleLane.lane },
+    omitted: { requests: inWindow.length - kept.length, commits: allCommits.length - commits.length, marks: perfLane.omittedMarks, logs: consoleLane.omittedLogs },
+    console: consoleLane.summary,
     mermaid: "",
     text: ""
   };
@@ -647,9 +733,72 @@ function buildTimeline(report, options = {}) {
   result.text = renderText(result);
   return result;
 }
+var CONSOLE_LABEL_MAX = 140;
+var MAX_CONSOLE_ALERTS = 50;
+var ALERT_LEVELS = /* @__PURE__ */ new Set(["error", "warn"]);
+function shortLocation(location) {
+  if (!location) return null;
+  const match = /([^/]*:\d+:\d+)$/.exec(location);
+  return match ? match[1] : location;
+}
+function consoleLaneOf(entries, origin, end, commitStarts3, rel, maxLogs) {
+  if (!Array.isArray(entries)) return { lane: [], omittedLogs: 0, summary: null };
+  const page = entries.filter((e) => !e.chippy && (e.lastTime ?? e.time) >= origin && e.time < end).sort((a, b) => a.time - b.time);
+  const toItem = (e) => {
+    let after = null;
+    for (const c of commitStarts3) {
+      if (c.start > e.time) break;
+      after = c.id;
+    }
+    const first = String(e.message).split("\n").map((line) => line.trim()).find(Boolean) ?? "";
+    return {
+      id: e.id,
+      level: e.level,
+      source: e.source,
+      label: first.length > CONSOLE_LABEL_MAX ? first.slice(0, CONSOLE_LABEL_MAX - 1) + "\u2026" : first,
+      t: rel(e.time),
+      repeat: e.repeat,
+      location: shortLocation(e.location),
+      afterCommit: after
+    };
+  };
+  const alerts = page.filter((e) => ALERT_LEVELS.has(e.level));
+  const others = page.filter((e) => !ALERT_LEVELS.has(e.level));
+  const keptAlerts = alerts.slice(0, MAX_CONSOLE_ALERTS);
+  const keptOthers = others.slice(0, maxLogs);
+  const lane = [...keptAlerts, ...keptOthers].sort((a, b) => a.time - b.time).map(toItem);
+  const count = (keep) => page.filter(keep).reduce((n, e) => n + e.repeat, 0);
+  const firstError = page.find((e) => e.level === "error");
+  return {
+    lane,
+    omittedLogs: alerts.length - keptAlerts.length + others.length - keptOthers.length,
+    summary: {
+      errors: count((e) => e.level === "error"),
+      warnings: count((e) => e.level === "warn"),
+      other: count((e) => !ALERT_LEVELS.has(e.level)),
+      firstError: firstError ? toItem(firstError) : null
+    }
+  };
+}
+function grouped(items, key) {
+  const groups = /* @__PURE__ */ new Map();
+  for (const item of items) {
+    const k = key(item);
+    const group = groups.get(k);
+    if (group) group.count += 1;
+    else groups.set(k, { item, count: 1 });
+  }
+  return Array.from(groups.values());
+}
+var times = (count) => count > 1 ? ` \xD7${count}` : "";
+var waitKey = (w) => `${w.label || "@" + w.depth}|${w.from}|${w.until}|${w.lockedBy}|${w.unlockedBy}`;
+var suspenseKey = (s) => `${s.label || "@" + s.depth}|${s.start}|${s.end}|${s.enteredAt}|${s.leftAt}`;
+var drawnStart = (p) => Math.max(p.start, 0);
+var beforeOrigin = (p) => p.start < 0 ? `, started ${-p.start}ms before the origin` : "";
+var consoleText = (c) => `${c.source === "uncaught" ? "uncaught " : ""}${c.label}${c.repeat > 1 ? ` \xD7${c.repeat}` : ""}${c.location ? " \xB7 " + c.location : ""}`;
 var SHIFT_MIN = 1e-3;
 var EVENT_MIN_MS = 50;
-function perfLaneOf(entries, ownWork, origin, windowEnd, commitStarts2, rel, maxMarks) {
+function perfLaneOf(entries, ownWork, origin, windowEnd, commitStarts3, rel, maxMarks) {
   const lane = [];
   let marks = 0;
   let omittedMarks = 0;
@@ -661,7 +810,7 @@ function perfLaneOf(entries, ownWork, origin, windowEnd, commitStarts2, rel, max
     let chippy = false;
     if (e.entryType === "long-animation-frame" || e.entryType === "longtask") {
       kind = "frame";
-      value = e.entryType === "longtask" ? round2(Math.max(0, e.duration - 50)) : e.blockingDuration ?? null;
+      value = e.entryType === "longtask" ? round3(Math.max(0, e.duration - 50)) : e.blockingDuration ?? null;
       const script = e.scripts?.[0];
       label = script ? [script.invoker, script.sourceFunctionName, script.sourceURL?.split("/").pop()].filter(Boolean).join(" ") : "";
       chippy = isOwnFrame(e, ownWork);
@@ -695,9 +844,9 @@ function perfLaneOf(entries, ownWork, origin, windowEnd, commitStarts2, rel, max
       label: label.trim(),
       start: rel(e.startTime),
       end: rel(end),
-      durationMs: round2(e.duration || 0),
+      durationMs: round3(e.duration || 0),
       value,
-      commits: commitStarts2.filter((c) => c.start >= e.startTime && c.start <= end).map((c) => c.id),
+      commits: commitStarts3.filter((c) => c.start >= e.startTime && c.start <= end).map((c) => c.id),
       ...chippy && { chippy: true }
     });
   }
@@ -735,16 +884,21 @@ function renderMermaid(result) {
   if (browser.length) {
     lines.push("  section Browser (long frames, measures)");
     for (const p of browser) {
-      const name = p.kind === "frame" ? `long frame ${p.durationMs}ms${p.commits.length ? " " + commitSpan(p.commits) : ""}` : `${p.label} ${p.durationMs}ms`;
-      lines.push(`  ${safe(name)} :${p.kind === "frame" ? "crit, " : ""}perf${p.id}, ${bar(p.start, p.end)}`);
+      const name = (p.kind === "frame" ? `long frame ${p.durationMs}ms${p.commits.length ? " " + commitSpan(p.commits) : ""}` : `${p.label} ${p.durationMs}ms`) + (p.start < 0 ? " from before" : "");
+      lines.push(`  ${safe(name)} :${p.kind === "frame" ? "crit, " : ""}perf${p.id}, ${bar(drawnStart(p), p.end)}`);
     }
+  }
+  const alerts = result.lanes.console.filter((c) => c.level === "error" || c.level === "warn").slice(0, 15);
+  if (alerts.length) {
+    lines.push("  section Console (errors, warnings)");
+    for (const c of alerts) lines.push(`  ${safe(`${c.level} ${c.label.slice(0, 60)}${c.repeat > 1 ? " \xD7" + c.repeat : ""}`)} :${c.level === "error" ? "crit, " : ""}milestone, log${c.id}, ${c.t}, ${c.t}`);
   }
   if (suspense.length) {
     lines.push("  section User waits (fallback shown)");
-    suspense.forEach((s, n) => {
+    grouped(suspense, suspenseKey).forEach(({ item: s, count }, n) => {
       const stop = s.end ?? end;
       const label = s.end === null ? "still waiting" : `${stop - s.start}ms`;
-      lines.push(`  ${safe(s.label || "@" + s.depth)} ${label} :${s.end === null ? "active" : "crit"}, sus${n}, ${bar(s.start, stop)}`);
+      lines.push(`  ${safe((s.label || "@" + s.depth) + times(count))} ${label} :${s.end === null ? "active" : "crit"}, sus${n}, ${bar(s.start, stop)}`);
     });
   }
   const screen = commits.filter((c) => c.kind !== "update");
@@ -777,10 +931,10 @@ function renderText(result) {
   const header = [];
   if (p.waits.length === 0) header.push("No Suspense fallback was shown in this window.");
   else {
-    header.push(p.settledAt !== null ? `Fallbacks first shown at +${p.firstLockAt}, all cleared at +${p.settledAt}; ${p.updatesAfterSettled.commits} updates (${p.updatesAfterSettled.rendered} rendered) ran after that, before the next input.` : `Fallbacks first shown at +${p.firstLockAt}; still waiting at the end: ${p.stillWaiting.map((key) => result.boundaries.find((b) => b.boundary === key)?.label || key).join(", ")}.`);
-    for (const w of p.waits.slice(0, 5)) {
+    header.push(p.settledAt !== null ? `Fallbacks first shown at +${p.firstLockAt}, all cleared at +${p.settledAt}; ${p.updatesAfterSettled.commits} updates (${p.updatesAfterSettled.rendered} rendered) ran after that, before the next input.` : `Fallbacks first shown at +${p.firstLockAt}; still waiting at the end: ${Array.from(new Set(p.stillWaiting.map((key) => result.boundaries.find((b) => b.boundary === key)?.label || key))).join(", ")}.`);
+    for (const { item: w, count } of grouped(p.waits, waitKey).slice(0, 5)) {
       const last = w.lastRequests[0];
-      header.push(`  wait ${w.label || "@" + w.depth} ${w.waitedMs}ms (+${w.from} \u2192 ${w.until === null ? "end" : "+" + w.until}), ${w.updatesDuring.commits} updates (${w.updatesDuring.rendered} rendered) meanwhile` + (last ? `, last request before unlock: ${last.label} (+${last.end}, ${last.gapMs}ms before)` : ""));
+      header.push(`  wait ${w.label || "@" + w.depth}${times(count)} ${w.waitedMs}ms (+${w.from} \u2192 ${w.until === null ? "end" : "+" + w.until}), ${w.updatesDuring.commits} updates (${w.updatesDuring.rendered} rendered) meanwhile` + (last ? `, last request before unlock: ${last.label} (+${last.end}, ${last.gapMs}ms before)` : ""));
     }
   }
   const sc = result.screen;
@@ -803,11 +957,16 @@ function renderText(result) {
   if (ownFrames.length) {
     header.push(`Chippy's own long frames, left out of the totals: ${ownFrames.length}, ${Math.round(ownFrames.reduce((sum, p2) => sum + (p2.value ?? 0), 0))}ms blocking.`);
   }
+  const cs = result.console;
+  if (cs && cs.errors + cs.warnings > 0) {
+    const fe = cs.firstError;
+    header.push(`Console: ${cs.errors} errors, ${cs.warnings} warnings` + (fe ? `; first error +${fe.t}${fe.afterCommit !== null ? ` (after c${fe.afterCommit})` : ""}: ${consoleText(fe)}` : "") + ".");
+  }
   const rows = [];
   for (const i of result.lanes.input) rows.push({ t: i.t, lane: "input", text: inputLabel(i) });
   for (const r of result.lanes.network) rows.push({ t: r.start, lane: "net", text: `${r.label}  \u2192 +${r.end} (${r.durationMs}ms${r.cached ? ", cached" : ""})` });
-  for (const s of result.lanes.suspense) {
-    rows.push({ t: s.start, lane: "wait", text: `fallback ${s.label || "@" + s.depth} ` + (s.end === null ? "still shown at the end" : `until +${s.end} (${s.end - s.start}ms, c${s.enteredAt}\u2192c${s.leftAt})`) });
+  for (const { item: s, count } of grouped(result.lanes.suspense, suspenseKey)) {
+    rows.push({ t: s.start, lane: "wait", text: `fallback ${s.label || "@" + s.depth}${times(count)} ` + (s.end === null ? "still shown at the end" : `until +${s.end} (${s.end - s.start}ms, c${s.enteredAt}\u2192c${s.leftAt})`) });
   }
   for (const c of result.lanes.commits) {
     const lane = c.kind === "update" ? "react" : "SCRN";
@@ -817,10 +976,11 @@ function renderText(result) {
   }
   for (const p2 of result.lanes.perf) {
     const commits = p2.commits.length ? ` \xB7 ${commitSpan(p2.commits)}` : "";
-    const text = p2.kind === "frame" ? `long frame ${p2.durationMs}ms (${p2.value ?? 0}ms blocking) \u2192 +${p2.end}${p2.label ? " \xB7 " + p2.label : ""}${commits}` : p2.kind === "measure" ? `measure ${p2.label} \u2192 +${p2.end} (${p2.durationMs}ms)` : p2.kind === "mark" ? `mark ${p2.label}` : p2.kind === "shift" ? `layout shift ${p2.value}${p2.label ? " \xB7 " + p2.label : ""}` : p2.kind === "event" ? `slow ${p2.label} ${p2.durationMs}ms (input delay ${p2.value ?? 0}ms)` : `LCP${p2.label ? " " + p2.label : ""}`;
-    rows.push({ t: p2.start, lane: p2.kind === "frame" ? "frame" : "perf", text });
+    const text = p2.kind === "frame" ? `long frame ${p2.durationMs}ms (${p2.value ?? 0}ms blocking${beforeOrigin(p2)}) \u2192 +${p2.end}${p2.label ? " \xB7 " + p2.label : ""}${commits}` : p2.kind === "measure" ? `measure ${p2.label} \u2192 +${p2.end} (${p2.durationMs}ms${beforeOrigin(p2)})` : p2.kind === "mark" ? `mark ${p2.label}` : p2.kind === "shift" ? `layout shift ${p2.value}${p2.label ? " \xB7 " + p2.label : ""}` : p2.kind === "event" ? `slow ${p2.label} ${p2.durationMs}ms (input delay ${p2.value ?? 0}ms)` : `LCP${p2.label ? " " + p2.label : ""}`;
+    rows.push({ t: drawnStart(p2), lane: p2.kind === "frame" ? "frame" : "perf", text });
   }
-  const order = { input: 0, net: 1, wait: 2, SCRN: 3, react: 4, frame: 5, perf: 6 };
+  for (const c of result.lanes.console) rows.push({ t: c.t, lane: c.level, text: consoleText(c) });
+  const order = { input: 0, net: 1, wait: 2, SCRN: 3, react: 4, frame: 5, perf: 6, error: 7, warn: 7, info: 7, log: 7, debug: 7 };
   rows.sort((a, b) => a.t - b.t || order[a.lane] - order[b.lane]);
   const width = Math.max(...rows.map((r) => String(r.t).length), 1);
   return [...header, "", ...rows.map((r) => `+${String(r.t).padStart(width)}  ${r.lane.padEnd(5)}  ${r.text}`)].join("\n");
@@ -934,6 +1094,7 @@ function buildSummaryView(report, options = {}) {
     topCommits,
     hooks: summarizeHookResults(report.hooks),
     perf: Array.isArray(report.perfEntries) ? perfSummary(report) : null,
+    console: Array.isArray(report.consoleEntries) ? consoleSummary(report) : null,
     meta: report.meta ?? null
   };
 }
@@ -988,20 +1149,20 @@ function componentNamesIn(value, renames) {
 // src/avalanche/network-signals.ts
 var DEFAULT_NETWORK_WINDOW_MS = 250;
 var NETWORK_SORT_KEYS = ["start", "end", "duration"];
-var round3 = (value) => Math.round(value * 10) / 10;
+var round4 = (value) => Math.round(value * 10) / 10;
 function commitAnchors(commitTimings) {
   const anchors = [];
   for (const [id, timing] of Object.entries(commitTimings ?? {})) {
-    const commitStart3 = Number(timing?.startTime);
+    const commitStart4 = Number(timing?.startTime);
     const commitEnd = Number(timing?.endTime);
-    if (!Number.isFinite(commitStart3) || !Number.isFinite(commitEnd)) continue;
+    if (!Number.isFinite(commitStart4) || !Number.isFinite(commitEnd)) continue;
     const renderStart = Number(timing?.render?.renderStart);
-    const renderStartKnown = Number.isFinite(renderStart) && renderStart <= commitStart3;
+    const renderStartKnown = Number.isFinite(renderStart) && renderStart <= commitStart4;
     anchors.push({
       commitId: Number(id),
-      renderStart: renderStartKnown ? renderStart : commitStart3,
+      renderStart: renderStartKnown ? renderStart : commitStart4,
       renderStartKnown,
-      commitStart: commitStart3,
+      commitStart: commitStart4,
       commitEnd
     });
   }
@@ -1021,7 +1182,7 @@ function linkRequest(request, anchors, windowMs) {
   const { startTime, endTime } = request;
   const afterIndex = firstAtOrAfter(anchors, startTime, "commitEnd") - 1;
   const after = afterIndex >= 0 ? anchors[afterIndex] : null;
-  const startedAfter = after && startTime - after.commitEnd <= windowMs ? { commitId: after.commitId, gapMs: round3(startTime - after.commitEnd) } : null;
+  const startedAfter = after && startTime - after.commitEnd <= windowMs ? { commitId: after.commitId, gapMs: round4(startTime - after.commitEnd) } : null;
   const rendering = anchors[firstAtOrAfter(anchors, startTime, "commitStart")];
   const startedDuringRender = rendering && rendering.renderStartKnown && rendering.renderStart <= startTime ? rendering.commitId : null;
   let landedBefore = null;
@@ -1029,7 +1190,7 @@ function linkRequest(request, anchors, windowMs) {
     const anchor = anchors[i];
     if (anchor.renderStart - endTime > windowMs) break;
     if (anchor.renderStart >= endTime) {
-      landedBefore = { commitId: anchor.commitId, gapMs: round3(anchor.renderStart - endTime) };
+      landedBefore = { commitId: anchor.commitId, gapMs: round4(anchor.renderStart - endTime) };
       break;
     }
   }
@@ -1349,7 +1510,7 @@ function runAvalanche(command, api, mod, report) {
           return { ok: false, available: true, action, error: "commit-peek requires numeric commitId" };
         }
         const include = Array.isArray(command?.include) && command.include.length ? command.include : ["stats", "sources", "timing", "metrics", "hooks"];
-        const allowedInclude = ["stats", "sources", "timing", "metrics", "hooks", "unmounts", "actions", "rendered", "network", "dom", "perf"];
+        const allowedInclude = ["stats", "sources", "timing", "metrics", "hooks", "unmounts", "actions", "rendered", "network", "dom", "perf", "console"];
         const invalidInclude = include.filter((key) => !allowedInclude.includes(key));
         if (invalidInclude.length) {
           return {
@@ -1429,6 +1590,11 @@ function runAvalanche(command, api, mod, report) {
           const perf = perfForCommit(ser, commitId, maxItems);
           out.perf = perf.items;
           out.perfTotal = perf.total;
+        }
+        if (include.includes("console")) {
+          const logged = consoleForCommit(ser, commitId, maxItems);
+          out.console = logged.items;
+          out.consoleTotal = logged.total;
         }
         if (include.includes("unmounts")) {
           const raw = r.raw || {};
@@ -1543,6 +1709,22 @@ function runAvalanche(command, api, mod, report) {
           match: command?.match,
           fromCommit: command?.fromCommit,
           toCommit: command?.toCommit
+        });
+        if ("error" in view) return { ok: false, available: true, action, error: view.error };
+        return { ok: true, available: true, action, payload: view.payload };
+      }
+      case "console": {
+        const r = report();
+        if (!r || "error" in r) {
+          return { ok: false, available: true, action, error: r && "error" in r ? r.error : "report() unavailable" };
+        }
+        const view = consoleView(r.serial, {
+          levels: command?.levels,
+          top: command?.top,
+          match: command?.match,
+          fromCommit: command?.fromCommit,
+          toCommit: command?.toCommit,
+          chippy: command?.includeChippy
         });
         if ("error" in view) return { ok: false, available: true, action, error: view.error };
         return { ok: true, available: true, action, payload: view.payload };
@@ -1733,6 +1915,19 @@ function analyzeSavedReport(report, command, args) {
         toCommit: number("toCommit", 4)
       });
     }
+    case "console": {
+      const levels = args.levels ?? positional[0];
+      const match = args.match ?? positional[2];
+      return dispatch(report, {
+        action: "console",
+        ...typeof levels === "string" && levels && { levels },
+        top: number("top", 1),
+        ...typeof match === "string" && match && { match },
+        fromCommit: number("fromCommit", 3),
+        toCommit: number("toCommit", 4),
+        ...(args.includeChippy === true || args.includeChippy === "true") && { includeChippy: true }
+      });
+    }
     case "timeline": {
       const exclude = args.exclude ?? positional[3];
       return dispatch(report, {
@@ -1766,6 +1961,526 @@ function analyzeSavedReport(report, command, args) {
   }
 }
 
+// src/ab/observations.ts
+var SEP = "	";
+var BEHAVIOR_KINDS = ["fiber", "prop", "dom", "console", "request"];
+function behaviorKind(key) {
+  return key.slice(0, key.indexOf(SEP));
+}
+function fiberIdOf(key) {
+  const kind = behaviorKind(key);
+  if (kind !== "fiber" && kind !== "prop") return null;
+  return key.split(SEP)[1];
+}
+function parentFiberId(id) {
+  const slash = id.lastIndexOf("/");
+  if (slash < 0) return null;
+  const parent = id.slice(0, slash);
+  return parent === "root" ? null : parent;
+}
+function add(map, key, by = 1) {
+  map.set(key, (map.get(key) ?? 0) + by);
+}
+function fiberLabeler(state) {
+  const byId = new Map((state?.fibers ?? []).map((entry) => [entry.id, entry]));
+  return (id) => {
+    const names = [];
+    for (let current = id; current; current = parentFiberId(current)) {
+      const entry = byId.get(current);
+      if (!entry) break;
+      names.unshift(entry.key == null ? entry.name : `${entry.name}[key=${entry.key}]`);
+    }
+    if (!names.length) return id;
+    return names.length > 5 ? `\u2026 \u203A ${names.slice(-5).join(" \u203A ")}` : names.join(" \u203A ");
+  };
+}
+function observeFibers(state, behavior) {
+  for (const entry of state.fibers) {
+    behavior.set(["fiber", entry.id].join(SEP), entry.name);
+    for (const [name, prop] of Object.entries(entry.props)) {
+      behavior.set(["prop", entry.id, name].join(SEP), `${prop.kind}:${prop.hash}${prop.truncated ? "~" : ""}`);
+    }
+  }
+}
+function domSignature(change) {
+  const props = Array.isArray(change.props) ? change.props.map((p) => `${String(p?.[0])}=${p?.[2] == null ? "\u2205" : String(p[2])}`).join(" ") : String(change.html ?? "");
+  return ["dom", String(change.op), String(change.node), String(change.at), props].join(SEP);
+}
+function observeReport(report, obs) {
+  const { behavior, counts, timings, layers } = obs;
+  const commitStats = report.commitStats ?? {};
+  const ids = Object.keys(commitStats);
+  counts.set("commits", ids.length);
+  for (const key of UPSTREAM_COMMIT_STAT_KEYS) counts.set(key, 0);
+  for (const id of ids) {
+    const stats = tupleToStats(commitStats[id]);
+    if (stats) for (const key of UPSTREAM_COMMIT_STAT_KEYS) add(counts, key, stats[key]);
+  }
+  if (report.renderedByCommit && typeof report.renderedByCommit === "object") {
+    layers.rendered = true;
+    counts.set("renders", 0);
+    counts.set("identityChurn", 0);
+    counts.set("trashers", 0);
+    for (const entries of Object.values(report.renderedByCommit)) {
+      for (const entry of Array.isArray(entries) ? entries : []) {
+        const name = String(entry?.name ?? "Unknown");
+        add(counts, "renders");
+        add(counts, `renders ${name}`);
+        for (const change of Array.isArray(entry?.propChanges) ? entry.propChanges : []) {
+          const churn = change?.kind === "ref-changed" && (change.sameShallow === true || String(change.current ?? "").startsWith("function"));
+          if (churn) {
+            add(counts, "identityChurn");
+            add(counts, `identityChurn ${name}`);
+          }
+        }
+        const t = entry?.trasherCounts;
+        if (t) add(counts, "trashers", Number(t.effects || 0) + Number(t.callbacks || 0) + Number(t.memos || 0));
+      }
+    }
+  }
+  let renderMs = 0;
+  let timed = false;
+  for (const timing of Object.values(report.commitTimings ?? {})) {
+    const work = Number(timing?.render?.workMs);
+    if (Number.isFinite(work)) {
+      renderMs += work;
+      timed = true;
+    }
+  }
+  if (timed) timings.set("renderMs", Math.round(renderMs * 10) / 10);
+  if (report.domByCommit && typeof report.domByCommit === "object") {
+    layers.dom = true;
+    for (const diff of Object.values(report.domByCommit)) {
+      for (const change of diff?.changes ?? []) {
+        const key = domSignature(change);
+        behavior.set(key, String(Number(behavior.get(key) ?? 0) + 1));
+      }
+    }
+  }
+  if (Array.isArray(report.consoleEntries)) {
+    layers.console = true;
+    for (const entry of report.consoleEntries) {
+      if (entry?.chippy || entry?.level !== "error" && entry?.level !== "warn") continue;
+      const key = ["console", entry.level, String(entry.message ?? "")].join(SEP);
+      behavior.set(key, String(Number(behavior.get(key) ?? 0) + Number(entry.repeat || 1)));
+    }
+  }
+  if (Array.isArray(report.networkRequests)) {
+    layers.network = true;
+    for (const request of report.networkRequests) {
+      if (request?.startedBeforeCapture) continue;
+      const key = ["request", String(request?.initiatorType ?? "other"), String(request?.url ?? "")].join(SEP);
+      behavior.set(key, String(Number(behavior.get(key) ?? 0) + 1));
+    }
+  }
+  if (Array.isArray(report.perfEntries)) {
+    layers.perf = true;
+    const perf = perfSummary(report);
+    counts.set("longFrames", perf.longFrames);
+    counts.set("layoutShifts", perf.layoutShifts);
+    timings.set("totalBlockingMs", perf.totalBlockingMs);
+    if (perf.worstInteractionMs != null) timings.set("worstInteractionMs", perf.worstInteractionMs);
+    timings.set("cls", perf.cls);
+  }
+}
+function observeSample(sample) {
+  const state = sample.fiberState;
+  const label = fiberLabeler(state);
+  const entries = new Map((state?.fibers ?? []).map((entry) => [entry.id, entry]));
+  const obs = {
+    behavior: /* @__PURE__ */ new Map(),
+    counts: /* @__PURE__ */ new Map(),
+    timings: /* @__PURE__ */ new Map(),
+    layers: { fibers: false, dom: false, console: false, network: false, rendered: false, perf: false },
+    page: { url: state?.page?.url ?? null },
+    describe(key) {
+      const parts = key.split(SEP);
+      switch (parts[0]) {
+        case "fiber":
+          return { label: label(parts[1]), preview: null };
+        case "prop":
+          return { label: `${label(parts[1])} .${parts[2]}`, preview: entries.get(parts[1])?.props[parts[2]]?.preview ?? null };
+        case "dom":
+          return { label: `${parts[1]} ${parts[2]} @ ${parts[3]}`, preview: parts[4] || null };
+        case "console":
+          return { label: `console.${parts[1]}`, preview: parts[2].slice(0, 200) };
+        case "request":
+          return { label: `${parts[1]} ${parts[2]}`, preview: null };
+        default:
+          return { label: key, preview: null };
+      }
+    }
+  };
+  if (state) {
+    obs.layers.fibers = true;
+    observeFibers(state, obs.behavior);
+  }
+  observeReport(sample.report, obs);
+  return obs;
+}
+
+// src/ab/arm.ts
+var ABSENT = "\u2205";
+var DEFAULT_AB_TOP = 20;
+var CORE_COUNTS = ["commits", "renders", "collateral"];
+function spread(values) {
+  const sorted = values.slice().sort((a, b) => a - b);
+  const mid = sorted.length >> 1;
+  const median = sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+  return { min: sorted[0], median: Math.round(median * 10) / 10, max: sorted[sorted.length - 1], values };
+}
+function settledFrom(values) {
+  if (values.length < 2) return null;
+  const last = values[values.length - 1];
+  if (values[values.length - 2] !== last) return null;
+  let from = values.length - 2;
+  while (from > 0 && values[from - 1] === last) from--;
+  return from;
+}
+function countSeries(arm, key) {
+  return arm.observations.map((obs) => obs.counts.get(key) ?? 0);
+}
+function timingSeries(arm, key) {
+  return arm.observations.map((obs) => obs.timings.get(key)).filter((v) => v !== void 0);
+}
+function behaviorValues(arm, key) {
+  return arm.observations.map((obs) => obs.behavior.get(key) ?? ABSENT);
+}
+function armLayers(arm) {
+  const layers = Object.keys(arm.observations[0]?.layers ?? {});
+  return Object.fromEntries(layers.map((layer) => {
+    const n = arm.observations.filter((obs) => obs.layers[layer]).length;
+    return [layer, n === arm.observations.length ? "all" : n ? "some" : "none"];
+  }));
+}
+function behaviorLayer(kind) {
+  return kind === "fiber" || kind === "prop" ? "fibers" : kind === "request" ? "network" : kind;
+}
+function keysOf(arms, field) {
+  const keys = /* @__PURE__ */ new Set();
+  for (const arm of arms) for (const obs of arm.observations) for (const key of obs[field].keys()) keys.add(key);
+  return Array.from(keys).sort();
+}
+function armStability(arm) {
+  const froms = CORE_COUNTS.filter((key) => arm.observations.some((obs) => obs.counts.has(key))).map((key) => settledFrom(countSeries(arm, key)));
+  const settled = arm.observations.length >= 2 && froms.every((from) => from !== null);
+  return {
+    samples: arm.observations.length,
+    settledFrom: settled ? Math.max(0, ...froms) + 1 : null,
+    settled
+  };
+}
+function pageWarnings(arm) {
+  const paths = new Set(arm.observations.map((obs) => {
+    try {
+      return obs.page.url ? new URL(obs.page.url).pathname : null;
+    } catch {
+      return obs.page.url;
+    }
+  }).filter(Boolean));
+  return paths.size > 1 ? [`arm ${arm.name} has samples from ${paths.size} pages: ${Array.from(paths).join(", ")}`] : [];
+}
+function emptySamples(arm) {
+  return arm.observations.flatMap((obs, i) => (obs.counts.get("commits") ?? 0) === 0 ? [i + 1] : []);
+}
+function armWarnings(arm) {
+  const warnings = pageWarnings(arm);
+  const empty = emptySamples(arm);
+  if (empty.length) warnings.push(`arm ${arm.name}: sample${empty.length === 1 ? "" : "s"} ${empty.join(", ")} recorded no React commit; check that the page rendered and Avalanche was recording`);
+  if (arm.observations.length < 2) warnings.push(`arm ${arm.name} has ${arm.observations.length} sample: its noise is unknown; take at least 2`);
+  for (const [layer, coverage] of Object.entries(armLayers(arm))) {
+    if (coverage === "some") warnings.push(`arm ${arm.name}: only some samples carry ${layer}; it is not judged`);
+  }
+  const stability = armStability(arm);
+  if (arm.observations.length >= 2 && !stability.settled) {
+    warnings.push(`arm ${arm.name} has not settled: its last two samples differ in commits, renders, or collateral; take more samples, or drop warm-up samples with --skip`);
+  }
+  return warnings;
+}
+function isTotalKey(key) {
+  return !key.includes(" ");
+}
+function summarizeArm(arm, options = {}) {
+  const top = Math.max(1, Math.floor(Number(options.top) || DEFAULT_AB_TOP));
+  const behaviorKeys = keysOf([arm], "behavior");
+  const byKind = Object.fromEntries(BEHAVIOR_KINDS.map((kind) => [kind, { keys: 0, varying: 0 }]));
+  const varying = [];
+  for (const key of behaviorKeys) {
+    const kind = behaviorKind(key);
+    byKind[kind].keys++;
+    const distinct = new Set(behaviorValues(arm, key)).size;
+    if (distinct > 1) {
+      byKind[kind].varying++;
+      const owner = arm.observations.find((obs) => obs.behavior.has(key));
+      varying.push({ kind, distinct, ...owner.describe(key) });
+    }
+  }
+  const countRows = keysOf([arm], "counts").map((key) => {
+    const values = countSeries(arm, key);
+    const s = spread(values);
+    const from = settledFrom(values);
+    return { key, ...s, stable: s.min === s.max, settledFrom: from === null ? null : from + 1 };
+  });
+  const byMedian = (a, b) => b.median - a.median;
+  return {
+    ok: true,
+    arm: arm.name,
+    files: arm.files,
+    skipped: arm.skipped,
+    ...armStability(arm),
+    layers: armLayers(arm),
+    behavior: {
+      keys: behaviorKeys.length,
+      varying: varying.length,
+      byKind,
+      /** Keys that differ between samples: they cannot be judged in a comparison. */
+      varyingTop: varying.slice(0, top)
+    },
+    counts: {
+      totals: countRows.filter((row) => isTotalKey(row.key)),
+      components: countRows.filter((row) => !isTotalKey(row.key)).sort(byMedian).slice(0, top),
+      varyingComponents: countRows.filter((row) => !isTotalKey(row.key) && !row.stable).length
+    },
+    timings: keysOf([arm], "timings").map((key) => ({ key, ...spread(timingSeries(arm, key)) })),
+    warnings: armWarnings(arm)
+  };
+}
+
+// src/ab/compare.ts
+var MIN_TIMING_SAMPLES = 3;
+function isDrifting(values) {
+  if (values.length < MIN_TIMING_SAMPLES) return false;
+  const steps = values.slice(1).map((v, i) => Math.sign(v - values[i]));
+  return steps.every((step) => step === 1) || steps.every((step) => step === -1);
+}
+function judgeSpreads(a, b, judged = true) {
+  if (!judged) return "not-judged";
+  if (a.min === a.max && b.min === b.max && a.min === b.min) return "same";
+  if (b.max < a.min) return "better";
+  if (b.min > a.max) return "worse";
+  return "noise";
+}
+function side(arm, key, value) {
+  if (value === ABSENT) return { value: "absent", preview: null };
+  const owner = arm.observations.find((obs) => obs.behavior.has(key));
+  const kind = behaviorKind(key);
+  if (kind === "fiber") return { value: "present", preview: null };
+  if (kind === "prop") return { value: "set", preview: owner?.describe(key).preview ?? null };
+  return { value: `${value}\xD7`, preview: null };
+}
+var KIND_ORDER = ["dom", "fiber", "prop", "console", "request"];
+function rootDifferences(keys) {
+  const fibers = new Set(keys.filter((k) => behaviorKind(k) === "fiber").map((k) => fiberIdOf(k)));
+  const changedIds = keys.map(fiberIdOf).filter((id) => id !== null);
+  const underFiber = (id) => {
+    for (let p = parentFiberId(id); p; p = parentFiberId(p)) if (fibers.has(p)) return true;
+    return false;
+  };
+  const kept = keys.filter((key) => {
+    const id = fiberIdOf(key);
+    if (id === null) return true;
+    if (underFiber(id)) return false;
+    if (behaviorKind(key) === "prop") {
+      if (fibers.has(id)) return false;
+      if (key.endsWith("	children") && changedIds.some((other) => other.startsWith(`${id}/`))) return false;
+    }
+    return true;
+  });
+  return { kept, collapsed: keys.length - kept.length };
+}
+function groupByLabel(rows) {
+  const groups = /* @__PURE__ */ new Map();
+  for (const row of rows) {
+    const id = `${row.kind}	${row.label}`;
+    const group = groups.get(id);
+    if (group) group.count++;
+    else groups.set(id, { ...row, count: 1 });
+  }
+  return [...groups.values()].sort((x, y) => y.count - x.count);
+}
+function compareBehavior(a, b, top) {
+  const layersA = armLayers(a);
+  const layersB = armLayers(b);
+  const byKind = Object.fromEntries(BEHAVIOR_KINDS.map((kind) => [kind, { judged: 0, unjudged: 0, changed: 0 }]));
+  const changed = [];
+  const unjudged = [];
+  let notCovered = 0;
+  for (const key of keysOf([a, b], "behavior")) {
+    const kind = behaviorKind(key);
+    const layer = behaviorLayer(kind);
+    if (layersA[layer] !== "all" || layersB[layer] !== "all") {
+      notCovered++;
+      continue;
+    }
+    const va = new Set(behaviorValues(a, key));
+    const vb = new Set(behaviorValues(b, key));
+    if (va.size > 1 || vb.size > 1) {
+      byKind[kind].unjudged++;
+      unjudged.push(key);
+      continue;
+    }
+    byKind[kind].judged++;
+    const [left] = va;
+    const [right] = vb;
+    if (left !== right) changed.push(key);
+  }
+  const { kept, collapsed } = rootDifferences(changed);
+  for (const key of kept) byKind[behaviorKind(key)].changed++;
+  kept.sort((x, y) => KIND_ORDER.indexOf(behaviorKind(x)) - KIND_ORDER.indexOf(behaviorKind(y)) || (x < y ? -1 : 1));
+  const describe = (key) => (a.observations.find((o) => o.behavior.has(key)) ?? b.observations.find((o) => o.behavior.has(key))).describe(key);
+  return {
+    changed: kept.length,
+    /** Differences hidden under a root difference: an added fiber's props, a parent's `children`. */
+    collapsed,
+    unjudged: unjudged.length,
+    /** Keys of a layer that a sample of either arm did not carry. */
+    notCovered,
+    byKind,
+    items: kept.slice(0, top).map((key) => ({
+      kind: behaviorKind(key),
+      label: describe(key).label,
+      ...behaviorKind(key) === "dom" && { detail: describe(key).preview },
+      a: side(a, key, behaviorValues(a, key)[0]),
+      b: side(b, key, behaviorValues(b, key)[0])
+    })),
+    unjudgedTop: groupByLabel(unjudged.map((key) => ({ kind: behaviorKind(key), label: describe(key).label }))).slice(0, Math.min(top, 10))
+  };
+}
+function perfRow(key, a, b, judged = true) {
+  return { key, a: { min: a.min, median: a.median, max: a.max }, b: { min: b.min, median: b.median, max: b.max }, delta: Math.round((b.median - a.median) * 10) / 10, change: judgeSpreads(a, b, judged) };
+}
+function comparePerformance(a, b, top) {
+  const rows = keysOf([a, b], "counts").map((key) => perfRow(key, spread(countSeries(a, key)), spread(countSeries(b, key))));
+  const components = rows.filter((row) => !isTotalKey(row.key) && row.change !== "same").sort((x, y) => Math.abs(y.delta) - Math.abs(x.delta) || (x.key < y.key ? -1 : 1));
+  const timingJudged = a.observations.length >= MIN_TIMING_SAMPLES && b.observations.length >= MIN_TIMING_SAMPLES;
+  const timings = keysOf([a, b], "timings").flatMap((key) => {
+    const va = timingSeries(a, key);
+    const vb = timingSeries(b, key);
+    if (!va.length || !vb.length) return [];
+    const row = perfRow(key, spread(va), spread(vb), timingJudged);
+    const drifting = [[a, va], [b, vb]].filter(([, values]) => isDrifting(values)).map(([arm]) => arm.name);
+    return [drifting.length && (row.change === "better" || row.change === "worse") ? { ...row, change: "drifting", drifting } : row];
+  });
+  const tally = (change) => rows.filter((row) => row.change === change).length;
+  return {
+    better: tally("better"),
+    worse: tally("worse"),
+    noise: tally("noise"),
+    totals: rows.filter((row) => isTotalKey(row.key)),
+    components: components.slice(0, top),
+    componentsChanged: components.length,
+    timings,
+    timingNote: !timingJudged ? `timings are judged with at least ${MIN_TIMING_SAMPLES} samples per arm` : timings.some((row) => row.change === "drifting") ? "a drifting timing only climbed or fell across an arm's samples; skip warm-up samples with --skip, add samples, or capture the arms interleaved (a, b, a, b)" : null
+  };
+}
+function compareArms(a, b, options = {}) {
+  const top = Math.max(1, Math.floor(Number(options.top) || DEFAULT_AB_TOP));
+  const behavior = compareBehavior(a, b, top);
+  const performance2 = comparePerformance(a, b, top);
+  const reasons = [];
+  for (const arm of [a, b]) {
+    if (arm.observations.length < 2) reasons.push(`arm ${arm.name} has ${arm.observations.length} sample: noise inside it is unknown, so no difference can be told from noise`);
+  }
+  for (const [arm, other] of [[a, b], [b, a]]) {
+    const empty = emptySamples(arm);
+    if (empty.length && emptySamples(other).length < other.observations.length) {
+      reasons.push(`arm ${arm.name} recorded no React commit in sample${empty.length === 1 ? "" : "s"} ${empty.join(", ")} while arm ${other.name} did: an empty capture is not less work`);
+    }
+  }
+  const judged = BEHAVIOR_KINDS.reduce((sum, kind) => sum + behavior.byKind[kind].judged, 0);
+  if (!judged) reasons.push("no behavior key could be judged: both arms need fiber state or DOM changes in every sample");
+  const verdict = reasons.length ? "inconclusive" : behavior.changed ? "behavior-changed" : "equivalent";
+  if (verdict === "behavior-changed") reasons.push(`${behavior.changed} behavior difference${behavior.changed === 1 ? "" : "s"} stable inside each arm`);
+  return {
+    ok: true,
+    verdict,
+    reasons,
+    arms: {
+      a: { name: a.name, files: a.files, skipped: a.skipped, ...armStability(a) },
+      b: { name: b.name, files: b.files, skipped: b.skipped, ...armStability(b) }
+    },
+    behavior,
+    performance: performance2,
+    warnings: [...armWarnings(a), ...armWarnings(b)]
+  };
+}
+
+// src/ab/files.ts
+var import_node_fs = require("node:fs");
+var import_node_path = require("node:path");
+var import_node_zlib = require("node:zlib");
+
+// src/ab/sample.ts
+var AB_SAMPLE_KIND = "chippy-ab-sample";
+function isAbSample(value) {
+  const v = value;
+  return !!v && typeof v === "object" && v.kind === AB_SAMPLE_KIND && v.version === 1 && !!v.report && typeof v.report === "object" && typeof v.report.commitStats === "object";
+}
+function unwrapFiberState(value) {
+  const candidates = [value, value?.result, value?.payload?.result, value?.payload];
+  const state = candidates.find((c) => c && typeof c === "object" && c.version === 1 && Array.isArray(c.fibers));
+  if (state) return { state };
+  const error = candidates.map((c) => c && typeof c === "object" ? c.error : null).find((e) => typeof e === "string");
+  return { error: error || "response has no fiber state capture" };
+}
+function buildAbSample(input) {
+  return {
+    kind: AB_SAMPLE_KIND,
+    version: 1,
+    arm: input.arm,
+    label: input.label,
+    index: input.index,
+    capturedAt: input.capturedAt ?? (/* @__PURE__ */ new Date()).toISOString(),
+    report: input.report,
+    fiberState: input.fiberState,
+    fiberStateError: input.fiberState ? null : input.fiberStateError ?? "no fiber state"
+  };
+}
+
+// src/ab/files.ts
+var SAMPLE_FILE = /^sample-(\d+)\.json(\.gz)?$/;
+function readJsonFile(file) {
+  const bytes = (0, import_node_fs.readFileSync)(file);
+  const gzipped = bytes.length > 2 && bytes[0] === 31 && bytes[1] === 139;
+  return JSON.parse((gzipped ? (0, import_node_zlib.gunzipSync)(bytes) : bytes).toString("utf8"));
+}
+function sampleFiles(dir) {
+  return (0, import_node_fs.readdirSync)(dir).map((name) => ({ name, match: SAMPLE_FILE.exec(name) })).filter((entry) => entry.match).sort((x, y) => Number(x.match[1]) - Number(y.match[1])).map((entry) => (0, import_node_path.join)(dir, entry.name));
+}
+function resolveArm(spec) {
+  if ((0, import_node_fs.existsSync)(spec) && (0, import_node_fs.statSync)(spec).isDirectory()) {
+    return { name: (0, import_node_path.basename)((0, import_node_path.resolve)(spec)), files: sampleFiles(spec) };
+  }
+  const files = spec.split(",").map((s) => s.trim()).filter(Boolean);
+  return { name: files.length === 1 ? (0, import_node_path.basename)(files[0]) : spec, files };
+}
+function loadArm(spec, options = {}) {
+  const { name, files } = resolveArm(spec);
+  if (!files.length) throw new Error(`arm ${spec} has no sample files (expected sample-<n>.json.gz from ab-capture)`);
+  const skip = Math.max(0, Math.floor(Number(options.skip) || 0));
+  if (skip >= files.length) throw new Error(`--skip ${skip} leaves no sample in arm ${name} (${files.length} samples)`);
+  const used = files.slice(skip);
+  const observations = used.map((file) => {
+    const sample = readJsonFile(file);
+    if (!isAbSample(sample)) throw new Error(`${file} is not an A/B sample (write samples with ab-capture)`);
+    return observeSample(sample);
+  });
+  return { name, files: used, skipped: skip, observations };
+}
+function nextSamplePath(dir) {
+  (0, import_node_fs.mkdirSync)(dir, { recursive: true });
+  const last = sampleFiles(dir).map((file) => Number(SAMPLE_FILE.exec((0, import_node_path.basename)(file))[1])).pop() ?? 0;
+  const index = last + 1;
+  return { file: (0, import_node_path.join)(dir, `sample-${index}.json.gz`), index };
+}
+function writeSample(dir, input) {
+  const { file, index } = nextSamplePath(dir);
+  const sample = buildAbSample({ ...input, arm: (0, import_node_path.basename)((0, import_node_path.resolve)(dir)), index });
+  const data = (0, import_node_zlib.gzipSync)(JSON.stringify(sample), { level: 1 });
+  (0, import_node_fs.writeFileSync)(file, data);
+  return { file, sample, bytes: data.length };
+}
+
 // src/avalanche/offline-cli.ts
 var USAGE = `Usage: avalanche-analyze.cjs <file> <command> [args]
 
@@ -1784,6 +2499,11 @@ Commands:
   dom-diff      [fromCommit] [toCommit] [match] [maxItems]
                 (--fromCommit N --toCommit N --match regex --maxItems N --top N)
   source-search --name <regex> [--top N]
+
+A/B (an arm is a directory of samples, or comma-separated sample files):
+  ab-save    <armDir> <fiberStateFile> [label] < export response
+  ab-arm     <arm> [--skip N] [--top N]
+  ab-compare <armA> <armB> [--skip N] [--top N]
 
 commit-list sort keys: collateral sources restarts performedWork effects memos
   callbacks contextUpdates unmountedComponents unmountedSubtrees ticks network
@@ -1819,9 +2539,9 @@ function parseJson(text, label) {
   }
 }
 function readSaved(file) {
-  const bytes = (0, import_node_fs.readFileSync)(file);
+  const bytes = (0, import_node_fs2.readFileSync)(file);
   const gzipped = bytes.length > 2 && bytes[0] === 31 && bytes[1] === 139;
-  return (gzipped ? (0, import_node_zlib.gunzipSync)(bytes) : bytes).toString("utf8");
+  return (gzipped ? (0, import_node_zlib2.gunzipSync)(bytes) : bytes).toString("utf8");
 }
 function main(argv) {
   if (!argv.length || argv[0] === "-h" || argv[0] === "--help") {
@@ -1829,7 +2549,7 @@ function main(argv) {
     return;
   }
   if (argv[0] === "normalize") {
-    const report2 = unwrapSavedReport(parseJson((0, import_node_fs.readFileSync)(0, "utf8"), "helper response"));
+    const report2 = unwrapSavedReport(parseJson((0, import_node_fs2.readFileSync)(0, "utf8"), "helper response"));
     if (!report2) fail("response has no Avalanche export (expected meta and commitStats); check avalanche-status");
     const trimmed = keepLastCommits(report2, Number(argv[1]) || 0);
     process.stdout.write(JSON.stringify(trimmed));
@@ -1838,18 +2558,65 @@ function main(argv) {
   if (argv[0] === "save") {
     const out = argv[2];
     if (!out) fail("save requires <count> <file>");
-    const response = parseJson((0, import_node_fs.readFileSync)(0, "utf8"), "helper response");
+    const response = parseJson((0, import_node_fs2.readFileSync)(0, "utf8"), "helper response");
     const report2 = unwrapSavedReport(response);
     if (!report2) fail("response has no Avalanche export (expected meta and commitStats); check avalanche-status");
     const nameRecovery = response?.nameRecovery ?? response?.result?.nameRecovery;
     const trimmed = keepLastCommits(report2, Number(argv[1]) || 0);
     const text = JSON.stringify(trimmed);
-    const data = out.endsWith(".gz") ? (0, import_node_zlib.gzipSync)(text, { level: 1 }) : text;
-    (0, import_node_fs.writeFileSync)(out, data);
+    const data = out.endsWith(".gz") ? (0, import_node_zlib2.gzipSync)(text, { level: 1 }) : text;
+    (0, import_node_fs2.writeFileSync)(out, data);
     const commits = Object.keys(trimmed.commitStats || {}).length;
     const jsonBytes = Buffer.byteLength(text);
     const bytes = typeof data === "string" ? jsonBytes : data.length;
     process.stdout.write(`${JSON.stringify({ ok: true, file: out, bytes, ...bytes !== jsonBytes && { jsonBytes }, commits, ...nameRecovery ? { nameRecovery } : {} })}
+`);
+    return;
+  }
+  if (argv[0] === "ab-save") {
+    const [, dir, fiberFile, label] = argv;
+    if (!dir || !fiberFile) fail("ab-save requires <armDir> <fiberStateFile> [label]");
+    const report2 = unwrapSavedReport(parseJson((0, import_node_fs2.readFileSync)(0, "utf8"), "helper response"));
+    if (!report2) fail("response has no Avalanche export (expected meta and commitStats); install Avalanche and run the stimulus first");
+    let fiber;
+    try {
+      fiber = unwrapFiberState(readJsonFile(fiberFile));
+    } catch (error) {
+      fiber = { error: error.message };
+    }
+    (0, import_node_fs2.rmSync)(fiberFile, { force: true });
+    const { file: file2, sample, bytes } = writeSample(dir, {
+      label: label || null,
+      report: report2,
+      fiberState: "state" in fiber ? fiber.state : null,
+      fiberStateError: "error" in fiber ? fiber.error : null
+    });
+    process.stdout.write(`${JSON.stringify({
+      ok: true,
+      file: file2,
+      arm: sample.arm,
+      sample: sample.index,
+      label: sample.label,
+      bytes,
+      commits: Object.keys(report2.commitStats).length,
+      fibers: sample.fiberState?.fiberCount ?? null,
+      ...sample.fiberStateError && { fiberStateError: sample.fiberStateError }
+    })}
+`);
+    return;
+  }
+  if (argv[0] === "ab-arm" || argv[0] === "ab-compare") {
+    const args = parseArgs(argv.slice(1));
+    const want = argv[0] === "ab-arm" ? 1 : 2;
+    if (args._.length < want) fail(argv[0] === "ab-arm" ? "ab-arm requires <arm>" : "ab-compare requires <armA> <armB>");
+    let arms;
+    try {
+      arms = args._.slice(0, want).map((spec) => loadArm(spec, { skip: args.skip }));
+    } catch (error) {
+      fail(error.message);
+    }
+    const result2 = want === 1 ? summarizeArm(arms[0], { top: args.top }) : compareArms(arms[0], arms[1], { top: args.top });
+    process.stdout.write(`${JSON.stringify(result2, null, 2)}
 `);
     return;
   }

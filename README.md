@@ -17,10 +17,16 @@ what re-rendered during a slow interaction. Ask the agent, or point at an elemen
 on the page and leave it a note.
 
 Chippy works with standard React and needs no patched packages. Development
-builds give the most detail. Chippy also works on production builds, including
-for performance profiling, with limits: names may be minified and source
-locations are unavailable, and every answer says what was available. Keeping
-`displayName`s in production code helps a lot. See [React compatibility](https://github.com/atlassian-labs/chippy/blob/main/docs/react-compatibility.md#production-builds).
+builds give the most detail.
+
+**Chippy profiles production builds too.** Point it at your deployed site and
+it records which commits ran, which components rendered, and which prop or
+state changes caused them, through React's DevTools hook, with no special React
+build. When the site serves source maps, Chippy recovers the authored component
+names and where each one is defined. Without them, names may be minified, so
+keeping `displayName`s in production code helps a lot. Owner chains, hook
+replay, and JSX source lines need a development build, and every answer says
+what was available. See [Production builds](https://github.com/atlassian-labs/chippy/blob/main/docs/react-compatibility.md#production-builds).
 
 ## What you can ask
 
@@ -29,6 +35,25 @@ locations are unavailable, and every answer says what was available. Keeping
 - **Compare:** "What changed in the tree between these two states, or these two pages?"
 - **Investigate:** "Why is this click slow?", "What re-renders on initial load?",
   or "Which component shifted the layout or delayed LCP?"
+
+## What Chippy senses
+
+Chippy reads the page through many senses at once and puts them on one clock,
+so the agent can connect what the user saw to the code that caused it:
+
+| Sense | What the agent gets |
+| --- | --- |
+| React tree | Components, props, state, hooks, owners, Error and Suspense boundaries, and source locations |
+| Renders | Every commit during an interaction or the initial load: which components rendered, why, and which one started the cascade |
+| Hooks | A replay of a component's render that shows how its hooks produced a value |
+| Screen | Suspense fallbacks the user waited for, and how much of a view is still a skeleton |
+| DOM | What each commit changed in the DOM, in order: flicker, replaced nodes, content that comes and goes |
+| Input | Each click, key press, and input event, with its DOM target and nearest component, linked to the commit it set off |
+| Network | Requests from Resource Timing, with their timing and cache use, placed next to the commits around them |
+| Browser performance | Layout shifts, long frames, slow interactions (INP), LCP, and your own `performance.mark` and `measure` entries |
+| Console | Console errors, warnings, and logs, uncaught errors, and unhandled promise rejections, with the caller's location and the commit each followed |
+| Snapshots | A fingerprint of every component's props in one state, diffed against another state or another page |
+| Your app | Anything a [pack](#packs) teaches it: your boundary names, your metrics, your data layer |
 
 ## Install
 
@@ -196,6 +221,50 @@ side effects during render, say so and the agent uses read-only inspection
 instead. Chippy changes your source only when you ask it to, and checks the fix
 against the same page.
 
+## Packs
+
+A pack teaches Chippy about your application without changing Chippy. It is one
+JSON document your team keeps and shares, and it can:
+
+- **Name your components and boundaries.** Rules turn your loading, error, and
+  region components into named boundary kinds with their own probe fields.
+- **Add your own senses to recordings.** Avalanche extensions are small scripts
+  that run when a pack loads and on every recorded commit. They can read your
+  app's metrics, watch spinners, or wrap a data client, and their results
+  appear in the recording next to Chippy's own evidence.
+- **Tell the agent how to read it.** A pack's `instructions` travel with its
+  data, so any agent reads your evidence the way your team does.
+
+```json
+{
+  "id": "my-app",
+  "label": "My app",
+  "instructions": "`hooks[\"my-app.mutations\"].end.total` counts DOM mutations during the recording.",
+  "avalancheExtensions": {
+    "mutations": {
+      "onInit": "const observer = new MutationObserver((list) => { window.__MY_APP_MUTATIONS += list.length; }); window.__MY_APP_MUTATIONS = 0; observer.observe(document.body, { childList: true, subtree: true }); return () => observer.disconnect();",
+      "onStart": "ctx.state.from = window.__MY_APP_MUTATIONS;",
+      "onEnd": "return { total: window.__MY_APP_MUTATIONS - ctx.state.from };"
+    }
+  }
+}
+```
+
+Load a pack by pasting it into **Packs** in the Chippy panel's settings, where
+you can keep several and switch each on or off. It loads from the next page
+load, early enough to set up globals your app reads while it starts.
+
+**Developing your own pack.** Ask your agent to write one: describe what you
+want measured, and it can iterate on the live page with
+`__AVALANCHE__.registerPack(pack)`, which loads a new version at once and
+replaces the old one. Have `onInit` return a function that undoes what it set
+up, such as disconnecting an observer or restoring a wrapped function; Chippy
+calls it before the new version loads, so the old one stops cleanly.
+`status().packs` reports scripts that failed to compile or initialize. Keep the
+pack source in your own repository and paste the finished JSON into the panel.
+The [pack reference](https://github.com/atlassian-labs/chippy/blob/main/docs/plugins.md#packs)
+covers every field, the script context, and the loading routes.
+
 ## Use Chippy without an agent
 
 The `@atlassian/chippy` npm package also works with no agent, helper, or
@@ -268,7 +337,7 @@ change is verified.
 
 - [Agent skill](https://github.com/atlassian-labs/chippy/blob/main/.agents/skills/chippy/SKILL.md) and its [references](https://github.com/atlassian-labs/chippy/blob/main/.agents/skills/chippy/references/README.md)
 - [React compatibility](https://github.com/atlassian-labs/chippy/blob/main/docs/react-compatibility.md)
-- [Plugins](https://github.com/atlassian-labs/chippy/blob/main/docs/plugins.md) for app-specific knowledge
+- [Plugins and packs](https://github.com/atlassian-labs/chippy/blob/main/docs/plugins.md) for app-specific knowledge, and [writing a pack](https://github.com/atlassian-labs/chippy/blob/main/docs/plugins.md#packs)
 - [Trust boundary](https://github.com/atlassian-labs/chippy/blob/main/docs/trust-boundary.md): what page data Chippy sees and who can reach the helper
 - [Security policy](https://github.com/atlassian-labs/chippy/blob/main/SECURITY.md)
 - [Changelog](https://github.com/atlassian-labs/chippy/blob/main/CHANGELOG.md)

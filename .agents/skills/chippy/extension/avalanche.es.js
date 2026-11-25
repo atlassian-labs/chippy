@@ -1491,7 +1491,7 @@ const CS_UNMOUNTED_SUBTREES = 9;
 const MAX_DEPTH$1 = 2;
 const MAX_ENTRIES = 8;
 const MAX_STRING$1 = 200;
-function cut$1(text) {
+function cut$2(text) {
   return text.length > MAX_STRING$1 ? text.slice(0, MAX_STRING$1) + `…(${text.length})` : text;
 }
 function constructorName(value) {
@@ -1531,8 +1531,8 @@ function opaqueMarker(value) {
   if (value instanceof Map) return `[Map(${value.size})]`;
   if (value instanceof Set) return `[Set(${value.size})]`;
   if (value instanceof Date) return Number.isNaN(value.getTime()) ? "[Date invalid]" : value.toISOString();
-  if (value instanceof RegExp) return cut$1(String(value));
-  if (value instanceof Error) return cut$1(`[${value.name}: ${value.message}]`);
+  if (value instanceof RegExp) return cut$2(String(value));
+  if (value instanceof Error) return cut$2(`[${value.name}: ${value.message}]`);
   if (ArrayBuffer.isView(value)) return `[${constructorName(value)}]`;
   return null;
 }
@@ -1546,11 +1546,11 @@ function copy(value, depth, seen) {
     case "number":
       return Number.isFinite(value) ? value : String(value);
     case "string":
-      return cut$1(value);
+      return cut$2(value);
     case "bigint":
       return `${String(value)}n`;
     case "symbol":
-      return cut$1(String(value));
+      return cut$2(String(value));
     case "function":
       return `[Function ${value.name || "anonymous"}]`;
   }
@@ -1656,6 +1656,7 @@ function serializeReport(report) {
     ...report.commitTimings && { commitTimings: report.commitTimings },
     ...report.networkRequests && { networkRequests: report.networkRequests.map((request) => ({ ...request })) },
     ...report.perfEntries && { perfEntries: report.perfEntries.map((entry) => ({ ...entry })) },
+    ...report.consoleEntries && { consoleEntries: report.consoleEntries.map((entry) => ({ ...entry })) },
     ...report.screenByCommit && { screenByCommit: report.screenByCommit },
     ...report.domByCommit && { domByCommit: report.domByCommit },
     ...report.hooks && { hooks: report.hooks }
@@ -1847,8 +1848,8 @@ function buildReport(state2, thrashMode, topN, sortBy, options = {}, detectorCon
   const metricsAvailable = metricsAdapter !== null && hasMetricsData;
   const renderTicks = (detectorConfig == null ? void 0 : detectorConfig.renderTicks) ?? { available: false, sources: [], reason: "detector not installed" };
   const meta = {
-    version: 9,
-    // v9: perfEntries + meta.perf; v8: networkRequests + meta.network; v7: meta.timeOrigin, absolute commit and action timestamps
+    version: 10,
+    // v10: consoleEntries + meta.console; v9: perfEntries + meta.perf; v8: networkRequests + meta.network; v7: meta.timeOrigin, absolute commit and action timestamps
     timeOrigin: performance.timeOrigin,
     commits: state2.commits,
     config: {
@@ -1885,6 +1886,7 @@ function buildReport(state2, thrashMode, topN, sortBy, options = {}, detectorCon
     ...(detectorConfig == null ? void 0 : detectorConfig.capture) && { capture: detectorConfig.capture },
     network: (detectorConfig == null ? void 0 : detectorConfig.network) ?? { supported: false, enabled: false, windowStart: 0, requests: 0, dropped: 0, ignoredOwn: 0, pausedAt: null },
     ...(detectorConfig == null ? void 0 : detectorConfig.perf) && { perf: detectorConfig.perf },
+    ...(detectorConfig == null ? void 0 : detectorConfig.console) && { console: detectorConfig.console },
     timing: {
       totalDetectorOverhead,
       avgDetectorOverhead,
@@ -1904,6 +1906,7 @@ function buildReport(state2, thrashMode, topN, sortBy, options = {}, detectorCon
     renderedByCommit: state2.renderedByCommit,
     networkRequests: state2.networkRequests.slice(),
     ...state2.perfEntries && { perfEntries: state2.perfEntries.slice() },
+    ...state2.consoleEntries && { consoleEntries: state2.consoleEntries.map((entry) => ({ ...entry })) },
     ...ownWorkSince().length > 0 && { ownWork: ownWorkSince() },
     ...state2.screenByCommit && Object.keys(state2.screenByCommit).length > 0 && { screenByCommit: { ...state2.screenByCommit } },
     ...state2.domByCommit && Object.keys(state2.domByCommit).length > 0 && { domByCommit: { ...state2.domByCommit } },
@@ -2717,7 +2720,7 @@ function createInteractionCapture(options = {}, noteName) {
 }
 const DEFAULT_MAX_NETWORK_REQUESTS = 500;
 const MAX_URL_LENGTH = 300;
-const round$7 = (value) => Math.round(value * 10) / 10;
+const round$9 = (value) => Math.round(value * 10) / 10;
 function cacheUse(entry) {
   if (entry.deliveryType === "cache") return true;
   const transfer = entry.transferSize ?? 0;
@@ -2756,9 +2759,9 @@ function createNetworkCapture(options = {}) {
       id: nextId++,
       url: entry.name.length > MAX_URL_LENGTH ? entry.name.slice(0, MAX_URL_LENGTH) : entry.name,
       initiatorType: entry.initiatorType || "other",
-      startTime: round$7(entry.startTime),
-      endTime: round$7(endTime),
-      duration: round$7(endTime - entry.startTime),
+      startTime: round$9(entry.startTime),
+      endTime: round$9(endTime),
+      duration: round$9(endTime - entry.startTime),
       status: typeof entry.responseStatus === "number" && entry.responseStatus > 0 ? entry.responseStatus : null,
       cached: cacheUse(entry),
       startedBeforeCapture: entry.startTime < windowStart
@@ -2824,11 +2827,11 @@ function createNetworkCapture(options = {}) {
       return {
         supported: observerConstructor() !== null,
         enabled,
-        windowStart: round$7(windowStart),
+        windowStart: round$9(windowStart),
         requests: requests.length,
         dropped,
         ignoredOwn,
-        pausedAt: pausedAt === null ? null : round$7(pausedAt)
+        pausedAt: pausedAt === null ? null : round$9(pausedAt)
       };
     }
   };
@@ -2883,8 +2886,8 @@ const NON_INTERACTION_EVENT_MIN_MS = 50;
 const MAX_TEXT = 200;
 const MAX_SCRIPTS = 5;
 const MAX_SHIFT_SOURCES = 5;
-const round$6 = (value) => typeof value === "number" && Number.isFinite(value) ? Math.round(value * 10) / 10 : 0;
-const cut = (text) => text.length > MAX_TEXT ? text.slice(0, MAX_TEXT) + "…" : text;
+const round$8 = (value) => typeof value === "number" && Number.isFinite(value) ? Math.round(value * 10) / 10 : 0;
+const cut$1 = (text) => text.length > MAX_TEXT ? text.slice(0, MAX_TEXT) + "…" : text;
 function detailOf(value) {
   if (value === void 0 || value === null) return null;
   let text;
@@ -2893,10 +2896,10 @@ function detailOf(value) {
   } catch {
     text = void 0;
   }
-  return cut(typeof text === "string" ? text : String(value));
+  return cut$1(typeof text === "string" ? text : String(value));
 }
 function rectOf(rect) {
-  return rect ? [round$6(rect.x), round$6(rect.y), round$6(rect.width), round$6(rect.height)] : null;
+  return rect ? [round$8(rect.x), round$8(rect.y), round$8(rect.width), round$8(rect.height)] : null;
 }
 function owner(node, nameOf) {
   try {
@@ -2908,11 +2911,11 @@ function owner(node, nameOf) {
 function scriptsOf(raw) {
   const scripts = Array.isArray(raw.scripts) ? raw.scripts.slice() : [];
   return scripts.sort((a, b) => ((b == null ? void 0 : b.duration) ?? 0) - ((a == null ? void 0 : a.duration) ?? 0)).slice(0, MAX_SCRIPTS).map((s) => {
-    const sourceURL = typeof (s == null ? void 0 : s.sourceURL) === "string" && s.sourceURL ? cut(s.sourceURL) : null;
+    const sourceURL = typeof (s == null ? void 0 : s.sourceURL) === "string" && s.sourceURL ? cut$1(s.sourceURL) : null;
     return {
-      duration: round$6(s == null ? void 0 : s.duration),
-      forcedStyleAndLayoutDuration: typeof (s == null ? void 0 : s.forcedStyleAndLayoutDuration) === "number" ? round$6(s.forcedStyleAndLayoutDuration) : null,
-      invoker: typeof (s == null ? void 0 : s.invoker) === "string" && s.invoker ? cut(s.invoker) : null,
+      duration: round$8(s == null ? void 0 : s.duration),
+      forcedStyleAndLayoutDuration: typeof (s == null ? void 0 : s.forcedStyleAndLayoutDuration) === "number" ? round$8(s.forcedStyleAndLayoutDuration) : null,
+      invoker: typeof (s == null ? void 0 : s.invoker) === "string" && s.invoker ? cut$1(s.invoker) : null,
       invokerType: (s == null ? void 0 : s.invokerType) || null,
       sourceURL,
       sourceFunctionName: (s == null ? void 0 : s.sourceFunctionName) || null,
@@ -2924,7 +2927,7 @@ function scriptsOf(raw) {
 function shapePerfEntry(raw, nameOf) {
   if (!raw || typeof raw.startTime !== "number") return null;
   const entryType = String(raw.entryType || "");
-  const base = { entryType, name: cut(String(raw.name ?? "")), startTime: round$6(raw.startTime), duration: round$6(raw.duration) };
+  const base = { entryType, name: cut$1(String(raw.name ?? "")), startTime: round$8(raw.startTime), duration: round$8(raw.duration) };
   switch (entryType) {
     case "mark":
     case "measure":
@@ -2932,9 +2935,9 @@ function shapePerfEntry(raw, nameOf) {
     case "long-animation-frame":
       return {
         ...base,
-        blockingDuration: round$6(raw.blockingDuration),
-        renderStart: round$6(raw.renderStart),
-        styleAndLayoutStart: round$6(raw.styleAndLayoutStart),
+        blockingDuration: round$8(raw.blockingDuration),
+        renderStart: round$8(raw.renderStart),
+        styleAndLayoutStart: round$8(raw.styleAndLayoutStart),
         scripts: scriptsOf(raw)
       };
     case "layout-shift":
@@ -2952,27 +2955,27 @@ function shapePerfEntry(raw, nameOf) {
       return {
         ...base,
         interactionId: Number(raw.interactionId) || 0,
-        inputDelay: round$6(raw.processingStart - raw.startTime),
-        processing: round$6(raw.processingEnd - raw.processingStart),
-        presentationDelay: round$6(raw.startTime + (raw.duration ?? 0) - raw.processingEnd),
+        inputDelay: round$8(raw.processingStart - raw.startTime),
+        processing: round$8(raw.processingEnd - raw.processingStart),
+        presentationDelay: round$8(raw.startTime + (raw.duration ?? 0) - raw.processingEnd),
         target: owner(raw.target, nameOf)
       };
     case "largest-contentful-paint":
       return {
         ...base,
-        renderTime: round$6(raw.renderTime),
-        loadTime: round$6(raw.loadTime),
+        renderTime: round$8(raw.renderTime),
+        loadTime: round$8(raw.loadTime),
         size: Number(raw.size) || 0,
-        url: typeof raw.url === "string" && raw.url ? cut(raw.url) : null,
+        url: typeof raw.url === "string" && raw.url ? cut$1(raw.url) : null,
         element: owner(raw.element, nameOf)
       };
     case "navigation":
       return {
         ...base,
         navigationType: String(raw.type || ""),
-        ttfb: round$6(raw.responseStart),
-        domContentLoaded: round$6(raw.domContentLoadedEventEnd),
-        load: round$6(raw.loadEventEnd),
+        ttfb: round$8(raw.responseStart),
+        domContentLoaded: round$8(raw.domContentLoadedEventEnd),
+        load: round$8(raw.loadEventEnd),
         transferSize: Number(raw.transferSize) || 0
       };
     case "paint":
@@ -3092,11 +3095,299 @@ function createPerfCapture(options = {}, nameOf) {
         enabled,
         observed,
         unsupported,
-        windowStart: round$6(windowStart),
+        windowStart: round$8(windowStart),
         entries: entries.length,
         byType,
         dropped: Object.fromEntries(dropped),
-        pausedAt: pausedAt === null ? null : round$6(pausedAt)
+        pausedAt: pausedAt === null ? null : round$8(pausedAt)
+      };
+    }
+  };
+}
+const CONSOLE_LEVELS = ["error", "warn", "info", "log", "debug"];
+const DEFAULT_MAX_CONSOLE_ENTRIES_PER_LEVEL = 200;
+const MAX_MESSAGE = 1500;
+const MAX_PREVIEW = 200;
+const MAX_STACK_FRAMES = 8;
+const STACK_LEVELS = /* @__PURE__ */ new Set(["error", "warn"]);
+const OWN_PREFIXES = ["[avalanche] ", "[Chippy ", "[chippy"];
+const round$7 = (value) => Math.round(value * 10) / 10;
+const cut = (text, max) => text.length > max ? text.slice(0, max) + "…" : text;
+function errorText(error) {
+  const name = typeof error.name === "string" && error.name ? error.name : "Error";
+  return typeof error.message === "string" && error.message ? `${name}: ${error.message}` : name;
+}
+function isError(value) {
+  return value instanceof Error || !!value && typeof value === "object" && typeof value.stack === "string" && typeof value.message === "string";
+}
+function elementText(node) {
+  var _a2;
+  const tag = String(node.tagName).toLowerCase();
+  const id = typeof node.id === "string" && node.id ? `#${node.id}` : "";
+  const testId = (_a2 = node.getAttribute) == null ? void 0 : _a2.call(node, "data-testid");
+  return `<${tag}${id}${testId ? ` data-testid="${testId}"` : ""}>`;
+}
+function previewValue$1(value, budget = MAX_PREVIEW) {
+  const seen = /* @__PURE__ */ new Set();
+  let out = "";
+  const push = (text) => {
+    out += text;
+    return out.length < budget;
+  };
+  const walk2 = (v, depth) => {
+    if (v === null || v === void 0 || typeof v === "number" || typeof v === "boolean" || typeof v === "bigint") return push(String(v));
+    if (typeof v === "string") return push(depth === 0 ? v : JSON.stringify(v));
+    if (typeof v === "symbol") return push(v.toString());
+    if (typeof v === "function") return push(`ƒ ${v.name || "anonymous"}()`);
+    if (isError(v)) return push(errorText(v));
+    if (typeof v !== "object") return push(String(v));
+    if (v.nodeType === 1 && "tagName" in v) return push(elementText(v));
+    if (seen.has(v)) return push("[Circular]");
+    if (depth >= 2) return push(Array.isArray(v) ? `Array(${v.length})` : "{…}");
+    seen.add(v);
+    if (Array.isArray(v)) {
+      if (!push("[")) return false;
+      for (let i = 0; i < v.length; i++) {
+        if (i > 0 && !push(", ")) return false;
+        if (!walk2(v[i], depth + 1)) return false;
+      }
+      return push("]");
+    }
+    let keys;
+    try {
+      keys = Object.keys(v);
+    } catch {
+      return push("{…}");
+    }
+    if (!push("{")) return false;
+    for (let i = 0; i < keys.length; i++) {
+      if (i > 0 && !push(", ")) return false;
+      let item;
+      try {
+        item = v[keys[i]];
+      } catch {
+        item = "[getter threw]";
+      }
+      if (!push(`${keys[i]}: `) || !walk2(item, depth + 1)) return false;
+    }
+    return push("}");
+  };
+  try {
+    walk2(value, 0);
+  } catch {
+    out += "[unreadable]";
+  }
+  return cut(out, budget);
+}
+function formatConsoleArgs(args) {
+  if (!args.length) return "";
+  const rest = args.slice(1);
+  let out;
+  if (typeof args[0] === "string") {
+    out = args[0].replace(/%([sdifoOc%])/g, (token, kind) => {
+      if (kind === "%") return "%";
+      if (!rest.length) return token;
+      const value = rest.shift();
+      if (kind === "c") return "";
+      if (kind === "d" || kind === "i") return String(parseInt(String(value), 10));
+      if (kind === "f") return String(Number(value));
+      return previewValue$1(value);
+    });
+  } else {
+    out = previewValue$1(args[0]);
+  }
+  for (const value of rest) {
+    out += " " + previewValue$1(value);
+    if (out.length > MAX_MESSAGE) break;
+  }
+  return cut(out, MAX_MESSAGE);
+}
+function parseFrames(stack) {
+  return stack.split("\n").map((line) => line.trim()).filter((line) => line && (line.startsWith("at ") || line.includes("@"))).map((line) => {
+    const match = /\(?((?:blob:)?(?:[a-z][a-z0-9+.-]*:\/\/|\/)[^\s()]*?):(\d+):(\d+)\)?$/i.exec(line);
+    const location = match ? `${match[1]}:${match[2]}:${match[3]}` : null;
+    return { text: line, location, chippy: !!match && isChippyAssetUrl(match[1]) };
+  });
+}
+const CAPTURE_FRAMES = 3;
+function callSite() {
+  var _a2;
+  const stack = new Error().stack;
+  if (typeof stack !== "string") return { frames: [], chippy: false };
+  const frames = parseFrames(stack).slice(CAPTURE_FRAMES);
+  return { frames, chippy: !!((_a2 = frames[0]) == null ? void 0 : _a2.chippy) };
+}
+function stackText(frames) {
+  return frames.length ? frames.slice(0, MAX_STACK_FRAMES).map((frame2) => frame2.text).join("\n") : null;
+}
+function createConsoleCapture(options = {}, target = globalThis) {
+  const enabled = options.consoleCapture !== false;
+  const limit = Math.max(1, Math.floor(Number(options.maxConsoleEntries) || DEFAULT_MAX_CONSOLE_ENTRIES_PER_LEVEL));
+  const entries = [];
+  const kept = /* @__PURE__ */ new Map();
+  const dropped = /* @__PURE__ */ new Map();
+  const originals = /* @__PURE__ */ new Map();
+  const wrappers = /* @__PURE__ */ new Map();
+  let nextId = 1;
+  let windowStart = performance.now();
+  let pausedAt = null;
+  let recording = false;
+  let listening = false;
+  let busy = false;
+  function dropOldest(level) {
+    const index = entries.findIndex((entry) => entry.level === level);
+    if (index < 0) return;
+    entries.splice(index, 1);
+    kept.set(level, (kept.get(level) ?? 1) - 1);
+    dropped.set(level, (dropped.get(level) ?? 0) + 1);
+  }
+  function add(entry) {
+    const last = entries[entries.length - 1];
+    if (last && last.level === entry.level && last.source === entry.source && last.message === entry.message && last.location === entry.location) {
+      last.repeat += 1;
+      last.lastTime = entry.time;
+      return;
+    }
+    entries.push({ id: nextId++, repeat: 1, ...entry });
+    kept.set(entry.level, (kept.get(entry.level) ?? 0) + 1);
+    if ((kept.get(entry.level) ?? 0) > limit) dropOldest(entry.level);
+  }
+  function accepting() {
+    return recording && pausedAt === null && !busy;
+  }
+  function recordCall(level, args) {
+    var _a2;
+    if (!accepting()) return;
+    busy = true;
+    try {
+      const time = round$7(performance.now());
+      const message = formatConsoleArgs(args);
+      const own = OWN_PREFIXES.some((prefix) => message.startsWith(prefix));
+      let stack = null;
+      let location = null;
+      let chippyCaller = false;
+      if (STACK_LEVELS.has(level)) {
+        const site = callSite();
+        chippyCaller = site.chippy;
+        const pageFrames = site.frames.filter((frame2) => !frame2.chippy);
+        location = ((_a2 = pageFrames.find((frame2) => frame2.location)) == null ? void 0 : _a2.location) ?? null;
+        const logged = args.find(isError);
+        stack = logged ? stackText(parseFrames(logged.stack ?? "")) : stackText(pageFrames.length ? pageFrames : site.frames);
+      }
+      add({ level, source: "console", time, message, stack, location, ...(own || chippyCaller) && { chippy: true } });
+    } catch {
+    } finally {
+      busy = false;
+    }
+  }
+  function wrapperFor(level, original) {
+    return function chippyConsoleCapture(...args) {
+      recordCall(level, args);
+      return original.apply(this, args);
+    };
+  }
+  function onError(event) {
+    var _a2;
+    if (!accepting() || !event || event.target && event.target !== target || !("message" in event || "error" in event)) return;
+    busy = true;
+    try {
+      const error = event.error;
+      const message = cut(isError(error) ? errorText(error) : String(event.message || "Script error."), MAX_MESSAGE);
+      const location = typeof event.filename === "string" && event.filename ? `${event.filename}:${event.lineno ?? 0}:${event.colno ?? 0}` : null;
+      const stack = isError(error) ? stackText(parseFrames(error.stack ?? "")) : null;
+      const chippy = !!location && isChippyAssetUrl(event.filename) || isError(error) && !!((_a2 = parseFrames(error.stack ?? "")[0]) == null ? void 0 : _a2.chippy);
+      add({ level: "error", source: "uncaught", time: round$7(performance.now()), message, stack, location, ...chippy && { chippy: true } });
+    } catch {
+    } finally {
+      busy = false;
+    }
+  }
+  function onRejection(event) {
+    var _a2, _b2;
+    if (!accepting() || !event) return;
+    busy = true;
+    try {
+      const reason = event.reason;
+      const message = cut(`Uncaught (in promise) ${isError(reason) ? errorText(reason) : previewValue$1(reason)}`, MAX_MESSAGE);
+      const frames = isError(reason) ? parseFrames(reason.stack ?? "") : [];
+      const location = ((_a2 = frames.find((frame2) => !frame2.chippy && frame2.location)) == null ? void 0 : _a2.location) ?? null;
+      add({ level: "error", source: "rejection", time: round$7(performance.now()), message, stack: stackText(frames), location, ...!!((_b2 = frames[0]) == null ? void 0 : _b2.chippy) && { chippy: true } });
+    } catch {
+    } finally {
+      busy = false;
+    }
+  }
+  return {
+    entries,
+    install() {
+      if (!enabled) return;
+      recording = true;
+      const consoleObject = target.console;
+      if (consoleObject) {
+        for (const level of CONSOLE_LEVELS) {
+          const current = consoleObject[level];
+          if (typeof current !== "function" || current === wrappers.get(level)) continue;
+          const wrapper = wrapperFor(level, current);
+          originals.set(level, current);
+          wrappers.set(level, wrapper);
+          try {
+            consoleObject[level] = wrapper;
+          } catch {
+          }
+        }
+      }
+      if (!listening && typeof target.addEventListener === "function") {
+        target.addEventListener("error", onError, true);
+        target.addEventListener("unhandledrejection", onRejection);
+        listening = true;
+      }
+    },
+    uninstall() {
+      recording = false;
+      const consoleObject = target.console;
+      for (const level of CONSOLE_LEVELS) {
+        const wrapper = wrappers.get(level);
+        const original = originals.get(level);
+        if (consoleObject && wrapper && original && consoleObject[level] === wrapper) {
+          try {
+            consoleObject[level] = original;
+          } catch {
+          }
+        }
+      }
+      wrappers.clear();
+      originals.clear();
+      if (listening && typeof target.removeEventListener === "function") {
+        target.removeEventListener("error", onError, true);
+        target.removeEventListener("unhandledrejection", onRejection);
+      }
+      listening = false;
+    },
+    pause() {
+      if (pausedAt === null) pausedAt = performance.now();
+    },
+    resume() {
+      pausedAt = null;
+    },
+    reset() {
+      pausedAt = null;
+      entries.length = 0;
+      kept.clear();
+      dropped.clear();
+      nextId = 1;
+      windowStart = performance.now();
+    },
+    status() {
+      const byLevel = {};
+      for (const [level, count] of kept) if (count > 0) byLevel[level] = count;
+      return {
+        enabled,
+        installed: recording,
+        windowStart: round$7(windowStart),
+        entries: entries.length,
+        byLevel,
+        dropped: Object.fromEntries(dropped),
+        pausedAt: pausedAt === null ? null : round$7(pausedAt)
       };
     }
   };
@@ -3177,7 +3468,7 @@ function toEvidence(value) {
     return String(value);
   }
 }
-function messageOf(error) {
+function messageOf$1(error) {
   if (error instanceof Error) return `${error.name}: ${error.message}`;
   return String(error);
 }
@@ -3207,7 +3498,7 @@ function createAvalancheHookRunner(source = getAvalancheHooks) {
       try {
         session2.result.start = toEvidence(hooks.onStart(session2.context));
       } catch (error) {
-        fail2(session2, { phase: "start", message: messageOf(error) });
+        fail2(session2, { phase: "start", message: messageOf$1(error) });
       }
     }
     return session2;
@@ -3241,7 +3532,7 @@ function createAvalancheHookRunner(source = getAvalancheHooks) {
           const value = toEvidence(hooks.onStep(context));
           if (value !== void 0) result.steps[commit.id] = value;
         } catch (error) {
-          fail2(session2, { phase: "step", commitId: commit.id, message: messageOf(error) });
+          fail2(session2, { phase: "step", commitId: commit.id, message: messageOf$1(error) });
           session2.stepFailures += 1;
           if (session2.stepFailures >= MAX_STEP_FAILURES) result.stepDisabled = true;
         } finally {
@@ -3263,7 +3554,7 @@ function createAvalancheHookRunner(source = getAvalancheHooks) {
             snapshot.end = toEvidence(hooks.onEnd(context));
           } catch (error) {
             snapshot.errorCount += 1;
-            if (snapshot.errors.length < MAX_RECORDED_ERRORS) snapshot.errors.push({ phase: "end", message: messageOf(error) });
+            if (snapshot.errors.length < MAX_RECORDED_ERRORS) snapshot.errors.push({ phase: "end", message: messageOf$1(error) });
           }
         }
         out[hooks.id] = snapshot;
@@ -3493,7 +3784,7 @@ function regionLabel(node, fiber, nameOf) {
   }
   return ((_c2 = element == null ? void 0 : element.tagName) == null ? void 0 : _c2.toLowerCase()) || "unknown";
 }
-const round$5 = (n) => Math.round(n);
+const round$6 = (n) => Math.round(n);
 const MAX_DESCENT = 32;
 function isEmptyBox(box) {
   return !box || box.right - box.left <= 0 || box.bottom - box.top <= 0;
@@ -3557,16 +3848,16 @@ function createScreenCapture(options = {}, geometry = domScreenGeometry, nameOf 
     }
     if (rects.length === 0) return;
     const full = Math.max(1, rectArea(viewport));
-    const area = round$5(changed.area());
-    const removedArea = round$5(removed.area());
+    const area = round$6(changed.area());
+    const removedArea = round$6(removed.area());
     rects.sort((a, b) => b.area - a.area);
     byCommit[commitId] = {
-      viewport: [round$5(viewport.right - viewport.left), round$5(viewport.bottom - viewport.top)],
+      viewport: [round$6(viewport.right - viewport.left), round$6(viewport.bottom - viewport.top)],
       area,
       removedArea,
       share: Math.min(1, Math.round((area + removedArea) / full * 1e3) / 1e3),
-      rects: rects.slice(0, MAX_RECTS_PER_COMMIT).map(({ rect }) => [round$5(rect.left), round$5(rect.top), round$5(rect.right), round$5(rect.bottom)]),
-      regions: [...regions.entries()].sort((a, b) => b[1] - a[1]).slice(0, MAX_REGIONS).map(([label, regionArea]) => ({ label, area: round$5(Math.min(regionArea, full)) })),
+      rects: rects.slice(0, MAX_RECTS_PER_COMMIT).map(({ rect }) => [round$6(rect.left), round$6(rect.top), round$6(rect.right), round$6(rect.bottom)]),
+      regions: [...regions.entries()].sort((a, b) => b[1] - a[1]).slice(0, MAX_REGIONS).map(([label, regionArea]) => ({ label, area: round$6(Math.min(regionArea, full)) })),
       nodes: found.length,
       ...truncated && { truncated: true },
       ms: Math.round((geometry.now() - started) * 100) / 100
@@ -4566,6 +4857,7 @@ function createAvalancheDetector(options = {}) {
   const interactionCapture = createInteractionCapture(options, noteRecordedName);
   const networkCapture = createNetworkCapture(options);
   const perfCapture = createPerfCapture(options, recordedNames.nameOf);
+  const consoleCapture = createConsoleCapture(options);
   const screenCapture = createScreenCapture(options, void 0, recordedNames.nameOf);
   const domDiff = createDomDiffCapture(options, void 0, recordedNames.nameOf);
   const hookRunner = createAvalancheHookRunner();
@@ -4650,6 +4942,7 @@ function createAvalancheDetector(options = {}) {
     interactionsByCommit: interactionCapture.state.byCommit,
     networkRequests: networkCapture.requests,
     perfEntries: perfCapture.entries,
+    consoleEntries: consoleCapture.entries,
     screenByCommit: screenCapture.byCommit,
     domByCommit: domDiff.byCommit,
     renderedByCommit: {}
@@ -5236,6 +5529,7 @@ function createAvalancheDetector(options = {}) {
     interactionCapture.resume();
     networkCapture.resume();
     perfCapture.resume();
+    consoleCapture.resume();
   }
   function resetState() {
     resumeCapture();
@@ -5268,6 +5562,7 @@ function createAvalancheDetector(options = {}) {
     interactionCapture.reset();
     networkCapture.reset();
     perfCapture.reset();
+    consoleCapture.reset();
     screenCapture.reset();
     domDiff.reset();
     paintTracker.reset();
@@ -5477,6 +5772,7 @@ function createAvalancheDetector(options = {}) {
       interactionCapture.install();
       networkCapture.install();
       perfCapture.install();
+      consoleCapture.install();
       hookRunner.ensureStarted();
       const devtoolsGlobal = globalThis;
       metricsAdapter = resolveMetricsAdapter();
@@ -5662,6 +5958,7 @@ function createAvalancheDetector(options = {}) {
       interactionCapture.uninstall();
       networkCapture.uninstall();
       perfCapture.uninstall();
+      consoleCapture.uninstall();
       commitSurface.reset();
       pendingDevtoolsUnmounts = { components: 0, subtrees: 0 };
       pendingDevtoolsUnmountSamples = [];
@@ -5682,6 +5979,7 @@ function createAvalancheDetector(options = {}) {
       interactionCapture.pause();
       networkCapture.pause();
       perfCapture.pause();
+      consoleCapture.pause();
     },
     /** Record again after pause(), keeping what the capture already holds. */
     resume() {
@@ -5760,6 +6058,7 @@ function createAvalancheDetector(options = {}) {
         renderTicks: renderTicks.status(),
         network: networkCapture.status(),
         perf: perfCapture.status(),
+        console: consoleCapture.status(),
         renderedEvidence: renderedEvidence.status(),
         ...domDiff.enabled && { domDiff: domDiff.status() },
         capture: captureStatus()
@@ -5887,7 +6186,7 @@ function createAvalancheDetector(options = {}) {
     counts() {
       networkCapture.flush();
       perfCapture.flush();
-      return { commits: state2.commits, networkRequests: networkCapture.requests.length, perfEntries: perfCapture.entries.length, renderedEvidence: renderedEvidence.status(), capture: captureStatus() };
+      return { commits: state2.commits, networkRequests: networkCapture.requests.length, perfEntries: perfCapture.entries.length, consoleEntries: consoleCapture.entries.length, renderedEvidence: renderedEvidence.status(), capture: captureStatus() };
     }
   };
 }
@@ -6964,14 +7263,15 @@ function registerPack(input) {
   const pack = parsePack(input);
   const contextProvider = compileComponents(pack) ?? void 0;
   const { extensions, hooks, compileErrors } = compileScripts(pack);
-  (_a2 = packs.get(pack.id)) == null ? void 0 : _a2.unregister();
-  const initErrors = [];
+  const initErrors = ((_a2 = packs.get(pack.id)) == null ? void 0 : _a2.unregister()) ?? [];
+  const cleanups = [];
   for (const { id, init } of extensions) {
     if (!init) continue;
     try {
-      init({ id });
+      const cleanup = init({ id });
+      if (typeof cleanup === "function") cleanups.push({ id, cleanup });
     } catch (error) {
-      initErrors.push(`${id}: ${error instanceof Error ? `${error.name}: ${error.message}` : String(error)}`);
+      initErrors.push(`${id}: ${messageOf(error)}`);
     }
   }
   const unregister = registerPlugin({
@@ -7006,9 +7306,21 @@ function registerPack(input) {
     unregister: () => {
       unregister();
       packs.delete(pack.id);
+      const errors = [];
+      for (const { id, cleanup } of cleanups.reverse()) {
+        try {
+          cleanup();
+        } catch (error) {
+          errors.push(`${id} cleanup: ${messageOf(error)}`);
+        }
+      }
+      return errors;
     }
   });
   return status;
+}
+function messageOf(error) {
+  return error instanceof Error ? `${error.name}: ${error.message}` : String(error);
 }
 function registerPacks(inputs) {
   const list = Array.isArray(inputs) ? inputs : inputs == null ? [] : [inputs];
@@ -7616,7 +7928,7 @@ function componentNamesIn(value, renames) {
 }
 const DEFAULT_NETWORK_WINDOW_MS = 250;
 const NETWORK_SORT_KEYS = ["start", "end", "duration"];
-const round$4 = (value) => Math.round(value * 10) / 10;
+const round$5 = (value) => Math.round(value * 10) / 10;
 function commitAnchors(commitTimings) {
   var _a2;
   const anchors = [];
@@ -7650,7 +7962,7 @@ function linkRequest(request, anchors, windowMs) {
   const { startTime, endTime } = request;
   const afterIndex = firstAtOrAfter(anchors, startTime, "commitEnd") - 1;
   const after = afterIndex >= 0 ? anchors[afterIndex] : null;
-  const startedAfter = after && startTime - after.commitEnd <= windowMs ? { commitId: after.commitId, gapMs: round$4(startTime - after.commitEnd) } : null;
+  const startedAfter = after && startTime - after.commitEnd <= windowMs ? { commitId: after.commitId, gapMs: round$5(startTime - after.commitEnd) } : null;
   const rendering = anchors[firstAtOrAfter(anchors, startTime, "commitStart")];
   const startedDuringRender = rendering && rendering.renderStartKnown && rendering.renderStart <= startTime ? rendering.commitId : null;
   let landedBefore = null;
@@ -7658,7 +7970,7 @@ function linkRequest(request, anchors, windowMs) {
     const anchor = anchors[i];
     if (anchor.renderStart - endTime > windowMs) break;
     if (anchor.renderStart >= endTime) {
-      landedBefore = { commitId: anchor.commitId, gapMs: round$4(anchor.renderStart - endTime) };
+      landedBefore = { commitId: anchor.commitId, gapMs: round$5(anchor.renderStart - endTime) };
       break;
     }
   }
@@ -7769,9 +8081,9 @@ function grid(frames) {
   }
   return { width, height, cols, rows, cw, ch, last };
 }
-function timeAtShare(times, total, share, floor) {
+function timeAtShare(times2, total, share, floor) {
   if (total === 0) return null;
-  const sorted = times.slice().sort((a, b) => a - b);
+  const sorted = times2.slice().sort((a, b) => a - b);
   const needed = Math.ceil(total * share);
   const missing = total - sorted.length;
   if (needed <= missing) return floor;
@@ -7808,9 +8120,9 @@ function settleMapSvg(frames, title = "When each part of the screen last changed
   const sorted = frames.filter((f) => f.change.rects.length > 0).sort((a, b) => a.t - b.t);
   if (sorted.length === 0) return null;
   const g = grid(sorted);
-  const times = Array.from(g.last).filter((v) => !Number.isNaN(v));
-  const min = Math.min(...times);
-  const max = Math.max(...times);
+  const times2 = Array.from(g.last).filter((v) => !Number.isNaN(v));
+  const min = Math.min(...times2);
+  const max = Math.max(...times2);
   const bucket = (t) => max === min ? RAMP.length - 1 : Math.min(RAMP.length - 1, Math.floor((t - min) / (max - min) * RAMP.length));
   const scale = Math.min(1, 640 / g.width);
   const w = Math.round(g.width * scale);
@@ -7866,7 +8178,7 @@ function inputDetail(event) {
 function inputLabel(i) {
   return i.action + (i.detail ? " " + i.detail : "") + (i.target ? " " + i.target : "");
 }
-const round$3 = (n) => Math.round(n);
+const round$4 = (n) => Math.round(n);
 function requestLabel(url) {
   try {
     const parsed = new URL(url, "http://local.invalid");
@@ -7879,7 +8191,7 @@ function requestLabel(url) {
     return url.slice(0, 60);
   }
 }
-function commitStart$1(report, id) {
+function commitStart$2(report, id) {
   var _a2, _b2;
   const start = Number((_b2 = (_a2 = report.commitTimings) == null ? void 0 : _a2[String(id)]) == null ? void 0 : _b2.startTime);
   return Number.isFinite(start) ? start : null;
@@ -7911,9 +8223,9 @@ function kindOf(events) {
 }
 function buildTimeline(report, options = {}) {
   var _a2, _b2, _c2;
-  const ids = Object.keys(report.commitTimings ?? {}).map(Number).filter((id) => Number.isFinite(id) && commitStart$1(report, id) !== null).sort((a, b) => a - b);
+  const ids = Object.keys(report.commitTimings ?? {}).map(Number).filter((id) => Number.isFinite(id) && commitStart$2(report, id) !== null).sort((a, b) => a - b);
   if (ids.length === 0) return { ok: false, error: "report has no commit timings (report version 6 or later is required)" };
-  const startOf = (id) => commitStart$1(report, id);
+  const startOf = (id) => commitStart$2(report, id);
   const shownOf = (id) => commitPaint(report, id, startOf(id)) ?? startOf(id);
   const interactions = /* @__PURE__ */ new Map();
   for (const list of Object.values(report.interactionsByCommit ?? {})) {
@@ -7936,7 +8248,7 @@ function buildTimeline(report, options = {}) {
   const windowEnd = startOf(windowIds[windowIds.length - 1]);
   const originInput = inputs.find((input2) => input2.t <= windowStart && windowStart - input2.t <= 5e3);
   const origin = originInput ? originInput.t : windowStart;
-  const rel = (t) => round$3(t - origin);
+  const rel = (t) => round$4(t - origin);
   const input = inputs.filter((i) => i.t >= origin && i.t <= windowEnd).map((i) => ({ ...i, t: rel(i.t) }));
   let exclude = null;
   try {
@@ -7951,13 +8263,22 @@ function buildTimeline(report, options = {}) {
     label: requestLabel(r.url),
     start: rel(r.startTime),
     end: rel(r.endTime),
-    durationMs: round$3(r.duration),
+    durationMs: round$4(r.duration),
     initiatorType: r.initiatorType,
     cached: !!r.cached
   });
   const drawable = inWindow.filter((r) => r.duration >= minRequestMs);
   const kept = [...drawable].sort((a, b) => b.duration - a.duration).slice(0, options.maxRequests ?? 30).sort((a, b) => a.startTime - b.startTime);
   const network = kept.map(toRequest);
+  const nextAfterWindow = ids.find((id) => id > windowIds[windowIds.length - 1]);
+  const consoleLane = consoleLaneOf(
+    report.consoleEntries,
+    origin,
+    nextAfterWindow === void 0 ? Infinity : startOf(nextAfterWindow),
+    ids.map((id) => ({ id, start: startOf(id) })),
+    rel,
+    options.maxLogs ?? 20
+  );
   const perfLane = perfLaneOf(report.perfEntries ?? [], report.ownWork, origin, windowEnd, ids.map((id) => ({ id, start: startOf(id) })), rel, options.maxMarks ?? 40);
   const boundaryKey = (event) => typeof event.boundary === "number" ? "b" + event.boundary : "@" + Number(event.depth);
   const open = /* @__PURE__ */ new Map();
@@ -8071,8 +8392,9 @@ function buildTimeline(report, options = {}) {
     boundaries: boundaryKeys.map((key) => ({ boundary: key, depth: boundaryInfo.get(key).depth, label: labelByKey.get(key) ?? null, location: boundaryInfo.get(key).location })),
     screen: screenStability(frames),
     ...options.settleMap && { settleMapSvg: settleMapSvg(frames) },
-    lanes: { input, network, suspense, commits, perf: perfLane.lane },
-    omitted: { requests: inWindow.length - kept.length, commits: allCommits.length - commits.length, marks: perfLane.omittedMarks },
+    lanes: { input, network, suspense, commits, perf: perfLane.lane, console: consoleLane.lane },
+    omitted: { requests: inWindow.length - kept.length, commits: allCommits.length - commits.length, marks: perfLane.omittedMarks, logs: consoleLane.omittedLogs },
+    console: consoleLane.summary,
     mermaid: "",
     text: ""
   };
@@ -8080,6 +8402,69 @@ function buildTimeline(report, options = {}) {
   result.text = renderText(result);
   return result;
 }
+const CONSOLE_LABEL_MAX = 140;
+const MAX_CONSOLE_ALERTS = 50;
+const ALERT_LEVELS = /* @__PURE__ */ new Set(["error", "warn"]);
+function shortLocation(location) {
+  if (!location) return null;
+  const match = /([^/]*:\d+:\d+)$/.exec(location);
+  return match ? match[1] : location;
+}
+function consoleLaneOf(entries, origin, end, commitStarts2, rel, maxLogs) {
+  if (!Array.isArray(entries)) return { lane: [], omittedLogs: 0, summary: null };
+  const page = entries.filter((e) => !e.chippy && (e.lastTime ?? e.time) >= origin && e.time < end).sort((a, b) => a.time - b.time);
+  const toItem = (e) => {
+    let after = null;
+    for (const c of commitStarts2) {
+      if (c.start > e.time) break;
+      after = c.id;
+    }
+    const first = String(e.message).split("\n").map((line) => line.trim()).find(Boolean) ?? "";
+    return {
+      id: e.id,
+      level: e.level,
+      source: e.source,
+      label: first.length > CONSOLE_LABEL_MAX ? first.slice(0, CONSOLE_LABEL_MAX - 1) + "…" : first,
+      t: rel(e.time),
+      repeat: e.repeat,
+      location: shortLocation(e.location),
+      afterCommit: after
+    };
+  };
+  const alerts = page.filter((e) => ALERT_LEVELS.has(e.level));
+  const others = page.filter((e) => !ALERT_LEVELS.has(e.level));
+  const keptAlerts = alerts.slice(0, MAX_CONSOLE_ALERTS);
+  const keptOthers = others.slice(0, maxLogs);
+  const lane = [...keptAlerts, ...keptOthers].sort((a, b) => a.time - b.time).map(toItem);
+  const count = (keep) => page.filter(keep).reduce((n, e) => n + e.repeat, 0);
+  const firstError = page.find((e) => e.level === "error");
+  return {
+    lane,
+    omittedLogs: alerts.length - keptAlerts.length + others.length - keptOthers.length,
+    summary: {
+      errors: count((e) => e.level === "error"),
+      warnings: count((e) => e.level === "warn"),
+      other: count((e) => !ALERT_LEVELS.has(e.level)),
+      firstError: firstError ? toItem(firstError) : null
+    }
+  };
+}
+function grouped(items, key) {
+  const groups = /* @__PURE__ */ new Map();
+  for (const item of items) {
+    const k = key(item);
+    const group = groups.get(k);
+    if (group) group.count += 1;
+    else groups.set(k, { item, count: 1 });
+  }
+  return Array.from(groups.values());
+}
+const times = (count) => count > 1 ? ` ×${count}` : "";
+const waitKey = (w) => `${w.label || "@" + w.depth}|${w.from}|${w.until}|${w.lockedBy}|${w.unlockedBy}`;
+const suspenseKey = (s) => `${s.label || "@" + s.depth}|${s.start}|${s.end}|${s.enteredAt}|${s.leftAt}`;
+const drawnStart = (p) => Math.max(p.start, 0);
+const beforeOrigin = (p) => p.start < 0 ? `, started ${-p.start}ms before the origin` : "";
+const consoleText = (c) => `${c.source === "uncaught" ? "uncaught " : ""}${c.label}${c.repeat > 1 ? ` ×${c.repeat}` : ""}${c.location ? " · " + c.location : ""}`;
 const SHIFT_MIN = 1e-3;
 const EVENT_MIN_MS = 50;
 function perfLaneOf(entries, ownWork, origin, windowEnd, commitStarts2, rel, maxMarks) {
@@ -8095,7 +8480,7 @@ function perfLaneOf(entries, ownWork, origin, windowEnd, commitStarts2, rel, max
     let chippy = false;
     if (e.entryType === "long-animation-frame" || e.entryType === "longtask") {
       kind = "frame";
-      value = e.entryType === "longtask" ? round$3(Math.max(0, e.duration - 50)) : e.blockingDuration ?? null;
+      value = e.entryType === "longtask" ? round$4(Math.max(0, e.duration - 50)) : e.blockingDuration ?? null;
       const script = (_a2 = e.scripts) == null ? void 0 : _a2[0];
       label = script ? [script.invoker, script.sourceFunctionName, (_b2 = script.sourceURL) == null ? void 0 : _b2.split("/").pop()].filter(Boolean).join(" ") : "";
       chippy = isOwnFrame(e, ownWork);
@@ -8129,7 +8514,7 @@ function perfLaneOf(entries, ownWork, origin, windowEnd, commitStarts2, rel, max
       label: label.trim(),
       start: rel(e.startTime),
       end: rel(end),
-      durationMs: round$3(e.duration || 0),
+      durationMs: round$4(e.duration || 0),
       value,
       commits: commitStarts2.filter((c) => c.start >= e.startTime && c.start <= end).map((c) => c.id),
       ...chippy && { chippy: true }
@@ -8169,16 +8554,21 @@ function renderMermaid(result) {
   if (browser.length) {
     lines.push("  section Browser (long frames, measures)");
     for (const p of browser) {
-      const name = p.kind === "frame" ? `long frame ${p.durationMs}ms${p.commits.length ? " " + commitSpan(p.commits) : ""}` : `${p.label} ${p.durationMs}ms`;
-      lines.push(`  ${safe(name)} :${p.kind === "frame" ? "crit, " : ""}perf${p.id}, ${bar(p.start, p.end)}`);
+      const name = (p.kind === "frame" ? `long frame ${p.durationMs}ms${p.commits.length ? " " + commitSpan(p.commits) : ""}` : `${p.label} ${p.durationMs}ms`) + (p.start < 0 ? " from before" : "");
+      lines.push(`  ${safe(name)} :${p.kind === "frame" ? "crit, " : ""}perf${p.id}, ${bar(drawnStart(p), p.end)}`);
     }
+  }
+  const alerts = result.lanes.console.filter((c) => c.level === "error" || c.level === "warn").slice(0, 15);
+  if (alerts.length) {
+    lines.push("  section Console (errors, warnings)");
+    for (const c of alerts) lines.push(`  ${safe(`${c.level} ${c.label.slice(0, 60)}${c.repeat > 1 ? " ×" + c.repeat : ""}`)} :${c.level === "error" ? "crit, " : ""}milestone, log${c.id}, ${c.t}, ${c.t}`);
   }
   if (suspense.length) {
     lines.push("  section User waits (fallback shown)");
-    suspense.forEach((s, n) => {
+    grouped(suspense, suspenseKey).forEach(({ item: s, count }, n) => {
       const stop = s.end ?? end;
       const label = s.end === null ? "still waiting" : `${stop - s.start}ms`;
-      lines.push(`  ${safe(s.label || "@" + s.depth)} ${label} :${s.end === null ? "active" : "crit"}, sus${n}, ${bar(s.start, stop)}`);
+      lines.push(`  ${safe((s.label || "@" + s.depth) + times(count))} ${label} :${s.end === null ? "active" : "crit"}, sus${n}, ${bar(s.start, stop)}`);
     });
   }
   const screen = commits.filter((c) => c.kind !== "update");
@@ -8211,13 +8601,13 @@ function renderText(result) {
   const header = [];
   if (p.waits.length === 0) header.push("No Suspense fallback was shown in this window.");
   else {
-    header.push(p.settledAt !== null ? `Fallbacks first shown at +${p.firstLockAt}, all cleared at +${p.settledAt}; ${p.updatesAfterSettled.commits} updates (${p.updatesAfterSettled.rendered} rendered) ran after that, before the next input.` : `Fallbacks first shown at +${p.firstLockAt}; still waiting at the end: ${p.stillWaiting.map((key) => {
+    header.push(p.settledAt !== null ? `Fallbacks first shown at +${p.firstLockAt}, all cleared at +${p.settledAt}; ${p.updatesAfterSettled.commits} updates (${p.updatesAfterSettled.rendered} rendered) ran after that, before the next input.` : `Fallbacks first shown at +${p.firstLockAt}; still waiting at the end: ${Array.from(new Set(p.stillWaiting.map((key) => {
       var _a2;
       return ((_a2 = result.boundaries.find((b) => b.boundary === key)) == null ? void 0 : _a2.label) || key;
-    }).join(", ")}.`);
-    for (const w of p.waits.slice(0, 5)) {
+    }))).join(", ")}.`);
+    for (const { item: w, count } of grouped(p.waits, waitKey).slice(0, 5)) {
       const last = w.lastRequests[0];
-      header.push(`  wait ${w.label || "@" + w.depth} ${w.waitedMs}ms (+${w.from} → ${w.until === null ? "end" : "+" + w.until}), ${w.updatesDuring.commits} updates (${w.updatesDuring.rendered} rendered) meanwhile` + (last ? `, last request before unlock: ${last.label} (+${last.end}, ${last.gapMs}ms before)` : ""));
+      header.push(`  wait ${w.label || "@" + w.depth}${times(count)} ${w.waitedMs}ms (+${w.from} → ${w.until === null ? "end" : "+" + w.until}), ${w.updatesDuring.commits} updates (${w.updatesDuring.rendered} rendered) meanwhile` + (last ? `, last request before unlock: ${last.label} (+${last.end}, ${last.gapMs}ms before)` : ""));
     }
   }
   const sc = result.screen;
@@ -8240,11 +8630,16 @@ function renderText(result) {
   if (ownFrames.length) {
     header.push(`Chippy's own long frames, left out of the totals: ${ownFrames.length}, ${Math.round(ownFrames.reduce((sum, p2) => sum + (p2.value ?? 0), 0))}ms blocking.`);
   }
+  const cs = result.console;
+  if (cs && cs.errors + cs.warnings > 0) {
+    const fe = cs.firstError;
+    header.push(`Console: ${cs.errors} errors, ${cs.warnings} warnings` + (fe ? `; first error +${fe.t}${fe.afterCommit !== null ? ` (after c${fe.afterCommit})` : ""}: ${consoleText(fe)}` : "") + ".");
+  }
   const rows = [];
   for (const i of result.lanes.input) rows.push({ t: i.t, lane: "input", text: inputLabel(i) });
   for (const r of result.lanes.network) rows.push({ t: r.start, lane: "net", text: `${r.label}  → +${r.end} (${r.durationMs}ms${r.cached ? ", cached" : ""})` });
-  for (const s of result.lanes.suspense) {
-    rows.push({ t: s.start, lane: "wait", text: `fallback ${s.label || "@" + s.depth} ` + (s.end === null ? "still shown at the end" : `until +${s.end} (${s.end - s.start}ms, c${s.enteredAt}→c${s.leftAt})`) });
+  for (const { item: s, count } of grouped(result.lanes.suspense, suspenseKey)) {
+    rows.push({ t: s.start, lane: "wait", text: `fallback ${s.label || "@" + s.depth}${times(count)} ` + (s.end === null ? "still shown at the end" : `until +${s.end} (${s.end - s.start}ms, c${s.enteredAt}→c${s.leftAt})`) });
   }
   for (const c of result.lanes.commits) {
     const lane = c.kind === "update" ? "react" : "SCRN";
@@ -8254,10 +8649,11 @@ function renderText(result) {
   }
   for (const p2 of result.lanes.perf) {
     const commits = p2.commits.length ? ` · ${commitSpan(p2.commits)}` : "";
-    const text = p2.kind === "frame" ? `long frame ${p2.durationMs}ms (${p2.value ?? 0}ms blocking) → +${p2.end}${p2.label ? " · " + p2.label : ""}${commits}` : p2.kind === "measure" ? `measure ${p2.label} → +${p2.end} (${p2.durationMs}ms)` : p2.kind === "mark" ? `mark ${p2.label}` : p2.kind === "shift" ? `layout shift ${p2.value}${p2.label ? " · " + p2.label : ""}` : p2.kind === "event" ? `slow ${p2.label} ${p2.durationMs}ms (input delay ${p2.value ?? 0}ms)` : `LCP${p2.label ? " " + p2.label : ""}`;
-    rows.push({ t: p2.start, lane: p2.kind === "frame" ? "frame" : "perf", text });
+    const text = p2.kind === "frame" ? `long frame ${p2.durationMs}ms (${p2.value ?? 0}ms blocking${beforeOrigin(p2)}) → +${p2.end}${p2.label ? " · " + p2.label : ""}${commits}` : p2.kind === "measure" ? `measure ${p2.label} → +${p2.end} (${p2.durationMs}ms${beforeOrigin(p2)})` : p2.kind === "mark" ? `mark ${p2.label}` : p2.kind === "shift" ? `layout shift ${p2.value}${p2.label ? " · " + p2.label : ""}` : p2.kind === "event" ? `slow ${p2.label} ${p2.durationMs}ms (input delay ${p2.value ?? 0}ms)` : `LCP${p2.label ? " " + p2.label : ""}`;
+    rows.push({ t: drawnStart(p2), lane: p2.kind === "frame" ? "frame" : "perf", text });
   }
-  const order = { input: 0, net: 1, wait: 2, SCRN: 3, react: 4, frame: 5, perf: 6 };
+  for (const c of result.lanes.console) rows.push({ t: c.t, lane: c.level, text: consoleText(c) });
+  const order = { input: 0, net: 1, wait: 2, SCRN: 3, react: 4, frame: 5, perf: 6, error: 7, warn: 7, info: 7, log: 7, debug: 7 };
   rows.sort((a, b) => a.t - b.t || order[a.lane] - order[b.lane]);
   const width = Math.max(...rows.map((r) => String(r.t).length), 1);
   return [...header, "", ...rows.map((r) => `+${String(r.t).padStart(width)}  ${r.lane.padEnd(5)}  ${r.text}`)].join("\n");
@@ -8389,6 +8785,86 @@ function compactLatestAction(action) {
       ownerCount: ownerStack.length
     } : null
   };
+}
+const DEFAULT_CONSOLE_TOP = 50;
+const round$3 = (value) => Math.round(value * 10) / 10;
+function commitStarts$1(report) {
+  return Object.entries(report.commitTimings ?? {}).map(([id, timing]) => ({ id: Number(id), start: Number(timing == null ? void 0 : timing.startTime) })).filter((c) => Number.isFinite(c.id) && Number.isFinite(c.start)).sort((a, b) => a.start - b.start);
+}
+function linkConsoleEntries(report, entries = report.consoleEntries ?? []) {
+  const commits = commitStarts$1(report);
+  return entries.map((entry) => {
+    let before = null;
+    for (const c of commits) {
+      if (c.start > entry.time) break;
+      before = c;
+    }
+    return { ...entry, commit: before ? { commitId: before.id, gapMs: round$3(entry.time - before.start) } : null };
+  });
+}
+function consoleSummary(report, entries = report.consoleEntries ?? []) {
+  var _a2;
+  const page = entries.filter((e) => !e.chippy);
+  const count = (keep) => page.filter(keep).reduce((sum, e) => sum + e.repeat, 0);
+  const first = page.find((e) => e.level === "error");
+  const firstLinked = first ? linkConsoleEntries(report, [first])[0] : null;
+  return {
+    errors: count((e) => e.level === "error"),
+    warnings: count((e) => e.level === "warn"),
+    other: count((e) => e.level !== "error" && e.level !== "warn"),
+    uncaught: count((e) => e.source === "uncaught"),
+    rejections: count((e) => e.source === "rejection"),
+    chippy: entries.length - page.length,
+    firstError: firstLinked ? { id: firstLinked.id, time: firstLinked.time, message: firstLinked.message, location: firstLinked.location, commitId: ((_a2 = firstLinked.commit) == null ? void 0 : _a2.commitId) ?? null } : null
+  };
+}
+function commitStart$1(report, id) {
+  var _a2, _b2;
+  const n = Number(id);
+  if (id === void 0 || id === null || id === "" || !Number.isFinite(n)) return null;
+  const start = Number((_b2 = (_a2 = report.commitTimings) == null ? void 0 : _a2[String(n)]) == null ? void 0 : _b2.startTime);
+  return Number.isFinite(start) ? start : null;
+}
+function consoleView(report, options = {}) {
+  var _a2, _b2;
+  const status = ((_a2 = report.meta) == null ? void 0 : _a2.console) ?? null;
+  if (!Array.isArray(report.consoleEntries)) {
+    return {
+      error: status && !status.enabled ? "console capture is switched off for this detector" : "this report has no consoleEntries: it was recorded before report version 10, or by a runtime without console capture"
+    };
+  }
+  const top = Number(options.top) > 0 ? Math.floor(Number(options.top)) : DEFAULT_CONSOLE_TOP;
+  const levels = Array.isArray(options.levels) ? options.levels.map(String) : typeof options.levels === "string" && options.levels ? options.levels.split(",").map((l) => l.trim()).filter(Boolean) : null;
+  let match = null;
+  if (typeof options.match === "string" && options.match) {
+    try {
+      match = new RegExp(options.match, "i");
+    } catch (error) {
+      return { error: `invalid match pattern: ${error.message}` };
+    }
+  }
+  const includeChippy = options.chippy === true || options.chippy === "true";
+  const from = commitStart$1(report, options.fromCommit);
+  const last = commitStart$1(report, options.toCommit);
+  const next = last === null ? null : ((_b2 = commitStarts$1(report).find((c) => c.start > last)) == null ? void 0 : _b2.start) ?? Infinity;
+  const windowed = report.consoleEntries.filter((e) => (from === null || (e.lastTime ?? e.time) >= from) && (next === null || e.time < next));
+  const selected = windowed.filter((e) => (includeChippy || !e.chippy) && (!levels || levels.includes(e.level)) && (!match || match.test(e.message)));
+  return {
+    payload: {
+      status,
+      summary: consoleSummary(report, windowed),
+      count: selected.length,
+      truncated: selected.length > top,
+      entries: linkConsoleEntries(report, selected.slice(0, top))
+    }
+  };
+}
+function consoleForCommit(report, commitId, maxItems = DEFAULT_CONSOLE_TOP) {
+  const near = linkConsoleEntries(report).filter((e) => {
+    var _a2;
+    return !e.chippy && ((_a2 = e.commit) == null ? void 0 : _a2.commitId) === commitId;
+  });
+  return { total: near.length, items: near.slice(0, maxItems) };
 }
 const DEFAULT_PERF_TOP = 20;
 const MAX_LINKED_COMMITS = 10;
@@ -8692,6 +9168,7 @@ function buildSummaryView(report, options = {}) {
     topCommits,
     hooks: summarizeHookResults(report.hooks),
     perf: Array.isArray(report.perfEntries) ? perfSummary(report) : null,
+    console: Array.isArray(report.consoleEntries) ? consoleSummary(report) : null,
     meta: report.meta ?? null
   };
 }
@@ -8832,7 +9309,7 @@ function runAvalanche(command, api2, mod, report) {
           return { ok: false, available: true, action, error: "commit-peek requires numeric commitId" };
         }
         const include = Array.isArray(command == null ? void 0 : command.include) && command.include.length ? command.include : ["stats", "sources", "timing", "metrics", "hooks"];
-        const allowedInclude = ["stats", "sources", "timing", "metrics", "hooks", "unmounts", "actions", "rendered", "network", "dom", "perf"];
+        const allowedInclude = ["stats", "sources", "timing", "metrics", "hooks", "unmounts", "actions", "rendered", "network", "dom", "perf", "console"];
         const invalidInclude = include.filter((key) => !allowedInclude.includes(key));
         if (invalidInclude.length) {
           return {
@@ -8912,6 +9389,11 @@ function runAvalanche(command, api2, mod, report) {
           const perf = perfForCommit(ser, commitId, maxItems);
           out.perf = perf.items;
           out.perfTotal = perf.total;
+        }
+        if (include.includes("console")) {
+          const logged = consoleForCommit(ser, commitId, maxItems);
+          out.console = logged.items;
+          out.consoleTotal = logged.total;
         }
         if (include.includes("unmounts")) {
           const raw = r.raw || {};
@@ -9028,6 +9510,22 @@ function runAvalanche(command, api2, mod, report) {
           match: command == null ? void 0 : command.match,
           fromCommit: command == null ? void 0 : command.fromCommit,
           toCommit: command == null ? void 0 : command.toCommit
+        });
+        if ("error" in view) return { ok: false, available: true, action, error: view.error };
+        return { ok: true, available: true, action, payload: view.payload };
+      }
+      case "console": {
+        const r = report();
+        if (!r || "error" in r) {
+          return { ok: false, available: true, action, error: r && "error" in r ? r.error : "report() unavailable" };
+        }
+        const view = consoleView(r.serial, {
+          levels: command == null ? void 0 : command.levels,
+          top: command == null ? void 0 : command.top,
+          match: command == null ? void 0 : command.match,
+          fromCommit: command == null ? void 0 : command.fromCommit,
+          toCommit: command == null ? void 0 : command.toCommit,
+          chippy: command == null ? void 0 : command.includeChippy
         });
         if ("error" in view) return { ok: false, available: true, action, error: view.error };
         return { ok: true, available: true, action, payload: view.payload };
@@ -11460,7 +11958,7 @@ function canonicalValue(value, seen, budget, depth = 0) {
   if (type === "symbol") return `symbol:${String(value)}`;
   if (type === "function") {
     const fn = value;
-    return `function:${fn.name || "anonymous"}:${fn.length}`;
+    return budget.functionNames ? `function:${fn.name || "anonymous"}:${fn.length}` : `function:${fn.length}`;
   }
   const object = value;
   if (typeof object.nodeType === "number" && typeof object.nodeName === "string") {
@@ -11517,8 +12015,8 @@ function canonicalValue(value, seen, budget, depth = 0) {
   const ctor = object.constructor && object.constructor !== Object ? object.constructor.name : "object";
   return `${ctor}:{${fields.join(",")}}`;
 }
-function fingerprintFiberProp(value) {
-  const budget = { remaining: 1e4, truncated: false };
+function fingerprintFiberProp(value, identity = "source") {
+  const budget = { remaining: 1e4, truncated: false, functionNames: identity === "source" };
   const canonical = canonicalValue(value, /* @__PURE__ */ new Map(), budget);
   return {
     kind: valueKind(value),
@@ -11542,6 +12040,7 @@ function fiberToken(fiber, name, source) {
 }
 function captureFiberState(options, deps) {
   var _a2, _b2;
+  const identity = (options == null ? void 0 : options.portable) === true ? "portable" : "source";
   const maxFibers = Number.isFinite(Number(options == null ? void 0 : options.maxFibers)) ? Math.max(1, Math.floor(Number(options == null ? void 0 : options.maxFibers))) : 1e5;
   const fibers = [];
   let truncated = false;
@@ -11561,7 +12060,7 @@ function captureFiberState(options, deps) {
         break;
       }
       const source = readSource(fiber);
-      const token = fiberToken(fiber, runtimeName(fiber, name), source);
+      const token = fiberToken(fiber, runtimeName(fiber, name), identity === "portable" ? null : source);
       const occurrenceKey = `${parentPath}\0${token}`;
       const occurrence = siblingOccurrences.get(occurrenceKey) || 0;
       siblingOccurrences.set(occurrenceKey, occurrence + 1);
@@ -11582,7 +12081,7 @@ function captureFiberState(options, deps) {
           } catch {
             value = "[getter-threw]";
           }
-          props[propName] = fingerprintFiberProp(value);
+          props[propName] = fingerprintFiberProp(value, identity);
         }
       }
       fibers.push({
@@ -11606,6 +12105,7 @@ function captureFiberState(options, deps) {
   }
   return {
     version: 1,
+    identity,
     capturedAt: (/* @__PURE__ */ new Date()).toISOString(),
     page: {
       url: ((_a2 = options == null ? void 0 : options.page) == null ? void 0 : _a2.url) == null ? null : String(options.page.url),
@@ -11622,6 +12122,9 @@ function publicFiber(entry) {
 function compareFiberStates(before, after, options) {
   if ((before == null ? void 0 : before.version) !== 1 || (after == null ? void 0 : after.version) !== 1 || !Array.isArray(before == null ? void 0 : before.fibers) || !Array.isArray(after == null ? void 0 : after.fibers)) {
     return { ok: false, error: "Two valid fiber state captures are required" };
+  }
+  if ((before.identity ?? "source") !== (after.identity ?? "source")) {
+    return { ok: false, error: "Captures use different identities (source and portable); capture both the same way" };
   }
   const maxChanges = Number.isFinite(Number(options == null ? void 0 : options.maxChanges)) ? Math.max(1, Math.floor(Number(options == null ? void 0 : options.maxChanges))) : 200;
   new Map(before.fibers.map((entry) => [entry.id, entry]));
@@ -12009,12 +12512,13 @@ const api = {
     let commitCount = 0;
     let networkRequests = 0;
     let perfEntries = 0;
+    let consoleEntries = 0;
     let renderedEvidence = null;
     let paused = false;
     let pausedAt = null;
     try {
       const counts = detector ? detector.counts() : null;
-      if (counts) ({ commits: commitCount, networkRequests, perfEntries, renderedEvidence, capture: { paused, pausedAt } } = counts);
+      if (counts) ({ commits: commitCount, networkRequests, perfEntries, consoleEntries, renderedEvidence, capture: { paused, pausedAt } } = counts);
     } catch (_) {
     }
     const integrationMode = detector ? ((_b2 = detector.getIntegrationMode) == null ? void 0 : _b2.call(detector)) ?? "none" : "none";
@@ -12026,7 +12530,7 @@ const api = {
       hooks = summarizeHookResults(detector == null ? void 0 : detector.hookResults());
     } catch (_) {
     }
-    return { installed, paused, pausedAt, hasMetricsGlobal, commitCount, integrationMode, detectionMode, metricsAdapter, networkRequests, perfEntries, renderedEvidence, packs: packs2, hooks };
+    return { installed, paused, pausedAt, hasMetricsGlobal, commitCount, integrationMode, detectionMode, metricsAdapter, networkRequests, perfEntries, consoleEntries, renderedEvidence, packs: packs2, hooks };
   },
   registerCommitMetricsAdapter,
   enablePlugins,
