@@ -970,6 +970,86 @@ Compares captures from the same or different pages. `maxChanges` defaults to 200
 
 `captureTruncated` means at least one source capture hit `maxFibers`; `changesTruncated` means the result hit `maxChanges`; `truncated` is their combined warning. `propChanges` counts individual added, removed, and changed props even though one `props-changed` record can contain several. Use the component source and prop preview as an index for targeted `find-fibers`, `inspect-fiber-props`, or probe work; hashes prove inequality, not causality.
 
+## `ab-capture <clientId> <armDir> [label] [maxFibers]`
+
+Saves one run as the next `sample-<n>.json.gz` in `armDir`, creating the directory. The arm is named after the directory. The sample holds the full Avalanche export and a fiber-state capture with `identity: "portable"`: no source locations in fiber identity, and function props compared by arity only, so a rebuild that moves JSX or renames callbacks still matches. `maxFibers` defaults to 100000. When the fiber capture fails, the sample is still written with `fibers: null` and the error, and its arm does not judge the fiber layer.
+
+```json
+{ "ok": true, "file": "ab/flag-on/sample-2.json.gz", "arm": "flag-on", "sample": 2, "label": "flag on", "bytes": 48213, "commits": 14, "fibers": 3120 }
+```
+
+## `ab-arm <arm> [--skip N] [--top N]`
+
+Reads one arm offline. `arm` is a directory of samples or a comma-separated list of sample files. `--skip N` drops the first N samples; `--top N` (default 20) bounds the lists.
+
+```json
+{
+  "ok": true,
+  "arm": "flag-off",
+  "files": ["ab/flag-off/sample-2.json.gz", "ab/flag-off/sample-3.json.gz"],
+  "skipped": 1,
+  "samples": 2,
+  "settledFrom": 1,
+  "settled": true,
+  "layers": { "fibers": "all", "dom": "all", "console": "all", "network": "all", "rendered": "all", "perf": "all" },
+  "behavior": {
+    "keys": 3410,
+    "varying": 1,
+    "byKind": { "fiber": { "keys": 3120, "varying": 0 }, "prop": { "keys": 270, "varying": 1 }, "dom": { "keys": 12, "varying": 0 }, "console": { "keys": 0, "varying": 0 }, "request": { "keys": 8, "varying": 0 } },
+    "varyingTop": [{ "kind": "prop", "distinct": 2, "label": "App › Clock .now", "preview": "1764028800000" }]
+  },
+  "counts": {
+    "totals": [{ "key": "renders", "min": 212, "median": 212, "max": 212, "values": [212, 212], "stable": true, "settledFrom": 1 }],
+    "components": [{ "key": "renders Row", "min": 96, "median": 96, "max": 96, "values": [96, 96], "stable": true, "settledFrom": 1 }],
+    "varyingComponents": 0
+  },
+  "timings": [{ "key": "renderMs", "min": 41.2, "median": 42.5, "max": 43.8, "values": [41.2, 43.8] }],
+  "warnings": []
+}
+```
+
+`settledFrom` is the 1-based sample from which commits, renders, and collateral agree to the end, with at least two samples agreeing; `null` with `settled: false` when the last two samples differ. A layer is `all` only when every sample carried it. Count keys without a space are totals; `renders <Name>`, `identityChurn <Name>`, and `trashers <Name>` are per component name.
+
+## `ab-compare <armA> <armB> [--skip N] [--top N]`
+
+Compares two arms offline. `--skip N` drops the first N samples of each arm.
+
+```json
+{
+  "ok": true,
+  "verdict": "equivalent",
+  "reasons": [],
+  "arms": {
+    "a": { "name": "compiler-off", "files": ["..."], "skipped": 1, "samples": 2, "settledFrom": 1, "settled": true },
+    "b": { "name": "compiler-on", "files": ["..."], "skipped": 1, "samples": 2, "settledFrom": 1, "settled": true }
+  },
+  "behavior": {
+    "changed": 0,
+    "collapsed": 0,
+    "unjudged": 1,
+    "notCovered": 0,
+    "byKind": { "fiber": { "judged": 3120, "unjudged": 0, "changed": 0 }, "prop": { "judged": 269, "unjudged": 1, "changed": 0 }, "dom": { "judged": 12, "unjudged": 0, "changed": 0 }, "console": { "judged": 0, "unjudged": 0, "changed": 0 }, "request": { "judged": 8, "unjudged": 0, "changed": 0 } },
+    "items": [],
+    "unjudgedTop": [{ "kind": "prop", "label": "App › Clock .now", "count": 1 }]
+  },
+  "performance": {
+    "better": 4,
+    "worse": 0,
+    "noise": 1,
+    "totals": [{ "key": "renders", "a": { "min": 212, "median": 212, "max": 212 }, "b": { "min": 64, "median": 64, "max": 64 }, "delta": -148, "change": "better" }],
+    "components": [{ "key": "renders Row", "a": { "min": 96, "median": 96, "max": 96 }, "b": { "min": 8, "median": 8, "max": 8 }, "delta": -88, "change": "better" }],
+    "componentsChanged": 6,
+    "timings": [{ "key": "renderMs", "a": { "min": 41.2, "median": 42.5, "max": 43.8 }, "b": { "min": 15.1, "median": 15.6, "max": 16.1 }, "delta": -26.9, "change": "not-judged" }],
+    "timingNote": "timings are judged with at least 3 samples per arm"
+  },
+  "warnings": []
+}
+```
+
+`verdict` is `equivalent`, `behavior-changed`, or `inconclusive` (an arm with fewer than 2 samples, no judged behavior key, or an arm with a sample that recorded no React commit while the other arm did; `reasons` says which). A behavior key is changed when it has one value across every sample of each arm and the two values differ; `unjudged` keys vary inside an arm; `notCovered` keys belong to a layer that some sample lacks. Each `behavior.items` entry has `kind` (`dom`, `fiber`, `prop`, `console`, `request`), a `label`, `detail` for DOM changes, and per arm `value` (`absent`, `present`, `set` with a prop `preview`, or `N×` for a count). `collapsed` counts differences hidden under a root difference: the props and descendants of an added or removed fiber, and a parent's `children` prop. `change` is `better` or `worse` when the arms' ranges do not overlap (lower is better), `same` when every sample agrees, `noise` when the ranges overlap, and `not-judged` for timings below 3 samples per arm. A timing whose ranges do not overlap is `drifting` instead of `better` or `worse` when its values only climbed or only fell across an arm's samples; `drifting` names those arms, and `timingNote` says how to recover: skip the warm-up samples, add samples, or capture the arms interleaved. `unjudgedTop` folds keys with the same label into one row with a `count`. `components` lists per-component rows whose change is not `same`, largest delta first.
+
+`fiber-state-compare` rejects a portable capture compared with a source-identity capture.
+
 ## `inspect-fiber-hooks <clientId> <fiberId>`
 
 Deep hook list for a fiber found via `find-fibers`. Returns same shape as `probe-hooks`.

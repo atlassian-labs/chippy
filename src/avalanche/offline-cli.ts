@@ -2,11 +2,18 @@
 //   avalanche-analyze.cjs <file> <command> [args]   analyze a saved export
 //   avalanche-analyze.cjs normalize [count] < resp  unwrap a helper export response
 //   avalanche-analyze.cjs save <count> <file> < resp  unwrap and write it, print {ok,file,bytes,commits}
+//   avalanche-analyze.cjs ab-save <armDir> <fiberStateFile> [label] < resp  write the next A/B sample
+//   avalanche-analyze.cjs ab-arm <arm> [--skip N] [--top N]              one arm's stability
+//   avalanche-analyze.cjs ab-compare <armA> <armB> [--skip N] [--top N]  arm against arm
 // A save file ending in `.gz` is written gzip-compressed; any file starting
 // with the gzip magic bytes is decompressed on read.
-import { readFileSync, writeFileSync } from 'node:fs';
+import { readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { gunzipSync, gzipSync } from 'node:zlib';
 import { analyzeSavedReport, keepLastCommits, unwrapSavedReport } from './offline';
+import { summarizeArm } from '../ab/arm';
+import { compareArms } from '../ab/compare';
+import { loadArm, readJsonFile, writeSample } from '../ab/files';
+import { unwrapFiberState } from '../ab/sample';
 
 const USAGE = `Usage: avalanche-analyze.cjs <file> <command> [args]
 
@@ -25,6 +32,11 @@ Commands:
   dom-diff      [fromCommit] [toCommit] [match] [maxItems]
                 (--fromCommit N --toCommit N --match regex --maxItems N --top N)
   source-search --name <regex> [--top N]
+
+A/B (an arm is a directory of samples, or comma-separated sample files):
+  ab-save    <armDir> <fiberStateFile> [label] < export response
+  ab-arm     <arm> [--skip N] [--top N]
+  ab-compare <armA> <armB> [--skip N] [--top N]
 
 commit-list sort keys: collateral sources restarts performedWork effects memos
   callbacks contextUpdates unmountedComponents unmountedSubtrees ticks network
@@ -98,6 +110,38 @@ function main(argv: string[]) {
     const jsonBytes = Buffer.byteLength(text);
     const bytes = typeof data === 'string' ? jsonBytes : data.length;
     process.stdout.write(`${JSON.stringify({ ok: true, file: out, bytes, ...(bytes !== jsonBytes && { jsonBytes }), commits, ...(nameRecovery ? { nameRecovery } : {}) })}\n`);
+    return;
+  }
+  if (argv[0] === 'ab-save') {
+    const [, dir, fiberFile, label] = argv;
+    if (!dir || !fiberFile) fail('ab-save requires <armDir> <fiberStateFile> [label]');
+    const report = unwrapSavedReport(parseJson(readFileSync(0, 'utf8'), 'helper response'));
+    if (!report) fail('response has no Avalanche export (expected meta and commitStats); install Avalanche and run the stimulus first');
+    let fiber: ReturnType<typeof unwrapFiberState>;
+    try { fiber = unwrapFiberState(readJsonFile(fiberFile)); } catch (error) { fiber = { error: (error as Error).message }; }
+    rmSync(fiberFile, { force: true });
+    const { file, sample, bytes } = writeSample(dir, {
+      label: label || null,
+      report: report as Parameters<typeof writeSample>[1]['report'],
+      fiberState: 'state' in fiber ? fiber.state : null,
+      fiberStateError: 'error' in fiber ? fiber.error : null,
+    });
+    process.stdout.write(`${JSON.stringify({
+      ok: true, file, arm: sample.arm, sample: sample.index, label: sample.label, bytes,
+      commits: Object.keys(report.commitStats).length,
+      fibers: sample.fiberState?.fiberCount ?? null,
+      ...(sample.fiberStateError && { fiberStateError: sample.fiberStateError }),
+    })}\n`);
+    return;
+  }
+  if (argv[0] === 'ab-arm' || argv[0] === 'ab-compare') {
+    const args = parseArgs(argv.slice(1));
+    const want = argv[0] === 'ab-arm' ? 1 : 2;
+    if (args._.length < want) fail(argv[0] === 'ab-arm' ? 'ab-arm requires <arm>' : 'ab-compare requires <armA> <armB>');
+    let arms;
+    try { arms = args._.slice(0, want).map((spec) => loadArm(spec, { skip: args.skip })); } catch (error) { fail((error as Error).message); }
+    const result = want === 1 ? summarizeArm(arms[0], { top: args.top }) : compareArms(arms[0], arms[1], { top: args.top });
+    process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
     return;
   }
   const [file, command, ...rest] = argv;

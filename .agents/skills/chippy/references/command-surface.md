@@ -55,6 +55,8 @@ Start value traces with `probe-dom`, then owners, then props. Open the reported 
 |---|---|
 | `find-fibers` | Find current fibers by component name, source file, prop, test-id, or text; `--grep` searches prop keys and values, hook state, and opt-in `useDebugValue` labels across the whole tree. |
 | `fiber-state-capture`, `fiber-state-list`, `fiber-state-compare` | Retain compact fiber/prop fingerprints for two rendered states—even on different pages—and return only their bounded structural diff. |
+| `ab-capture` | Save one run's Avalanche export and portable fiber-state capture as the next `sample-<n>.json.gz` of an arm directory. Waits up to 60 s for the export. See [A/B testing](ab-testing.md). |
+| `ab-arm`, `ab-compare` | Offline, no helper: report whether one arm's samples repeat and where they settled, or compare two arms for stable behavior differences and for React work beyond in-arm noise. An arm is a directory or comma-separated sample files; `--skip N` drops each arm's first N samples. |
 | `page-boundaries` | Read the whole page as a nested Error/Suspense-only forest. Ordinary component fibers are removed while declarative-boundary containment is preserved. |
 | `explain-component` | Return compact semantic text by default; use `--complexity` for the bounded complexity section or `--json` for the full transport payload. May use dispatcher replay, with status and warnings in the result. |
 | `describe-component` | Return the detailed hook tree as plain text by default; use `--json` for the full transport payload. May use dispatcher replay and degrades to fiber-only evidence when replay is unavailable. |
@@ -157,6 +159,9 @@ find-fibers <clientId> [--name regex] [--file regex] [--prop name] [--testid reg
 fiber-state-capture <clientId> [label] [maxFibers]
 fiber-state-list
 fiber-state-compare <beforeCaptureId> <afterCaptureId> [maxChanges]
+ab-capture <clientId> <armDir> [label] [maxFibers]
+ab-arm <arm> [--skip N] [--top N]
+ab-compare <armA> <armB> [--skip N] [--top N]
 page-boundaries <clientId> [max]
 inspect-fiber-hooks <clientId> <fiberId>
 inspect-fiber-hooks-summary <clientId> <fiberId>
