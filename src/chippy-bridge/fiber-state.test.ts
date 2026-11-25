@@ -37,6 +37,35 @@ describe('fiber state capture', () => {
     expect(state.fibers[1].id).toContain(state.fibers[0].id);
   });
 
+  it('keeps portable identity across a rebuild: no call sites, no function names', () => {
+    const build = (line: number, onClick: () => void) => {
+      const button: TestFiber = { tag: 5, type: 'button', memoizedProps: { onClick }, _debugSource: { fileName: 'App.jsx', lineNumber: line, columnNumber: 3 } };
+      return { tag: 0, type: { name: 'App' }, child: button, _debugSource: { fileName: 'App.jsx', lineNumber: line - 1, columnNumber: 1 } } as TestFiber;
+    };
+    // A compiler hoists an inline arrow into a temporary, which names it.
+    const t1 = () => {};
+    const captureWith = (root: TestFiber, portable: boolean) => captureFiberState({ portable }, {
+      getRootFibers: () => [root],
+      getDisplayName: (fiber) => name(fiber as TestFiber),
+    });
+    const plainA = captureWith(build(10, () => {}), false);
+    const plainB = captureWith(build(14, t1), false);
+    const portableA = captureWith(build(10, () => {}), true);
+    const portableB = captureWith(build(14, t1), true);
+
+    expect(plainA.identity).toBe('source');
+    expect(portableA.identity).toBe('portable');
+    expect(plainB.fibers[1].id).not.toBe(plainA.fibers[1].id);
+    expect(portableB.fibers.map((f) => f.id)).toEqual(portableA.fibers.map((f) => f.id));
+    expect(portableB.fibers[1].props.onClick.hash).toBe(portableA.fibers[1].props.onClick.hash);
+    expect(plainB.fibers[1].props.onClick.hash).not.toBe(plainA.fibers[1].props.onClick.hash);
+    expect(fingerprintFiberProp((a: number) => a, 'portable').hash).not.toBe(fingerprintFiberProp(() => 0, 'portable').hash);
+    expect(compareFiberStates(plainA, portableA)).toEqual({
+      ok: false,
+      error: 'Captures use different identities (source and portable); capture both the same way',
+    });
+  });
+
   it('bounds capture count and marks truncation', () => {
     const root: TestFiber = { tag: 0, type: { name: 'A' }, child: { tag: 0, type: { name: 'B' } } };
     const state = captureFiberState({ maxFibers: 1 }, {

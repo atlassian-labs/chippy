@@ -39,6 +39,7 @@ import type { CommitMetricsDelta, IntegrationMode } from './commit-metrics-adapt
 import type { InputEventDetails } from './input-details';
 import type { NetworkCaptureStatus, NetworkRequest } from './network-capture';
 import type { PerfCaptureStatus, PerfEntry } from './perf-capture';
+import type { ConsoleCaptureStatus, ConsoleEntry } from './console-capture';
 import type { ScreenChange } from './screen-changes';
 import type { DomCommitDiff } from './dom-diff';
 import type { SuspenseLocation } from './suspense-location';
@@ -135,6 +136,8 @@ export interface ReportMetaDTO {
   network?: NetworkCaptureStatus;
   /** Browser performance entry capture behind `perfEntries`. Absent before report v9. */
   perf?: PerfCaptureStatus;
+  /** Console capture behind `consoleEntries`. Absent before report v10. */
+  console?: ConsoleCaptureStatus;
   /** `renderedByCommit` budget and what it dropped. Absent before the budget existed. */
   renderedEvidence?: RenderedEvidenceStatus;
   /** `domByCommit` budget and what it dropped. Absent when DOM diff capture is off. */
@@ -329,6 +332,8 @@ export interface ReportDTO {
   networkRequests?: NetworkRequestDTO[];
   /** Browser performance entries recorded during the capture. Absent before report v9. */
   perfEntries?: PerfEntry[];
+  /** Console messages, uncaught errors, and unhandled rejections. Absent before report v10. */
+  consoleEntries?: ConsoleEntry[];
   /** Screen area each commit changed. Absent when screen capture is off. */
   screenByCommit?: Record<number, ScreenChange>;
   /** DOM changes each commit made. Absent when DOM diff capture is off. */
@@ -382,6 +387,7 @@ export function serializeReport(report: {
   commitTimings?: Record<number, CommitTimingDTO>;
   networkRequests?: NetworkRequestDTO[];
   perfEntries?: PerfEntry[];
+  consoleEntries?: ConsoleEntry[];
   screenByCommit?: Record<number, ScreenChange>;
   domByCommit?: Record<number, DomCommitDiff>;
   hooks?: Record<string, AvalancheHookResult>;
@@ -442,6 +448,7 @@ export function serializeReport(report: {
     ...(report.commitTimings && { commitTimings: report.commitTimings }),
     ...(report.networkRequests && { networkRequests: report.networkRequests.map((request) => ({ ...request })) }),
     ...(report.perfEntries && { perfEntries: report.perfEntries.map((entry) => ({ ...entry })) }),
+    ...(report.consoleEntries && { consoleEntries: report.consoleEntries.map((entry) => ({ ...entry })) }),
     ...(report.screenByCommit && { screenByCommit: report.screenByCommit }),
     ...(report.domByCommit && { domByCommit: report.domByCommit }),
     ...(report.hooks && { hooks: report.hooks }),

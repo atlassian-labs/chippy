@@ -92,6 +92,7 @@ Usage:
   ./scripts/chippy.sh avalanche-describe-action <clientId> <actionId>
   ./scripts/chippy.sh avalanche-network <clientId> [top] [by] [match] [initiators] [windowMs]
   ./scripts/chippy.sh avalanche-perf <clientId> [types] [top] [match] [fromCommit] [toCommit]
+  ./scripts/chippy.sh avalanche-console <clientId> [levels] [top] [match] [fromCommit] [toCommit]
   ./scripts/chippy.sh avalanche-timeline <clientId> [fromCommit] [toCommit] [minRequestMs] [exclude] [format]
   ./scripts/chippy.sh avalanche-dom-diff <clientId> [fromCommit] [toCommit] [match] [maxItems] [top]
   ./scripts/chippy.sh avalanche-install <clientId> [detectionMode]
@@ -99,7 +100,10 @@ Usage:
   ./scripts/chippy.sh avalanche-recapture <clientId> [detectionMode]
   ./scripts/chippy.sh avalanche-debug-hook <clientId> <sourceId> <hookIndex> [window] [sourceMaps=true|false]
   ./scripts/chippy.sh avalanche-save <clientId> <file> [count]
-  ./scripts/chippy.sh avalanche-offline <file> <summary|commit-list|commit-peek|hot-sources|describe-action|network|perf|timeline|dom-diff|source-search> [args...]
+  ./scripts/chippy.sh avalanche-offline <file> <summary|commit-list|commit-peek|hot-sources|describe-action|network|perf|console|timeline|dom-diff|source-search> [args...]
+  ./scripts/chippy.sh ab-capture <clientId> <armDir> [label] [maxFibers]
+  ./scripts/chippy.sh ab-arm <arm> [--skip N] [--top N]
+  ./scripts/chippy.sh ab-compare <armA> <armB> [--skip N] [--top N]
   ./scripts/chippy.sh eval-page <clientId> <snippet-file-or-name|-> [--allow replay] [--script-timeout ms] [--key value ...]
   ./scripts/chippy.sh eval-snippets
   ./scripts/chippy.sh avalanche-arm <clientId> <origin> [maxCommits] [captureFibers=true|false] [detectionMode=sources|full|stats|amplifiers]
@@ -984,7 +988,7 @@ case "$cmd" in
     max_items="${6:-20}"
     if [[ -z "$client_id" || -z "$commit_id" ]]; then
       echo "avalanche-commit-peek requires <clientId> <commitId> [include] [depth] [maxItems]" >&2
-      echo "  include csv ⊆ stats,sources,timing,metrics,hooks,unmounts,actions,rendered,network,dom,perf (unmounts is live-only)" >&2
+      echo "  include csv ⊆ stats,sources,timing,metrics,hooks,unmounts,actions,rendered,network,dom,perf,console (unmounts is live-only)" >&2
       exit 1
     fi
     include_json="["
@@ -1045,6 +1049,28 @@ case "$cmd" in
     fi
     body="{\"action\":\"perf\""
     if [[ -n "$types" ]]; then body+=",\"types\":$(json_escape "$types")"; fi
+    if [[ -n "$top" ]]; then body+=",\"top\":$top"; fi
+    if [[ -n "$match" ]]; then body+=",\"match\":$(json_escape "$match")"; fi
+    if [[ -n "$from_commit" ]]; then body+=",\"fromCommit\":$from_commit"; fi
+    if [[ -n "$to_commit" ]]; then body+=",\"toCommit\":$to_commit"; fi
+    body+="}"
+    post_avalanche "$client_id" "$body"
+    ;;
+  avalanche-console)
+    client_id="${2:-}"
+    levels="${3:-}"
+    top="${4:-}"
+    match="${5:-}"
+    from_commit="${6:-}"
+    to_commit="${7:-}"
+    if [[ -z "$client_id" ]]; then
+      echo "avalanche-console requires <clientId> [levels] [top] [match] [fromCommit] [toCommit]" >&2
+      echo "  levels csv ⊆ error,warn,info,log,debug (default all)" >&2
+      echo "  top caps entries, earliest first (default 50); match is a regex over messages; pass \"\" to skip a position" >&2
+      exit 1
+    fi
+    body="{\"action\":\"console\""
+    if [[ -n "$levels" ]]; then body+=",\"levels\":$(json_escape "$levels")"; fi
     if [[ -n "$top" ]]; then body+=",\"top\":$top"; fi
     if [[ -n "$match" ]]; then body+=",\"match\":$(json_escape "$match")"; fi
     if [[ -n "$from_commit" ]]; then body+=",\"fromCommit\":$from_commit"; fi
@@ -1180,9 +1206,35 @@ case "$cmd" in
   avalanche-offline)
     shift
     if [[ $# -lt 2 ]]; then
-      echo "avalanche-offline requires <file> <summary|commit-list|commit-peek|hot-sources|describe-action|network|perf|timeline|dom-diff|source-search> [args...]" >&2
+      echo "avalanche-offline requires <file> <summary|commit-list|commit-peek|hot-sources|describe-action|network|perf|console|timeline|dom-diff|source-search> [args...]" >&2
       exit 1
     fi
+    node "$SCRIPT_DIR/avalanche-analyze.cjs" "$@"
+    ;;
+  ab-capture)
+    client_id="${2:-}"
+    arm_dir="${3:-}"
+    label="${4:-}"
+    max_fibers="${5:-100000}"
+    if [[ -z "$client_id" || -z "$arm_dir" ]]; then
+      echo "ab-capture requires <clientId> <armDir> [label] [maxFibers]" >&2
+      echo "  saves one sample (Avalanche export + portable fiber state) as <armDir>/sample-<n>.json.gz" >&2
+      exit 1
+    fi
+    if [[ ! "$max_fibers" =~ ^[1-9][0-9]*$ ]]; then
+      echo "maxFibers must be a positive integer" >&2
+      exit 1
+    fi
+    mkdir -p "$arm_dir"
+    fiber_file="$arm_dir/.fiber-state.pending.json"
+    # Portable identity: fiber ids and function fingerprints survive a rebuild.
+    fiber_body="{\"command\":\"capture-fiber-state\",\"options\":{\"maxFibers\":$max_fibers,\"portable\":true},\"timeoutMs\":30000}"
+    post_json "/api/pages/$client_id/eval-probe" "$fiber_body" > "$fiber_file" \
+      || printf '{"ok":false,"error":"fiber state capture request failed"}' > "$fiber_file"
+    post_avalanche "$client_id" '{"action":"export","timeoutMs":60000}' \
+      | node "$SCRIPT_DIR/avalanche-analyze.cjs" ab-save "$arm_dir" "$fiber_file" "$label"
+    ;;
+  ab-arm|ab-compare)
     node "$SCRIPT_DIR/avalanche-analyze.cjs" "$@"
     ;;
   eval-snippets)

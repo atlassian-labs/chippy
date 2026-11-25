@@ -195,13 +195,13 @@ describe('panel recording controls', () => {
     expect(handoff.avalanche).toEqual({ autoStart: true, options: { captureFibers: true, detectionMode: 'full' } });
   });
 
-  it('shows how Chippy reached the page in the panel header', () => {
+  it('names how Chippy reached the page in the connection tooltip, not the header text', () => {
     const { dom, win, panel } = openPanelWithBridge();
     close = () => { win.__CHIPPY.pageBridge.destroy(); dom.window.close(); };
-    const pill = panel.querySelector('[data-chippy-integration-pill]');
-    expect(pill?.getAttribute('data-chippy-integration-pill')).toBe('extension');
-    expect(pill?.textContent).toBe('via extension');
-    expect(pill?.getAttribute('title')).toBe('Chippy browser extension');
+    const pill = panel.querySelector('[data-chippy-conn-pill]');
+    expect(pill?.getAttribute('data-chippy-integration')).toBe('extension');
+    expect(pill?.getAttribute('title')).toMatch(/\nLoaded via extension: Chippy browser extension$/);
+    expect(panel.querySelector('[data-chippy-key="panel-header"]')?.textContent).not.toMatch(/via extension/);
   });
 
 });
