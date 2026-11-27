@@ -344,7 +344,7 @@ Climb from the top. Stop at the first rung that removes the measured friction an
 A performance report or fix proposal may be sent only when all of these hold:
 
 1. **Complaint and capture named.** The user action, the symptom, the capture, and the build type (development, profiling, production). Development-only costs are labeled.
-2. **Waited vs worked stated** with the deciding numbers: the largest wait and what covered it (`perceived.waits[].waitedMs` when a fallback was shown, otherwise the idle gap from the input to the first commit or request in the timeline text or lanes); `worstInteractionMs` and its dominant phase (`inputDelay`, `processing`, `presentationDelay`); `totalBlockingMs`.
+2. **Waited vs worked stated** with the deciding numbers: the largest wait and what covered it (`perceived.waits[].waitedMs` when a fallback was shown, otherwise `perceived.idleGaps[].ms` and what ended it); `worstInteractionMs` and its dominant phase (`inputDelay`, `processing`, `presentationDelay`); `totalBlockingMs`.
 3. **Triage line.** `trigger -> mechanism -> collateral -> cost`, with the trigger taken from `isSelfSource` rows, `changedHooks` or `latestAction` and the collateral from `rendered[]`. Hot components are not presented as causes.
 4. **Pattern and outcome.** A pattern id from the catalog, or "unclassified", and an outcome: Confirmed, Needs evidence, Observation or Rejected. Observations carry no fix.
 5. **Protection inventory** for any proposed change, and how the fix keeps each protection.

@@ -60,7 +60,7 @@ A performance fix is an A/B with the code before the edit as arm A and the code 
 2. **Add one protected scenario per protection.** The [protection inventory](fixing-performance.md#protection-inventory) lists what the old code guaranteed: a burst that still coalesces, a save that survives closing the view, a stale response that is still dropped, state that still resets on an entity change. Capture each scenario as its own pair of arms; the main stimulus alone does not exercise them.
 3. **Announce the intended changes before you compare.** A fix that removes a request or a remount changes the `network` or `dom` layer, so the verdict becomes `behavior-changed`. A fix that removes only a commit changes the performance counts, not the verdict, unless that commit also wrote to the DOM. List the expected differences first, then check that `behavior.items` holds those and nothing else. An unannounced difference is a regression until explained.
 4. **Read `notCovered`.** It counts keys of a layer that some sample lacked; those keys were not compared. A fix to network behavior needs the `network` layer in every sample.
-5. **Judge waits from the timeline.** `ab-compare` judges four timings: `renderMs`, `totalBlockingMs`, `worstInteractionMs`, and `cls`. It does not judge how long the user waited for a debounce, a request, or a fallback. For a latency fix, also save each run with `avalanche-save <clientId> <file>` next to its `ab-capture` sample, then read `avalanche-offline <file> timeline` (and `network`) for each run, and report `waitedMs`, the idle gap, or request start times per arm. `avalanche-offline` does not read A/B sample files.
+5. **Judge waits from the timeline.** `ab-compare` judges four timings: `renderMs`, `totalBlockingMs`, `worstInteractionMs`, and `cls`. It does not judge how long the user waited for a debounce, a request, or a fallback. For a latency fix, read `avalanche-offline <sample> timeline` (and `network`) for each saved sample, and report `waitedMs`, `perceived.idleGaps[].ms`, `perceived.firstResponse.t`, or request start times per arm. `avalanche-offline` reads A/B sample files as well as `avalanche-save` files.
 6. **Interleave and repeat.** At least 3 samples per arm, captured a, b, a, b. A `drifting` timing means the arms were not comparable: recapture interleaved instead of reporting the gap.
 
 Report the fix as: the friction measured in A and in B, the protected scenarios and their verdicts, the announced differences found, and what was not covered.
@@ -74,7 +74,7 @@ Limits:
 - Per-component counts are keyed by component name. Two components with the same name are counted together.
 - Minified production builds can give the same component different names in two builds. Compare development builds, or builds with source maps.
 - DOM changes are compared as counts per change, not by order between commits. Use `avalanche-dom-diff` on one sample of each arm when order matters.
-- Prop values are compared by hash. `behavior.items` shows previews; for the full evidence of one run, save it with `avalanche-save <clientId> <file>` when you capture the sample and read it with `avalanche-offline <file> …` (`avalanche-offline` does not read A/B sample files).
+- Prop values are compared by hash. `behavior.items` shows previews; for the full evidence of one run, read its sample with `avalanche-offline <sample> …`.
 
 ## Reading one arm
 

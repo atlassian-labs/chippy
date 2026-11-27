@@ -47,6 +47,7 @@ describe('offline Avalanche analysis', () => {
     expect(unwrapSavedReport(saved)).toBe(saved);
     expect(unwrapSavedReport({ payload: saved })).toBe(saved);
     expect(unwrapSavedReport({ ok: true, result: { payload: saved } })).toBe(saved);
+    expect(unwrapSavedReport({ kind: 'chippy-ab-sample', version: 1, arm: 'a', label: null, index: 1, capturedAt: '', report: saved, fiberState: null })).toBe(saved);
     expect(unwrapSavedReport({ commits: [] })).toBeNull();
   });
 

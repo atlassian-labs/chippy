@@ -147,7 +147,7 @@ One extra setup/cleanup pair on mount is expected and is not EF-1.
 - **Symptom:** the same request repeats on unrelated renders, or a slow older
   response overwrites a newer one.
 - **Prove the problem:** `avalanche-network` lists the same URL from the same
-  initiator, `startedAfter` commits that did not change the query inputs, and
+  initiator (`repeatOf` on each repeat, summary `mostRepeated`), `startedAfter` commits that did not change the query inputs, and
   `commit-list ... effects` shows the fetching Effect re-running. For the race, the
   earlier-started request lands later and the final DOM shows its data
   ([NW-3](patterns-latency.md#nw-3-stale-response-race)).
