@@ -27,9 +27,11 @@ export function isSavedReport(value: unknown): value is SavedReport {
   return !!v && typeof v === 'object' && !!v.meta && typeof v.commitStats === 'object' && v.commitStats !== null;
 }
 
-// Accepts a full helper response, a `{ payload }` wrapper, or a bare report.
+// Accepts a full helper response, a `{ payload }` wrapper, an A/B sample
+// (`ab-capture` keeps the export under `report`), or a bare report.
 export function unwrapSavedReport(value: unknown): SavedReport | null {
-  const candidates = [value, (value as any)?.payload, (value as any)?.result?.payload, (value as any)?.result];
+  const v = value as any;
+  const candidates = [value, v?.payload, v?.result?.payload, v?.result, v?.report];
   return (candidates.find(isSavedReport) as SavedReport | undefined) ?? null;
 }
 
@@ -183,6 +185,7 @@ export function analyzeSavedReport(report: SavedReport, command: string, args: {
         fromCommit: number('fromCommit', 0),
         toCommit: number('toCommit', 1),
         minRequestMs: number('minRequestMs', 2),
+        minIdleMs: number('minIdleMs', 99),
         top: number('top', 99),
         ...(typeof exclude === 'string' && exclude && { exclude }),
         ...(typeof args.format === 'string' && { format: args.format }),

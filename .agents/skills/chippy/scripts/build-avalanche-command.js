@@ -38,6 +38,7 @@ function buildAvalancheCommand(body = {}, requestId = 'test-request-id') {
   if (body.fromCommit != null) command.fromCommit = Number(body.fromCommit);
   if (body.toCommit != null) command.toCommit = Number(body.toCommit);
   if (body.minRequestMs != null) command.minRequestMs = Number(body.minRequestMs);
+  if (body.minIdleMs != null) command.minIdleMs = Number(body.minIdleMs);
   if (body.exclude != null) command.exclude = String(body.exclude);
   if (body.format != null) command.format = String(body.format);
   // The page sizes its production name recovery to fit the request.

@@ -39,12 +39,13 @@ that is cancelled loses nothing.
 - **Symptom:** a click, Enter or toggle feels late by the same amount every time
   (for example 300 ms).
 - **Prove the problem:** `avalanche-timeline` shows a wait after the action with no
-  main-thread work and no request in flight, close to the debounce `wait`: the
-  request `start` or the next commit `t` in the lanes (`format full`) sits about
-  `wait` ms after the input at 0 ([perf-triage](perf-triage.md#step-1-waited-or-worked)).
-  `perceived.waits[]` stays empty when no fallback is shown. `startedAfter` links a
-  request to the commit before it only within the network window (250 ms by
-  default); to read the gap there, pass a larger window:
+  main-thread work and no request in flight, close to the debounce `wait`: a
+  `perceived.idleGaps[]` entry starts at the action (or the last keystroke), lasts about `wait` ms,
+  and its `endedBy` names the request or commit the debounce released
+  ([perf-triage](perf-triage.md#step-1-waited-or-worked)). `perceived.waits[]`
+  stays empty when no fallback is shown. `startedAfter` links a request to the
+  commit before it only within the network window (250 ms by default); to read
+  the gap there, pass a larger window:
   `avalanche-network <clientId> 30 start "" "" 2000`. Source confirms a trailing
   debounce.
 - **What it protects:** coalescing bursts, server load, write ordering.
@@ -66,8 +67,9 @@ that is cancelled loses nothing.
 
 - **Symptom:** the delay is the sum of several waits (a component debounce, a hook
   debounce, a client batch).
-- **Prove the problem:** `avalanche-timeline` shows an idle gap longer than any
-  single configured wait, or two idle gaps separated by a small commit; source shows
+- **Prove the problem:** `perceived.idleGaps[]` holds a gap longer than any
+  single configured wait, or two gaps separated by a small commit (the first
+  ended by a commit, the second by the request); source shows
   more than one coalescing layer on the same path.
 - **What it protects:** each layer was added for a resource: render cost, server
   load, analytics volume.
@@ -156,7 +158,8 @@ that is cancelled loses nothing.
 
 - **Symptom:** load time is the sum of several sequential requests.
 - **Prove the problem:** request B is `startedAfter` the commit that request A is
-  `landedBefore`, repeated down the tree; each request starts in a child that mounts
+  `landedBefore` (B's `chainedAfter` names A), repeated down the tree; the
+  network summary `longestChain` lists the sequence and its total `ms`; each request starts in a child that mounts
   only after its parent's data arrives.
 - **What it protects:** a real data dependency (B needs A's result), or code
   splitting that delays the child.
@@ -176,7 +179,8 @@ that is cancelled loses nothing.
 - **Symptom:** fast typing or switching shows results for an older input, or the
   screen flips between results.
 - **Prove the problem:** `avalanche-network` lists two requests from the same
-  initiator with different parameters, and the earlier-started one lands later;
+  initiator with different parameters, and the earlier-started one lands later
+  (its `landedAfterNewer` names the newer request and `lateMs`);
   the commit after the late response replaces newer content
   (`commit-peek ... dom,network`).
 - **What it protects:** showing every response may be intended (a log); aborting

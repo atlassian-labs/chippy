@@ -342,5 +342,31 @@ describe('perf lane', () => {
     expect(t.console).toBeNull();
     expect(t.text).not.toContain('Console:');
   });
-});
 
+  it('reports idle gaps and the first response after the interaction', () => {
+    const t = built();
+    expect(t.perceived.firstResponse).toEqual({ t: 100, commitId: 1, rendered: 40 });
+    // The request covers +10 → +400; commits 3 and 4 follow after quiet stretches.
+    expect(t.perceived.idleGaps).toEqual([
+      { from: 400, until: 500, ms: 100, endedBy: { kind: 'commit', commitId: 3 } },
+      { from: 500, until: 600, ms: 100, endedBy: { kind: 'commit', commitId: 4 } },
+    ]);
+    expect(built({ minIdleMs: 150 }).perceived.idleGaps).toEqual([]);
+  });
+
+  it('shows a debounce-like wait without a fallback as an idle gap', () => {
+    const debounced = {
+      commitTimings: { 1: { startTime: 1750, endTime: 1760, render: { renderStart: 1720 } } },
+      commitStats: { 1: [0, 1, 0, 120] },
+      interactionsByCommit: { 1: [{ id: 1, action: 'click', timestamp: 1000, location: { dom: { nearestTestId: 'filter' } } }] },
+      networkRequests: [
+        { id: 4, url: 'https://api.test/graphql?operation=SetFilter', initiatorType: 'fetch', startTime: 1500, endTime: 1700, duration: 200, status: 200, cached: false, startedBeforeCapture: false },
+      ],
+    };
+    const t = buildTimeline(debounced as never) as TimelineResult;
+    expect(t.perceived.waits).toEqual([]);
+    expect(t.perceived.idleGaps[0]).toEqual({ from: 0, until: 500, ms: 500, endedBy: { kind: 'request', label: 'SetFilter', requestId: 4 } });
+    expect(t.text).toContain('No Suspense fallback was shown in this window; first commit c1 at +750 (120 rendered).');
+    expect(t.text).toContain('Idle +0 → +500 (500ms): no request, render, or long frame; ended by request SetFilter.');
+  });
+});

@@ -42,25 +42,30 @@ summary in one read; then read, in this order:
    `perceived.settledAt`, `perceived.updatesAfterSettled` (`commits`, `rendered`),
    and `screen` (`vc50`, `vc90`, `vc100`). `perceived.waits[]` lists Suspense
    fallbacks only: a debounce or a request with no fallback on screen leaves it
-   empty and `firstLockAt` null. Measure such a wait from the `text` rendering, or
-   from the lanes with `format full`
-   (`avalanche-timeline <clientId> "" "" "" "" full`): the idle gap runs from the
-   input (`lanes.input[].t`, the action is at 0) to the first later commit
-   (`lanes.commits[].t`) or request (`lanes.network[].start`). It is idle when no
-   request is in flight and no long frame falls inside it.
+   empty and `firstLockAt` null. For such a wait read `perceived.idleGaps[]`
+   (`from`, `until`, `ms`, `endedBy`, longest first): stretches after the action
+   with no request in flight, no long frame, and no React render or commit, and
+   what ended each one (a request, a commit, or a long frame). A gap starts at
+   the latest input before it, so for typing it runs from the last keystroke.
+   Gaps shorter than
+   `minIdleMs` (default 100 ms) are left out. `perceived.firstResponse`
+   (`t`, `commitId`, `rendered`) is the first commit after the action. The
+   `text` rendering prints both when no fallback was shown.
 2. `avalanche-perf <clientId>`: summary `totalBlockingMs`, `worstInteractionMs`,
    `longFrames` (a count); per event entry `inputDelay`, `processing`,
    `presentationDelay`; each `long-animation-frame` entry's `scripts[]`
    (`invoker`, `sourceURL`, `sourceFunctionName`, `forcedStyleAndLayoutDuration`).
 3. `avalanche-network <clientId>`: per request `startedAfter {commitId, gapMs}`,
    `startedDuringRender`, `landedBefore {commitId, gapMs}`, `commitsInFlight`,
-   `cached`, `status`; summary `byInitiator`.
+   `cached`, `status`, and the relations `repeatOf`, `landedAfterNewer`,
+   `chainedAfter`; summary `byInitiator`, `repeats`, `mostRepeated`,
+   `landedAfterNewer`, `chained`, `longestChain`.
 
 Classify:
 
 | Reading | Class | Next |
 | --- | --- | --- |
-| The long wait is covered by requests or an idle gap (`waitedMs` for a fallback, otherwise the lane gap); `updatesDuring` is low; `totalBlockingMs` is small next to the wait | Waited | Step 2N |
+| The long wait is covered by requests or an idle gap (`waitedMs` for a fallback, otherwise `perceived.idleGaps[].ms`); `updatesDuring` is low; `totalBlockingMs` is small next to the wait | Waited | Step 2N |
 | `worstInteractionMs` or `longFrames` dominate; `processing` or `presentationDelay` is large | Worked | Step 2W |
 | Both are large | Both | Report both; work on the larger share of the user's wait first |
 | No wait, long frame, request, or commit in the window lines up with the symptom, or `perceived.settledAt` is null and `stillWaiting` names a boundary the action never reached | Missed | The window or the action was wrong; recapture before classifying |
@@ -74,15 +79,19 @@ input; when they line up with the complaint, read them under Step 2W.
 | Evidence | Pattern |
 | --- | --- |
 | The first request starts only after the new view mounts; `startedAfter` points at a mount commit long after the action | [NW-1 late start](patterns-latency.md#nw-1-late-start-fetch-on-mount) |
-| Each request starts after the commit that the previous response caused (`landedBefore` of A, then `startedAfter` of B) | [NW-2 waterfall](patterns-latency.md#nw-2-request-waterfall) |
-| An idle gap between the action and the first request or commit, close to a debounce wait, with no main-thread work | [LT-1 trailing-only debounce](patterns-latency.md#lt-1-trailing-only-debounce-on-a-discrete-action); two such gaps: [LT-2](patterns-latency.md#lt-2-stacked-debouncers) |
-| The same URL from the same initiator repeats on commits that did not change its inputs | [EF-4 refetch](patterns-effects.md#ef-4-fetch-in-effect-refetch-and-race), then [EF-1](patterns-effects.md#ef-1-effect-re-fires-from-identity) for the cause |
-| A response for an older input lands after a newer one, and the screen shows older data or flips twice | [NW-3 stale response race](patterns-latency.md#nw-3-stale-response-race) |
+| Each request starts after the previous response: `chainedAfter` is set on each, and the summary `longestChain` lists the sequence and its total `ms` | [NW-2 waterfall](patterns-latency.md#nw-2-request-waterfall) |
+| A `perceived.idleGaps[]` entry starts at the action, ends at the first request or commit (`endedBy`), and is close to a debounce wait | [LT-1 trailing-only debounce](patterns-latency.md#lt-1-trailing-only-debounce-on-a-discrete-action); two such gaps: [LT-2](patterns-latency.md#lt-2-stacked-debouncers) |
+| The same URL from the same initiator repeats (`repeatOf`, summary `mostRepeated`) on commits that did not change its inputs | [EF-4 refetch](patterns-effects.md#ef-4-fetch-in-effect-refetch-and-race), then [EF-1](patterns-effects.md#ef-1-effect-re-fires-from-identity) for the cause |
+| A response for an older input lands after a newer one (`landedAfterNewer` on the older request), and the screen shows older data or flips twice | [NW-3 stale response race](patterns-latency.md#nw-3-stale-response-race) |
 | The change appears only after the save returns, or no save request follows the last edit when the view closes | [LT-3 apply vs persist](patterns-latency.md#lt-3-apply-vs-persist) |
 
-Chippy does not group duplicate URLs, link a response to the request it started,
-or flag out-of-order responses. Read those relations from the rows by hand and say
-so in the report.
+The relations are timing, not proof of cause. `repeatOf` matches by URL and
+initiator only: Resource Timing has no method or body, so two POSTs with
+different bodies count as repeats. `landedAfterNewer` compares requests to the
+same endpoint (path, plus a GraphQL operation name when the URL carries one).
+`chainedAfter` names the response that landed before the commit this request
+started after, or one that finished at most 15 ms before it started. Confirm
+each relation in source before you name a pattern.
 
 ## Step 2W. Worked: where did the time go?
 
