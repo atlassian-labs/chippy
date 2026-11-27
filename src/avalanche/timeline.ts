@@ -43,6 +43,7 @@
 
 import type { ConsoleEntry, ConsoleLevel, ConsoleSource } from './console-capture';
 import type { NetworkRequest } from './network-capture';
+import { describeGapEnd, idleGaps, MIN_IDLE_GAP_MS, type BusySpan, type IdleGap } from './idle-gaps';
 import { isOwnFrame, type OwnWorkSpan } from './own-work';
 import type { PerfEntry } from './perf-capture';
 import type { ScreenChange } from './screen-changes';
@@ -84,6 +85,8 @@ export interface TimelineOptions {
   maxLogs?: number;
   /** Also render the settle map SVG (each part of the screen colored by when it last changed). */
   settleMap?: boolean;
+  /** Shortest idle gap reported in `perceived.idleGaps` (default 100 ms). */
+  minIdleMs?: number;
 }
 
 export type CommitKind = 'lock' | 'unlock' | 'swap' | 'update';
@@ -200,6 +203,15 @@ export interface TimelineResult {
     stillWaiting: string[];
     waits: PerceivedWait[];
     updatesAfterSettled: { commits: number; rendered: number };
+    /** First commit at or after the origin: when the interaction first changed the page. */
+    firstResponse: { t: number; commitId: number; rendered: number } | null;
+    /**
+     * Stretches after the origin, up to the window end, with no request in flight (excluded
+     * requests do not count), no long frame, and no React render, longest first. A pause that
+     * a user input ends is not a gap; the next gap starts at that input. A debounce or timer
+     * wait shows here even without a fallback.
+     */
+    idleGaps: IdleGap[];
   };
   /** Each Suspense boundary in the window, with where it sits in the app. */
   boundaries: TimelineBoundary[];
@@ -421,6 +433,13 @@ export function buildTimeline(report: ReportLike, options: TimelineOptions = {})
   const unlocks = ownWaits.filter((s) => s.end !== null).map((s) => s.end!);
   const settledAt = stillWaiting.length === 0 && unlocks.length ? Math.max(...unlocks) : null;
 
+  const busy: BusySpan[] = [
+    ...allRequests.map((r) => ({ start: r.start, end: r.end, cause: { kind: 'request' as const, label: r.label, requestId: r.id } })),
+    ...perfLane.lane.filter((p) => p.kind === 'frame').map((p) => ({ start: p.start, end: p.end, cause: { kind: 'frame' as const, label: `+${p.start} ${p.durationMs}ms` } })),
+    ...allCommits.map((c) => ({ start: c.renderStart ?? c.t, end: Math.max(c.t, c.paintAt ?? c.t), cause: { kind: 'commit' as const, commitId: c.commitId } })),
+  ];
+  const firstCommit = allCommits.find((c) => c.t >= 0);
+
   const result: TimelineResult = {
     ok: true,
     origin: { at: Math.round(origin * 10) / 10, kind: originInput ? 'interaction' : 'commit' },
@@ -431,6 +450,8 @@ export function buildTimeline(report: ReportLike, options: TimelineOptions = {})
       stillWaiting,
       waits,
       updatesAfterSettled: sumUpdates(settledAt === null ? [] : updates.filter((c) => c.t > settledAt && (!nextInput || c.t < nextInput.t))),
+      firstResponse: firstCommit ? { t: firstCommit.paintAt ?? firstCommit.t, commitId: firstCommit.commitId, rendered: firstCommit.rendered } : null,
+      idleGaps: idleGaps(busy, 0, rel(windowEnd), options.minIdleMs ?? MIN_IDLE_GAP_MS, undefined, input.map((i) => i.t)),
     },
     boundaries: boundaryKeys.map((key) => ({ boundary: key, depth: boundaryInfo.get(key)!.depth, label: labelByKey.get(key) ?? null, location: boundaryInfo.get(key)!.location })),
     screen: screenStability(frames),
@@ -654,7 +675,10 @@ function renderMermaid(result: TimelineResult): string {
 function renderText(result: TimelineResult): string {
   const p = result.perceived;
   const header: string[] = [];
-  if (p.waits.length === 0) header.push('No Suspense fallback was shown in this window.');
+  if (p.waits.length === 0) {
+    header.push('No Suspense fallback was shown in this window' +
+      (p.firstResponse ? `; first commit c${p.firstResponse.commitId} at +${p.firstResponse.t} (${p.firstResponse.rendered} rendered).` : '.'));
+  }
   else {
     header.push(p.settledAt !== null
       ? `Fallbacks first shown at +${p.firstLockAt}, all cleared at +${p.settledAt}; ${p.updatesAfterSettled.commits} updates (${p.updatesAfterSettled.rendered} rendered) ran after that, before the next input.`
@@ -665,6 +689,10 @@ function renderText(result: TimelineResult): string {
         `, ${w.updatesDuring.commits} updates (${w.updatesDuring.rendered} rendered) meanwhile` +
         (last ? `, last request before unlock: ${last.label} (+${last.end}, ${last.gapMs}ms before)` : ''));
     }
+  }
+
+  for (const gap of p.idleGaps.slice(0, 3)) {
+    header.push(`Idle +${gap.from} → +${gap.until} (${gap.ms}ms): no request, render, or long frame; ended by ${describeGapEnd(gap.endedBy)}.`);
   }
 
   const sc = result.screen;

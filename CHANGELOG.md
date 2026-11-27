@@ -28,6 +28,23 @@ must stay compatible with the extension version in the store.
 
 ### Added
 
+- `avalanche-timeline` reports `perceived.firstResponse` and
+  `perceived.idleGaps`: stretches after the action with no request, long
+  frame, or render, and what ended each. They measure debounce and timer
+  waits that show no Suspense fallback. `minIdleMs` sets the shortest gap.
+- `avalanche-network` rows carry `repeatOf`, `landedAfterNewer`, and
+  `chainedAfter`; the summary adds `repeats`, `mostRepeated`,
+  `landedAfterNewer`, `chained`, and `longestChain`.
+- `avalanche-offline` reads `ab-capture` sample files.
+- Performance guidance for more wait shapes: pattern cards for lazy code on
+  interaction (NW-4), refetching data already shown (NW-5), non-critical
+  content on the critical path (NW-6), a fallback replacing shown content
+  (NW-7), refetch after a write (NW-8), a debounce in front of continuous
+  input (LT-5), a large mount commit (EX-2), and layout shifts (LS-1). Also:
+  the P-23 critical-path test, triage rows for each card, the Moved and Stuck
+  classes, a "Not a wait or work" section, and the `check-app-measure` recipe.
+- Troubleshooting for helper 504s, curl exit codes, missing bridge modules,
+  a page runtime older than the helper, and partial debug replay.
 - A/B comparison of one page under two flags, builds, or conditions.
   `ab-capture <clientId> <armDir> [label...]` saves one run (the Avalanche
   export and a portable fiber-state capture) as the next sample of an arm;

@@ -28,7 +28,7 @@ Commands:
   perf          [types] [top] [match] [fromCommit] [toCommit]
                 (--types csv --top N --match regex --fromCommit N --toCommit N)
   timeline      [fromCommit] [toCommit] [minRequestMs] [exclude]
-                (--fromCommit N --toCommit N --minRequestMs ms --top N --exclude regex --format summary|map|full)
+                (--fromCommit N --toCommit N --minRequestMs ms --minIdleMs ms --top N --exclude regex --format summary|map|full)
   dom-diff      [fromCommit] [toCommit] [match] [maxItems]
                 (--fromCommit N --toCommit N --match regex --maxItems N --top N)
   source-search --name <regex> [--top N]

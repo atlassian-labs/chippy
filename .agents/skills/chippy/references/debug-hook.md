@@ -69,12 +69,12 @@ Always read the output in this order. Stop at the first step that gives you the 
 - **SyncExternalStore** — external store fired. See *Root causes / remediations*.
 - **State / Reducer** — in-component update. Trace the `setX` / `dispatch` caller. Two sub-cases:
   - value churn — the new state is genuinely different.
-  - identity churn — `dispatch` / `setX` is treated as identity-stable, but the consumer received a new object (e.g. a closed-over reducer rebuilt every render). Check whether the dispatcher itself is recreated.
+  - identity churn — the new state is a new object or array with the same content. The `setX` from `useState` and `dispatch` from `useReducer` are stable for the component's lifetime, so do not chase them; chase the caller that builds the new value, or a custom wrapper around the setter that is rebuilt each render.
 - **Memo / Callback** — identity churn. Inspect the deps array; an object/function/array rebuilt each render is the usual cause.
-- **Effect / LayoutEffect / InsertionEffect** — side-effect ran. Inspect deps. Effect *running* is rarely the perf cause; the effect's body is. If body calls `setState`, jump to State cascade.
+- **Effect / LayoutEffect / InsertionEffect** — side-effect ran. First ask whether the Effect should exist ([patterns-effects](patterns-effects.md#two-questions-before-touching-an-effect)); then inspect deps. Effect *running* is rarely the perf cause; the effect's body is. If body calls `setState`, jump to State cascade.
 - **Ref** — mutation, not a render cause. Mark benign.
 - **Context** — the consumer read a context; the cause is the provider value. Switch to provider-side analysis (`stability-render` on the provider value).
-- **DebugValue / Id / MemoCache** — diagnostic / structural calls. Not a cause. Re-pick `hookIndex`; use `DebugValue` entries in `neighborhood` as landmarks.
+- **DebugValue / Id / MemoCache** — diagnostic / structural calls. Not a cause. Re-pick `hookIndex`; use `DebugValue` entries in `neighborhood` as landmarks. A `MemoCache` call marks a component compiled by React Compiler ([react-compiler](react-compiler.md#is-this-component-compiled)).
 - **DeferredValue / Transition / CacheRefresh** — concurrent-mode primitives. Treat as advisory; cause is upstream.
 - **ImperativeHandle** — handle re-creation; rare cause.
 - **Other (raw method name)** — dispatcher method not in the classifier. Report as a debug-hook gap; do not guess.
@@ -87,11 +87,11 @@ Mutually exclusive rows. Pick by `primitive` and the **detection** column. debug
 |---|---|---|---|
 | SyncExternalStore | **over-broad subscription** | `primitive` is SyncExternalStore; the hook changes each commit by fields the consumer does not read, and `parents` points at a selector returning a wide slice. | Narrow the slice to only fields the consumer reads. Return primitives where possible. |
 | SyncExternalStore | **selector returns wrong identity** | Value deep-equals the previous one but identity differs each commit; the selector named by `parents` builds a new object/array (`map`/`filter`/`{...}`/`[...]`). | Stable selector: memoize, return a primitive, or subscribe with shallow-equal. |
-| SyncExternalStore | **store mutation rate too high** | Identity *and* value change; multiple unrelated sources hit the same store on the same commit. | Split store, debounce writes, or move the read closer to the consumer. |
-| State / Reducer | **unconditional setState in render or layout effect** | The same source and hook resolve repeatedly per interaction; the state oscillates or grows each commit. | Hoist or guard the update. Remove the avoidable setState. |
-| State / Reducer | **dispatcher identity churn** | State *value* unchanged but consumers below re-render; reducer object recreated per render. | Stabilize reducer/dispatcher identity (module scope or `useRef`). |
+| SyncExternalStore | **store mutation rate too high** | Identity *and* value change; multiple unrelated sources hit the same store on the same commit. | Split the store slice, or move the read closer to the consumer. When writes must be coalesced, do it at one layer, the store's owner; if a debounce already exists, change its edge before adding another. Flush pending saves; cancel only reads ([patterns-latency](patterns-latency.md#timing-mechanisms-keep-them-change-the-edge)). |
+| State / Reducer | **unconditional setState in render or Effect** | The same source and hook resolve repeatedly per interaction; the state oscillates or grows each commit. | Guard the update or remove it. A value derived from props or state belongs in render ([EF-2](patterns-effects.md#ef-2-derived-state-via-effect)). Setting state from a DOM measurement in a layout Effect is valid when it converges in one extra commit. |
+| State / Reducer | **new value with equal content** | State *value* equal by content but a new reference each update, so consumers below re-render. Setters and `dispatch` are stable and are not the cause. | Keep the previous reference when nothing changed (return the current state from the updater or reducer), or store primitives. |
 | Memo / Callback | **deps contain a recreated reference** | `primitive` is Memo/Callback on a hot source; a parent re-renders with new object/function props. | Stabilize deps (lift constants, memoize source object, switch to primitive deps). |
-| Effect / LayoutEffect | **deps churn** | Effect runs every commit; deps array contains a recreated reference. | Stabilize deps. Then verify the effect is needed at all. |
+| Effect / LayoutEffect | **deps churn** | Effect runs every commit; deps array contains a recreated reference. | First verify the Effect is needed at all; then follow the [dependency order](patterns-effects.md#fixing-effect-dependencies). Never suppress `exhaustive-deps`. |
 | Context | **provider value identity churn** | `primitive` is Context (or provider rendered directly above the source); value identity differs commit-over-commit. | Memoize provider value or split context. Use `stability-render` on the provider to verify. |
 | Ref | none — benign | `primitive` is Ref. | No action. |
 | Other | classifier gap | `primitive` is a raw dispatcher method name. | Report as debug-hook gap. Do not invent a cause. |

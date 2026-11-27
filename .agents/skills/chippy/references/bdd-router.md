@@ -5,7 +5,7 @@ The router maps an observed Chippy situation to one capability, procedure, comma
 Canonical contracts:
 - Phase model, proof packet, and apply gate: [operating-model](operating-model.md)
 - Domain positioning and OODA evidence iteration: [cynefin](cynefin.md)
-- P-01..P-20 procedure steps: [procedures](procedures.md)
+- P-01..P-23 procedure steps: [procedures](procedures.md)
 - Command contract: main [SKILL.md](../SKILL.md#command-surface)
 
 ## Domain tags by router section
@@ -67,9 +67,15 @@ Read the GIVEN column first. Pick the row that best matches the situation. Follo
 
 | ID | GIVEN | WHEN | THEN: Procedure | THEN: Key Commands | THEN: Verified By |
 |---|---|---|---|---|---|
-| R-10 | Open page, user reports lag on interaction | "Why is clicking X slow?" | P-14 → P-04 → P-15 | `avalanche-arm` → interact → `avalanche-status` → `hot-sources` → `commit-list` → `commit-peek` | Proof packet: trigger + role + file:line |
-| R-11 | Open page, jank during scroll/animation | "Why is scrolling janky?" | P-14 → P-04 → P-15 | Same as R-10 | Hot source identified; blast radius measured; cause not inferred from hotspot alone |
+| R-10 | Open page, user reports lag on interaction | "Why is clicking X slow?" | P-14 → P-04 → P-15 | `avalanche-arm` → interact → `avalanche-status` → `avalanche-summary` → perf-triage → (worked) `hot-sources` → `commit-list` → `commit-peek` / (waited) R-11B | Proof packet: trigger + role + file:line |
+| R-11 | Open page, jank during scroll/animation | "Why is scrolling janky?" | P-14 → P-04 → P-15 | Same as R-10. Content that arrives late after a scroll is a wait (R-11F); motion or flicker with no React commit is DOM work outside React (R-11G) | Hot source identified; blast radius measured; cause not inferred from hotspot alone |
+| R-11F | Scrolling reveals content late: blank rows, a load-more spinner, or the next page arriving after the scroll stops | "Why does the list load late when I scroll?" | P-14 → P-21 → P-15 | Scroll is not recorded by default (`interactionCapture: 'explicit'`), and `avalanche-install` and `avalanche-arm` do not forward the option. The in-page install replaces the running capture, so first save it with `avalanche-save` if it holds evidence (or ask), then install through `eval-page` with `window.__AVALANCHE__.install({ captureFibers: true, detectionMode: 'sources', historySize: 1000, interactionEvents: ['scroll'] })`, which repeats the options `avalanche-install` sends and adds only scroll to the default inputs (`interactionCapture: 'noisy'` also records pointer and mouse moves, which can become the timeline origin; see [Event/action breadcrumbs](avalanche-detector.md#eventaction-breadcrumbs)) → scroll → `avalanche-timeline` → `avalanche-network` (`startedAfter` of the page request) → `avalanche-dom-diff` for row `+`/`-` ops | The page request's start is placed against the scroll, or the report says the origin fell back to the first commit because no scroll was recorded; late start vs request duration separated ([NW-1](patterns-latency.md#nw-1-late-start-fetch-on-mount), [NW-4](patterns-latency.md#nw-4-lazy-code-on-interaction) for a chunk); row identity checked with [RM-1](patterns-render.md#rm-1-key-induced-remount) when rows remount, or with the virtual window shift in [RW-5](patterns-render.md#rw-5-list-append-re-renders-every-row) when rows that stayed mounted re-render |
+| R-11G | Motion, flicker or DOM churn with few or no React commits | "What keeps changing the page?" | P-14 → P-15 | `avalanche-dom-diff` (records React commits only) → an async `eval-page <clientId> -` script that awaits the window and returns (pass `--script-timeout <ms>` for a window longer than 5 s); read `sideEffects.domMutations` against `rootsCommitted` ([page scripts](page-scripts.md#rules)): `domMutations` counts every DOM mutation, React's included, and `rootsCommitted` counts roots that committed at least once, so the split is conclusive only when `rootsCommitted` is 0 → `avalanche-perf` long-frame `scripts[]` `sourceURL` / `sourceFunctionName` | Mutations with `rootsCommitted` 0 reported as DOM work outside React (with any commit in the window, Chippy cannot separate the two), with the script source from a long frame when one exists; Chippy does not name the code that wrote the DOM otherwise |
 | R-11A | Page reports layout shift, long frames, or slow INP | "What moved the layout?" / "Why is this frame long?" | P-14 → P-04 → P-15 | `avalanche-arm` → interact → `avalanche-perf` → `commit-peek <commits.before or during> stats,sources,rendered` | Entry named with its component and nearest commit; that commit's source proven separately, not inferred from timing |
+| R-11B | User waited: a click, Enter or toggle is late by a fixed amount, a spinner stays up, or data arrives late | "Why does this take so long to show?" | P-14 → P-21 → P-15 | `avalanche-arm` → interact → `avalanche-timeline` → `avalanche-network` (for code chunks, a second run `avalanche-network <clientId> 30 start "" script,link`) → `avalanche-perf` → source confirms the mechanism → P-23 when a candidate request may not gate the view | Wait attributed to one mechanism with timeline and network evidence and matched to a [patterns-latency](patterns-latency.md) card: debounce edge (LT-1..LT-3, [LT-5](patterns-latency.md#lt-5-debounce-in-front-of-continuous-input) for typing, measured from the last keystroke), late start or prompt start on the critical path (NW-1), waterfall (NW-2), stale race (NW-3), [lazy code](patterns-latency.md#nw-4-lazy-code-on-interaction) (NW-4), [refetch on reopen or return](patterns-latency.md#nw-5-refetch-of-data-already-shown) (NW-5), [non-critical content gating the view](patterns-latency.md#nw-6-non-critical-content-on-the-critical-path) (NW-6), [fallback over shown content](patterns-latency.md#nw-7-fallback-replaces-content-already-shown) (NW-7), [refetch after write](patterns-latency.md#nw-8-refetch-after-write) (NW-8); mechanism kept, edge or start point named; with no fallback, whether any [pending feedback](patterns-latency.md#feedback-during-a-wait) was visible |
+| R-11C | Fast typing or switching shows results for an older input | "Why does it show old results?" | P-14 → P-21 → P-15 | `avalanche-network` (same initiator, different parameters, earlier start lands later) → `commit-peek dom,network` | Stale response identified; cancellation or ignore flag named; writes not aborted |
+| R-11D | One action produces several commits, each started by an Effect | "Why does one click render three times?" | P-14 → P-04 → P-17 → P-15 | `avalanche-recapture <clientId> full` (the `effects` column is zero outside `full` or `amplifiers` mode) → `commit-list effects` → `commit-peek stats,sources,rendered` per commit → source Effect bodies | Effect classified as synchronization or removable (derived state, chain, event logic); fix from [patterns-effects](patterns-effects.md) |
+| R-11E | User asks whether React Compiler would fix it, or the compiler is on and it is still slow | "Should we just turn on the compiler?" | P-14 → P-04 → P-22 | triage line → `sameShallow` / `sameContent` evidence → `describe-component` for `MemoCache` → A/B with `'use no memo'` | Cost classified as identity-driven or not; compilation confirmed; A/B decides |
 | R-12 | Capture has >100 commits | Analyse without losing context | P-09 → P-15 | `avalanche-save` → `avalanche-offline` → subagent per wave | Crime scene rebuilt: setup → wave → noise |
 | R-13 | Suspected unstable memo or context | "Does this re-render when it shouldn't?" | P-14 → P-06 → P-15 | `avalanche-recapture full` → schedule one target render → settle → status → commit-list → commit-peek `stats,sources,rendered` → classify | `commitCount`, `collateral`, `trasherCounts`, verdict, render invariant |
 | R-14 | Stability-render shows leak, hook role unclear | "Which hook causes this?" | P-07 → P-15 | `avalanche-recapture` → reproduce trigger → `avalanche-debug-hook` | `primitive` confirmed; remediation branch chosen |
@@ -86,7 +92,8 @@ Read the GIVEN column first. Pick the row that best matches the situation. Follo
 | R-19C | `commit-peek include=rendered` shows non-zero `trasherCounts` on a component | "Which hook is the amplifier?" | P-06 → P-07 → P-15 | `commit-peek include=rendered` → identify `trasherCounts.{effects,callbacks,memos}` → `avalanche-debug-hook` on that hook | Trasher verdict supported by `trasherCounts > 0` across ≥2 commits; offending hook + primitive named |
 | R-19D | `propChanges` shows `ref-changed` callback or object prop on a re-rendered child | "Who passed the unstable identity?" | P-04 full-mode branch → re-resolve child → walk current owners → P-06 on parent | `avalanche-recapture full` → repeat interaction → `commit-peek rendered` → read `ref-changed` prop → re-resolve child → owners → same-anchor parent nudge | Parent identity churn confirmed; amplifier hook in parent named |
 | R-19A | Mount work high during interaction | Prove remount essence | P-18 → P-15 | `commit-peek stats,sources,metrics` → owner/key/type trace | Unstable key/type/conditional boundary named or mount declared legitimate |
-| R-19B | User asks to apply perf fix after proof | Fix as separate capability | P-16 → P-12 | Apply gate → edit → same capture | Edit allowed only after proof packet + verification plan |
+| R-19B | User asks to apply perf fix after proof | Fix as separate capability | P-16 → P-12 | Apply gate → protection inventory → lowest fix-ladder rung → edit → same capture | Edit allowed only after proof packet + verification plan; every protection kept |
+| R-19E | A fix is applied and must be proven | "Did the fix work without breaking anything?" | P-12 | `ab-capture` before/after arms, interleaved, ≥3 samples → protected scenarios → `ab-compare`; timeline per arm for waits | Friction moved; announced differences only; protected scenarios `equivalent`; `notCovered` read |
 
 ---
 
@@ -94,12 +101,12 @@ Read the GIVEN column first. Pick the row that best matches the situation. Follo
 
 | ID | GIVEN | WHEN | THEN: Procedure | THEN: Key Commands | THEN: Verified By |
 |---|---|---|---|---|---|
-| R-20 | Page is slow to first paint | "Why is initial load slow?" | P-14 → P-05 → P-15 | `reload-with-avalanche` → `avalanche-status` → `hot-sources` → `commit-list` → `commit-peek` | Load invariant + integration mode + top sources ranked |
+| R-20 | Page is slow to first paint | "Why is initial load slow?" | P-14 → P-05 → P-15 | `reload-with-avalanche` → `avalanche-status` → `avalanche-summary` → perf-triage → (worked) `hot-sources` → `commit-list` → `commit-peek` / (waited) `avalanche-timeline` → `avalanche-network` | Load invariant + integration mode + top sources ranked |
 | R-20A | LCP or CLS is poor on load | "Why is LCP late?" / "What shifts during load?" | P-14 → P-05 → P-15 | `reload-with-avalanche` → `avalanche-perf` → `commit-peek` on the commits before the LCP entry and each shift | LCP element and shift sources named with components; commits before them read for sources |
 | R-21 | Load capture has low commit count | "Did capture miss early commits?" | Prove capture quality before cause | `reload-with-avalanche` with higher `settleMs` (5000+) | commitCount increases or gap is reported as capture limitation |
 | R-22 | After load perf fix | "Did the fix improve load?" | P-05 again + P-12 | Re-run `reload-with-avalanche`, compare hot-sources | Same sources lower rank or absent |
 | R-23 | Load wave looks large | Decide necessary vs avoidable work | P-05 → before/during/after read → P-15 | `commit-peek` on N-2/N-1/N/N+1 | Setup/main/noise roles separated |
-| R-24 | Initial load includes Suspense/lazy boundaries | Avoid blaming transport | P-11 + P-05 → P-15 | `commit-peek` + taxonomy/source trace below placeholder | Business source separated from placeholder/wrapper |
+| R-24 | Initial load, or an interaction (open, tab switch, route change), includes Suspense/lazy boundaries | Avoid blaming transport | P-11 + P-05 → P-15; for an interaction, P-04 → P-21 | `commit-peek` + taxonomy/source trace below placeholder; for a wait, `avalanche-network <clientId> 20 start "" script,link` on the first open after a reload (with the user's permission to reload, on routes where reload keeps Chippy) and on a second open in the same recording | Business source separated from placeholder/wrapper; a `script` or `link` row inside the fallback on the cold open only, absent or `cached` on the repeat, is code loading, not data ([NW-4](patterns-latency.md#nw-4-lazy-code-on-interaction)) |
 | R-25 | User asks to fix load before cause known | Apply gate blocks edit | P-15 → P-16 fails | Choose next proof command | No edit until source/boundary role proven |
 
 ---
@@ -176,7 +183,7 @@ Read the GIVEN column first. Pick the row that best matches the situation. Follo
     ↓
 [Proof packet] confidence + next gap
     ↓
-[Apply gate] user intent + fix layer + verification command
+[Apply gate] user intent + protections + fix ladder rung + verification plan
     ↓
 [Maybe edit] source code only if gate passes
     ↓
@@ -193,19 +200,22 @@ Fixing is optional and late. The loop can end after **Proof packet** when the us
 
 ```
 1. User reports slow [interaction | load]
-2. Capture (arm for runtime, reload-with-avalanche for load)
-3. hot-sources → quick triage (shape + scale)
-4. commit-list → pick suspicious commit
-5. commit-peek → join evidence (stats + sources + metrics)
-6. Probe/fiber → why this component? (owners, props, hooks)
-7. Code → implementation cause (deps, selector, provider value, keys)
-8. If user intent permits and P-15/P-16 pass, edit source
-9. Repeat capture → same window, same signals, compare
+2. Capture (arm for runtime, reload-with-avalanche for load) → avalanche-summary
+3. perf-triage: waited or worked? Waited → timeline / network / perf (P-21)
+4. Worked: hot-sources → quick triage (shape + scale)
+5. commit-list → pick suspicious commit
+6. commit-peek → join evidence (stats + sources + rendered)
+7. Probe/fiber → why this component? (owners, props, hooks)
+8. Code → implementation cause (deps, selector, provider value, keys, debounce options)
+9. Triage line → pattern card → protection inventory → lowest fix-ladder rung
+10. If user intent permits and P-15/P-16 pass, edit source
+11. Verify as A/B arms with protected scenarios → ab-compare
 ```
 
 Rules:
-- Never jump from step 3 to step 7.
-- Never call a cause "confirmed" without step 6 + 7 evidence.
+- Never explain a wait with render counts.
+- Never jump from step 4 to step 8.
+- Never call a cause "confirmed" without step 7 + 8 evidence (for a wait: timeline and network evidence plus the source of the mechanism).
 - Never mark hotspot as trigger without causal chain.
 
 ---
@@ -276,11 +286,14 @@ Before marking any Chippy task complete:
 - [ ] First observation recorded (interaction/load/subtree + initial signal)
 - [ ] Case and invariant defined from observation
 - [ ] Trigger identified (interaction or load)
+- [ ] Waited vs worked decided ([perf-triage](perf-triage.md)); a wait is explained from timeline and network, not render counts
 - [ ] Source classified (source / hotspot / collateral / mount / context / store)
 - [ ] Causal chain stated: source → why → propagation → blast radius
-- [ ] Fix layer decided: above source | boundary | below source
-- [ ] Before/after measurement compared (same signals, same window)
-- [ ] Hot source rank changed (or explained why not)
+- [ ] Pattern card matched, with its "Prove the problem" evidence met
+- [ ] Protection inventory listed; each protection has a scenario
+- [ ] Fix ladder rung chosen: the lowest that removes the friction and keeps every protection
+- [ ] Before/after compared as A/B arms (≥3 interleaved samples, announced differences only)
+- [ ] Hot source rank or wait changed (or explained why not)
 
 ### Stability-render task
 - [ ] Target observed first (probe/testId/fiber exists in current runtime)

@@ -1,6 +1,6 @@
 # Chippy Procedures — Ceremonies, Procedures, Plays
 
-The P-01..P-20 procedures turn routed Chippy cases into executable evidence and verification chains. Use one after [bdd-router](bdd-router.md) selects it.
+The P-01..P-23 procedures turn routed Chippy cases into executable evidence and verification chains. Use one after [bdd-router](bdd-router.md) selects it.
 
 Canonical phase contracts and apply gate live in [operating-model](operating-model.md). This file only defines executable procedure chains.
 
@@ -69,19 +69,19 @@ explain-component → (if needed) describe-component → probe-prop-value / insp
 **When:** User reports lag, jank, slow click, slow scroll — on an already-open page.
 
 ```
-avalanche-arm → [user/harness interacts] → avalanche-status → avalanche-hot-sources → avalanche-commit-list → avalanche-commit-peek
+avalanche-arm → [user/harness interacts] → avalanche-status → avalanche-summary → perf-triage (waited vs worked) → hot sources / commit list / commit peek, or timeline / network / perf
 ```
 
 1. `avalanche-arm <clientId> <origin>` — arm on live page, NO reload.
 2. Ask user to perform the slow interaction (or replay via Playwright).
 3. `avalanche-status <clientId>` — confirm commits captured.
-4. `avalanche-hot-sources <clientId> 20` — quick triage.
-5. `avalanche-commit-list <clientId> 15 collateral` — rank commits.
-6. `avalanche-commit-peek <clientId> <commitId> stats,sources,metrics 6 40` — inspect the peak commit.
-7. `renderedByCommit`, `isSelfSource`, and `propChanges` are already present in the default `sources` capture; read them with `avalanche-commit-peek ... stats,sources,rendered`. If the route needs `trasherCounts`, run `avalanche-recapture <clientId> full`, reproduce the identical interaction once, then repeat status → commit-list → `avalanche-commit-peek ... stats,sources,rendered`.
-8. Classify: source / hotspot / collateral / mount / context wave.
+4. `avalanche-summary <clientId>` — totals, timeline text, top commits.
+5. Decide waited vs worked with [perf-triage](perf-triage.md) Step 1. A wait goes to `avalanche-timeline`, `avalanche-network` and `avalanche-perf` ([P-21](#p-21--latency-and-wait-investigation-play)); stop reading render counts for it.
+6. For work: `avalanche-hot-sources <clientId> 20` → `avalanche-commit-list <clientId> 15 collateral` → `avalanche-commit-peek <clientId> <commitId> stats,sources,rendered 6 40` on the peak commit.
+7. `renderedByCommit`, `isSelfSource`, and `propChanges` are already present in the default `sources` capture. If the route needs `trasherCounts`, run `avalanche-recapture <clientId> full`, reproduce the identical interaction once, then repeat status → commit-list → `avalanche-commit-peek ... stats,sources,rendered`.
+8. Separate trigger from collateral ([perf-triage](perf-triage.md) Step 3W) and match a pattern card.
 9. Trace source via probe-owners or find-fibers.
-10. Propose fix. Verify with fresh capture after edit.
+10. Write the triage line, then P-15 (proof packet) → P-16 (fix gate, fix ladder, protections) → P-12 (verify).
 
 **NEVER:** reload for runtime perf. Use `avalanche-arm` only.
 
@@ -92,16 +92,16 @@ avalanche-arm → [user/harness interacts] → avalanche-status → avalanche-ho
 **When:** User says "page is slow to load" / "initial paint is slow" / "first load takes too long".
 
 ```
-reload-with-avalanche → avalanche-status → avalanche-hot-sources → avalanche-commit-list → avalanche-commit-peek
+reload-with-avalanche → avalanche-status → avalanche-summary → perf-triage → (worked) hot-sources → commit-list → commit-peek | (waited) timeline → network → P-21
 ```
 
 1. `reload-with-avalanche <clientId> <origin> 0 15000 5000` — arms, reloads, waits settle.
 2. `avalanche-status <clientId>` — confirm integrationMode, commitCount.
-3. `avalanche-hot-sources <clientId> 20` — top sources across load window.
-4. `avalanche-commit-list <clientId> 15 collateral` — identify main wave.
-5. `avalanche-commit-peek` — inspect before / during / after windows.
-6. Classify per avalanche-detector reading rules (read broad → narrow).
-7. Trace source. Propose fix. Re-run `reload-with-avalanche` to verify.
+3. `avalanche-summary <clientId>`, then decide waited vs worked with [perf-triage](perf-triage.md) Step 1. Late starts and waterfalls are waits, not render cost: read `avalanche-timeline` and `avalanche-network` and continue with [P-21](#p-21--latency-and-wait-investigation-play).
+4. Worked: `avalanche-hot-sources <clientId> 20` — top sources across the load window.
+5. `avalanche-commit-list <clientId> 15 collateral` — identify the main wave.
+6. `avalanche-commit-peek` — inspect before / during / after windows.
+7. Trace source. Then P-15 → P-16 → P-12; re-run `reload-with-avalanche` per arm to verify.
 
 **NEVER:** use `reload-with-avalanche` for runtime/interaction perf.
 
@@ -257,8 +257,8 @@ find-fibers → describe-component → inspect-fiber-structure → open file
    - Avalanche `sourceId + hookIndex`: start the required fresh capture, reproduce the trigger, and identify the source/hook again from the new commit evidence;
    - test-id anchor: resolve it again through the current page before stimulation.
 6. Re-run the same probe/avalanche/stability commands that diagnosed the issue, using only the refreshed identities.
-7. Compare structured output (not screenshots).
-8. Report: same signals improved? Residual signals? New signals?
+7. Compare structured output (not screenshots). For a performance fix, capture the before and after builds as A/B arms and run `ab-compare` with the protected scenarios ([verifying a fix](ab-testing.md#verifying-a-fix)).
+8. Report: same signals improved? Residual signals? New signals? Announced changes seen, and nothing else?
 
 **NEVER:** mark complete before the same measurement moved.
 
@@ -368,25 +368,23 @@ normalize evidence → classify role → state confidence → name next gap
 **When:** User asks for a fix or a proof packet suggests an edit.
 
 ```
-proof packet → apply gate → fix layer → verification command → edit plan
+proof packet → apply gate → protections → fix ladder rung → verification plan → edit
 ```
 
 1. Check the Apply Gate from [operating-model](operating-model.md):
    - Definition exists.
-   - Evidence exists.
-   - Fix layer exists.
+   - Evidence exists: the pattern card's "Prove the problem" is met (status Confirmed).
+   - A fix candidate is named (the pattern card's fix, not a guess).
    - Verification command exists.
 2. If any gate is missing: return to Prove, do not edit.
-3. Choose fix layer:
-   - **Above source** — stop creating unstable value / narrow dependency / prevent trigger
-   - **At boundary** — memoize, split boundary, stabilize prop crossing
-   - **Below source** — consumer reads too broadly, selector too wide, effect semantic dep wrong
-4. State edit intent in plain language:
+3. List what the current code protects ([protection inventory](fixing-performance.md#protection-inventory)): every debounce, cache, memo, key, ordering or batching it relies on, and the scenario that proves each.
+4. Choose the lowest [fix ladder](fixing-performance.md#fix-ladder) rung that removes the measured friction and keeps every protection. Change a mechanism's smallest knob (an edge, a dependency, a key) before removing or replacing it. When the mechanism is shared, change it at its owner or not at all.
+5. State edit intent in plain language:
    - what changes
-   - why this layer is correct
-   - what signal should move after edit
-5. Apply only if the user requested implementation or confirms.
-6. Verify with P-12 using the same measurement.
+   - why this rung is correct and the lower ones are not
+   - what signal should move after edit, and which changes are intended (fewer requests, one fewer commit)
+6. Apply only if the user requested implementation or confirms.
+7. Verify with P-12 using the same measurement, and report through the [report gate](fixing-performance.md#report-gate).
 
 **Done when:** edit is either authorized and verified, or explicitly deferred.
 
@@ -411,11 +409,9 @@ observe churn → define lifecycle/identity invariant → trace dep boundary →
    - object created inline by parent?
 4. Name the actual semantic dependency:
    - e.g. `opts.mode`, not `opts`; `id`, not `item`; `query`, not `params` object.
-5. Fix order:
-   1. Effect correctness first — prevent lifecycle re-fire on incidental identity.
-   2. Callback/memo stability second — prevent avoidable downstream identity flips.
-   3. Upstream object stabilization third — defense in depth.
-6. Verify after each step with P-06 or P-12.
+5. Decide whether the Effect should exist at all ([patterns-effects](patterns-effects.md#two-questions-before-touching-an-effect)): derived state and chains move to render or the event handler (EF-2, EF-3).
+6. If it stays, follow the [dependency order](patterns-effects.md#fixing-effect-dependencies): hoist, move inside, depend on primitives, updater form, `useEffectEvent`, and only then `useMemo` / `useCallback` upstream. Never suppress `exhaustive-deps`.
+7. Verify after each step with P-06 or P-12.
 
 **Done when:** the invariant is restored and the same capture/nudge proves fewer waves or stable lifecycle.
 
@@ -460,7 +456,7 @@ observe mount/reset signal → define persistence invariant → trace key/type/c
 
 ### P-19 · Store Selector Essence Play
 
-**When:** `SyncExternalStore`, Redux/Relay/SweetState container, or store restart signal appears.
+**When:** a `SyncExternalStore` hook, a store library's subscription hook, or a store restart signal appears. Pattern card: [RW-7](patterns-render.md#rw-7-store-selector-returns-a-new-object).
 
 ```
 observe consumed data → define subscription invariant → prove subscribed data → compare width → maybe narrow or stabilize selector
@@ -530,7 +526,7 @@ Outputs:
 - pruned/shallowed branch name
 - exact temporary edit location
 - before/after signal comparison
-- next real fix layer
+- next real fix
 
 **Anchor contract:**
 - target branch must remain measurable in the same capture after the cut
@@ -540,5 +536,69 @@ Outputs:
 - same capture must show target and unrelated work mixed before doing the maneuver
 
 **Done when:** the maneuver reveals a cleaner target signal without changing the target invariant.
+
+---
+
+### P-21 · Latency and Wait Investigation (Play)
+
+**When:** the user waited: a click, Enter or toggle feels late by a fixed amount; a spinner or fallback stays up; data appears late; results flip to an older input. [Perf triage](perf-triage.md) Step 1 classified the complaint as waited.
+
+```
+capture → avalanche-timeline → avalanche-network → avalanche-perf → pattern card (→ P-23 when a candidate gate is unproven) → source confirms the mechanism → P-15 → P-16 → P-12
+```
+
+1. Capture the interaction (P-04 steps 1–3) or the load (P-05 steps 1–2). When the complaint is about opening something again or coming back to a view, record both actions in one capture: open, close and reopen, or view, leave and return. `repeatOf` links repeats only within one capture. When the complaint is the first open, the cold run is the subject: capture it after a fresh load (a reload needs the user's permission; use `reload-with-avalanche`), not after a warm-up.
+2. `avalanche-timeline <clientId>` — read `perceived.waits[]`: `waitedMs`, `lockedBy`, `lastRequests`, `updatesDuring`. `waits[]` lists Suspense fallbacks only; with no fallback on screen it is empty, so read `perceived.idleGaps[]` (`from`, `until`, `ms`, `endedBy`) and `perceived.firstResponse`. An idle gap has no request in flight, no long frame, and no render; one that starts at the action points at a timer or debounce. For typing, the gap starts at the last keystroke. A spinner or skeleton driven by state is not a wait in `waits[]`: find the commits that inserted and removed it with `avalanche-dom-diff <clientId>` (narrow it with `match`), and report whether any pending indicator was visible. The dom-diff `t` counts from the first listed commit, not from the action; for the time after the action, look up those `commitId`s in `lanes.commits[]` of `avalanche-timeline <clientId> "" "" "" "" full`. The lane keeps every lock, unlock and swap commit but only the 25 update commits that rendered the most; when a commit is missing, take its `startTime` from `avalanche-commit-peek <clientId> <commitId> timing` and subtract the timeline's `origin.at`.
+3. `avalanche-network <clientId> 30 start` — for each request in the wait: `startedAfter` (and its gap), `landedBefore`, `commitsInFlight`, `cached`, `initiatorType`. Look for a late start, a prompt start whose own duration covers the wait, a chain of sequential requests (`chainedAfter`, summary `longestChain`), a repeated URL (`repeatOf`, `mostRepeated`), an earlier request that lands later (`landedAfterNewer`), or `script` and `link` rows (code loading, not data). These links are timing: they name candidates, not causes.
+4. `avalanche-perf <clientId>` — confirm the main thread was free during the wait. A large `inputDelay` or `processing` is work, not a wait: switch to P-04.
+5. Match the evidence to a card in [patterns-latency](patterns-latency.md): LT-1 trailing debounce, LT-2 stacked debouncers, LT-3 apply vs persist, [LT-5](patterns-latency.md#lt-5-debounce-in-front-of-continuous-input) debounce in front of continuous input, NW-1 late start, NW-2 waterfall, NW-3 stale race, [NW-4](patterns-latency.md#nw-4-lazy-code-on-interaction) lazy code on interaction, [NW-5](patterns-latency.md#nw-5-refetch-of-data-already-shown) refetch of data already shown, [NW-6](patterns-latency.md#nw-6-non-critical-content-on-the-critical-path) non-critical content on the critical path, [NW-7](patterns-latency.md#nw-7-fallback-replaces-content-already-shown) fallback replaces content already shown, [NW-8](patterns-latency.md#nw-8-refetch-after-write) refetch after write, or [EF-4](patterns-effects.md#ef-4-fetch-in-effect-refetch-and-race) refetch. To prove that one request or chunk gates the view, run P-23.
+6. Read source only to confirm the mechanism the timeline shows (the debounce options, the fetch site, the key). Name what the mechanism protects.
+7. Build P-15, pass P-16 (keep the mechanism; change its edge or start point), verify with P-12. The proof is the gap or `waitedMs` across at least 3 interleaved samples, with request counts unchanged or announced.
+
+**NEVER:** explain a wait with render counts, or remove a debounce, cache or batch to remove a delay its edge or start point can fix.
+
+**Done when:** the wait is attributed to one mechanism with timeline and network evidence, or declared a real server cost. Declare a server cost only after the earlier-start option ([NW-1](patterns-latency.md#nw-1-late-start-fetch-on-mount)) and the cache option ([NW-5](patterns-latency.md#nw-5-refetch-of-data-already-shown)) are each rejected with a reason, and report the request's start offset from the action and its duration. Chippy records no per-request time to first byte, so it cannot split the duration into server time and transfer. Read TTFB or `Server-Timing` for that request in the browser's network panel when the split matters.
+
+---
+
+### P-22 · React Compiler Decision (Procedure)
+
+**When:** the user asks whether React Compiler would fix a performance problem, a finding's cost is identity-driven, or the compiler is already on and the page is still slow.
+
+```
+triage line → identity-driven? → compiled? → A/B with 'use no memo' → decide
+```
+
+1. Start from a triage line ([perf-triage](perf-triage.md)). If the complaint is a wait, an Effect chain, a remount or a real input change, the compiler is not the answer ([react-compiler](react-compiler.md#it-is-irrelevant)).
+2. Check the cost is identity-driven: collateral `propChanges[]` with `sameShallow: true` or functions rebuilt every render; triggers with `changedHooks[].sameContent: true` in `avalanche-summary`.
+3. Check whether the components are compiled ([react-compiler](react-compiler.md#is-this-component-compiled)): a `MemoCache` entry in `describe-component`, or compiler-runtime imports in the built source. Partial answers: library hooks, context with real value changes, Effects.
+4. When compiled and still wasteful, look for a bailout or a non-compiled dependency.
+5. Measure with an A/B: compiled vs `'use no memo'` on the suspect component, interleaved, at least 3 samples per arm, `ab-compare` behavior `equivalent`.
+6. Report the decision: adopt the compiler for the affected code, fix at the library boundary, or continue triage.
+
+**Done when:** the compiler is shown to remove the measured waste, or the remaining cost is named as outside what it changes.
+
+---
+
+### P-23 · Critical-Path Test (Procedure)
+
+**When:** P-21 named a request or code chunk as a candidate gate (`lastRequests`, `landedBefore`, `chainedAfter`), and timing alone cannot say whether the view waits for it. Typical cases: non-critical content suspected of holding the main view (NW-6), or one link of a waterfall (NW-2).
+
+```
+name the candidate → arm A unchanged → arm B with the candidate delayed or blocked → avalanche-timeline per arm → compare unlock and settle times
+```
+
+1. Name one candidate by URL and initiator from `avalanche-network`. Test one candidate per pair of arms.
+2. Chippy cannot delay or block a request. The harness sets the condition, as for any [A/B condition](ab-testing.md): it routes that one URL with a fixed added delay (for example 2000 ms) in arm B, or fails it. Arm A runs unchanged. Everything else stays the same in both arms: page, data, viewport, stimulus.
+3. Capture each sample with `ab-capture <clientId> <armDir> [label]`, interleaved a, b, a, b, at least 3 samples per arm. Before each sample, reset to the same starting state and clear the capture (`avalanche-clear <clientId>`, or `reload-with-avalanche` with the user's permission), as in the [A/B workflow](ab-testing.md#workflow).
+4. Read `avalanche-offline <sample> timeline` for each sample. For the boundary in question, compare `perceived.waits[].until` and `waitedMs`, and which commit unlocked it (`unlockedBy`); then `perceived.settledAt` and `screen.vc90`. With no fallback, compare `perceived.idleGaps[]` and when the content appeared: take the `commitId` of its insertion from `avalanche-offline <sample> dom-diff`, then that commit's `t` in `lanes.commits[]` of `avalanche-offline <sample> timeline --format full` (when the lane leaves it out, use the `startTime` from `avalanche-offline <sample> commit-peek <commitId> timing` minus `origin.at`). The dom-diff `t` counts from the first listed commit, so it does not compare across samples.
+5. Decide:
+   - the unlock time or `settledAt` moves by about the added delay: the candidate is on the critical path;
+   - it moves by clearly less than the added delay: the candidate gates the view only together with another request or chunk that overlaps it; name that one from `lastRequests` or `landedBefore` and test it in its own pair of arms;
+   - nothing moves: the candidate is not on the path, so look for the gate elsewhere;
+   - with a blocked request, the boundary stays in `perceived.stillWaiting` or an error boundary shows: the view depends on it, and the failure path is now visible too.
+6. Return to P-21 step 5 with the result. `ab-compare` does not judge waits, so report the per-arm timeline numbers.
+
+**Done when:** each tested candidate is shown to move the unlock or settle time, or shown not to.
 
 ---

@@ -347,6 +347,31 @@ function summarizeRebuiltProps(rendered, maxItems) {
   };
 }
 
+// src/avalanche/idle-gaps.ts
+var MIN_IDLE_GAP_MS = 100;
+var MAX_IDLE_GAPS = 10;
+function idleGaps(spans, from, until, minMs = MIN_IDLE_GAP_MS, max = MAX_IDLE_GAPS, restarts = []) {
+  const gaps = [];
+  let cursor = from;
+  const events = [...spans, ...restarts.filter((t) => t > from).map((t) => ({ start: t, end: t, cause: null }))].sort((a, b) => a.start - b.start || Number(a.cause !== null) - Number(b.cause !== null) || b.end - a.end);
+  for (const span of events) {
+    if (span.start > until) break;
+    if (span.cause === null) {
+      cursor = Math.max(cursor, span.start);
+      continue;
+    }
+    if (span.end <= cursor) continue;
+    if (span.start > cursor && span.start - cursor >= minMs) gaps.push({ from: cursor, until: span.start, ms: span.start - cursor, endedBy: span.cause });
+    cursor = Math.max(cursor, span.end);
+  }
+  return gaps.sort((a, b) => b.ms - a.ms || a.from - b.from).slice(0, max);
+}
+function describeGapEnd(end) {
+  if (end.kind === "request") return `request ${end.label}`;
+  if (end.kind === "commit") return `commit c${end.commitId}`;
+  return `long frame ${end.label}`;
+}
+
 // src/avalanche/screen-stability.ts
 var GRID_COLUMNS = 48;
 function grid(frames) {
@@ -709,6 +734,12 @@ function buildTimeline(report, options = {}) {
   const stillWaiting = ownWaits.filter((s) => s.end === null).map((s) => s.boundary);
   const unlocks = ownWaits.filter((s) => s.end !== null).map((s) => s.end);
   const settledAt = stillWaiting.length === 0 && unlocks.length ? Math.max(...unlocks) : null;
+  const busy = [
+    ...allRequests.map((r) => ({ start: r.start, end: r.end, cause: { kind: "request", label: r.label, requestId: r.id } })),
+    ...perfLane.lane.filter((p) => p.kind === "frame").map((p) => ({ start: p.start, end: p.end, cause: { kind: "frame", label: `+${p.start} ${p.durationMs}ms` } })),
+    ...allCommits.map((c) => ({ start: c.renderStart ?? c.t, end: Math.max(c.t, c.paintAt ?? c.t), cause: { kind: "commit", commitId: c.commitId } }))
+  ];
+  const firstCommit = allCommits.find((c) => c.t >= 0);
   const result = {
     ok: true,
     origin: { at: Math.round(origin * 10) / 10, kind: originInput ? "interaction" : "commit" },
@@ -718,7 +749,9 @@ function buildTimeline(report, options = {}) {
       settledAt,
       stillWaiting,
       waits,
-      updatesAfterSettled: sumUpdates(settledAt === null ? [] : updates.filter((c) => c.t > settledAt && (!nextInput || c.t < nextInput.t)))
+      updatesAfterSettled: sumUpdates(settledAt === null ? [] : updates.filter((c) => c.t > settledAt && (!nextInput || c.t < nextInput.t))),
+      firstResponse: firstCommit ? { t: firstCommit.paintAt ?? firstCommit.t, commitId: firstCommit.commitId, rendered: firstCommit.rendered } : null,
+      idleGaps: idleGaps(busy, 0, rel(windowEnd), options.minIdleMs ?? MIN_IDLE_GAP_MS, void 0, input.map((i) => i.t))
     },
     boundaries: boundaryKeys.map((key) => ({ boundary: key, depth: boundaryInfo.get(key).depth, label: labelByKey.get(key) ?? null, location: boundaryInfo.get(key).location })),
     screen: screenStability(frames),
@@ -929,13 +962,17 @@ function renderMermaid(result) {
 function renderText(result) {
   const p = result.perceived;
   const header = [];
-  if (p.waits.length === 0) header.push("No Suspense fallback was shown in this window.");
-  else {
+  if (p.waits.length === 0) {
+    header.push("No Suspense fallback was shown in this window" + (p.firstResponse ? `; first commit c${p.firstResponse.commitId} at +${p.firstResponse.t} (${p.firstResponse.rendered} rendered).` : "."));
+  } else {
     header.push(p.settledAt !== null ? `Fallbacks first shown at +${p.firstLockAt}, all cleared at +${p.settledAt}; ${p.updatesAfterSettled.commits} updates (${p.updatesAfterSettled.rendered} rendered) ran after that, before the next input.` : `Fallbacks first shown at +${p.firstLockAt}; still waiting at the end: ${Array.from(new Set(p.stillWaiting.map((key) => result.boundaries.find((b) => b.boundary === key)?.label || key))).join(", ")}.`);
     for (const { item: w, count } of grouped(p.waits, waitKey).slice(0, 5)) {
       const last = w.lastRequests[0];
       header.push(`  wait ${w.label || "@" + w.depth}${times(count)} ${w.waitedMs}ms (+${w.from} \u2192 ${w.until === null ? "end" : "+" + w.until}), ${w.updatesDuring.commits} updates (${w.updatesDuring.rendered} rendered) meanwhile` + (last ? `, last request before unlock: ${last.label} (+${last.end}, ${last.gapMs}ms before)` : ""));
     }
+  }
+  for (const gap of p.idleGaps.slice(0, 3)) {
+    header.push(`Idle +${gap.from} \u2192 +${gap.until} (${gap.ms}ms): no request, render, or long frame; ended by ${describeGapEnd(gap.endedBy)}.`);
   }
   const sc = result.screen;
   const painted = result.lanes.commits.some((c) => c.paintAt !== null);
@@ -1146,10 +1183,94 @@ function componentNamesIn(value, renames) {
   return renames.filter((rename) => isRename(rename) && tokens.has(rename.name));
 }
 
+// src/avalanche/request-relations.ts
+var DIRECT_CHAIN_GAP_MS = 15;
+var OPERATION_PARAMS = ["operation", "operationName", "opName"];
+var round4 = (value) => Math.round(value * 10) / 10;
+function endpointKey(url) {
+  try {
+    const parsed = new URL(url, "http://local.invalid");
+    const op = OPERATION_PARAMS.map((name) => parsed.searchParams.get(name)).find(Boolean);
+    return parsed.origin + parsed.pathname + (op ? "?op=" + op : "");
+  } catch (_) {
+    return url.split("?")[0];
+  }
+}
+function relateRequests(requests) {
+  const byStart = requests.slice().sort((a, b) => a.startTime - b.startTime || a.id - b.id);
+  const out = /* @__PURE__ */ new Map();
+  const lastByUrl = /* @__PURE__ */ new Map();
+  const byEndpoint = /* @__PURE__ */ new Map();
+  const landedBeforeCommit = /* @__PURE__ */ new Map();
+  for (const request of byStart) {
+    if (request.landedBefore) {
+      const prior = landedBeforeCommit.get(request.landedBefore.commitId);
+      if (!prior || request.endTime > prior.endTime) landedBeforeCommit.set(request.landedBefore.commitId, request);
+    }
+  }
+  for (const request of byStart) {
+    const urlKey = request.initiatorType + " " + request.url;
+    const previous = lastByUrl.get(urlKey);
+    lastByUrl.set(urlKey, request);
+    let chainedAfter = null;
+    const viaCommit = request.startedAfter?.commitId;
+    const landed = viaCommit === void 0 ? void 0 : landedBeforeCommit.get(viaCommit);
+    if (viaCommit !== void 0 && landed && landed.id !== request.id && landed.endTime <= request.startTime) {
+      chainedAfter = { id: landed.id, viaCommit, gapMs: round4(request.startTime - landed.endTime) };
+    } else {
+      const commitEnd = request.startedAfter ? request.startTime - request.startedAfter.gapMs : -Infinity;
+      let best = null;
+      for (const other of byStart) {
+        if (other.startTime >= request.startTime) break;
+        const gap = request.startTime - other.endTime;
+        if (gap >= 0 && gap <= DIRECT_CHAIN_GAP_MS && other.endTime >= commitEnd && (!best || other.endTime > best.endTime)) best = other;
+      }
+      if (best) chainedAfter = { id: best.id, viaCommit: null, gapMs: round4(request.startTime - best.endTime) };
+    }
+    out.set(request.id, {
+      repeatOf: previous ? { id: previous.id, gapMs: round4(request.startTime - previous.startTime) } : null,
+      landedAfterNewer: null,
+      chainedAfter
+    });
+    const endpoint = endpointKey(request.url) + " " + request.initiatorType;
+    const peers = byEndpoint.get(endpoint) ?? [];
+    for (const older of peers) {
+      if (older.endTime <= request.endTime || older.startTime >= request.startTime) continue;
+      const relation = out.get(older.id);
+      const lateMs = round4(older.endTime - request.endTime);
+      if (!relation.landedAfterNewer || lateMs > relation.landedAfterNewer.lateMs) relation.landedAfterNewer = { id: request.id, lateMs };
+    }
+    peers.push(request);
+    byEndpoint.set(endpoint, peers);
+  }
+  return out;
+}
+function longestChain(requests, relations) {
+  const byId = new Map(requests.map((request) => [request.id, request]));
+  const depth = /* @__PURE__ */ new Map();
+  const chainOf = (id, seen) => {
+    const cached = depth.get(id);
+    if (cached) return cached;
+    const parent = relations.get(id)?.chainedAfter?.id;
+    const chain = parent !== void 0 && byId.has(parent) && !seen.has(parent) ? [...chainOf(parent, new Set(seen).add(id)), id] : [id];
+    depth.set(id, chain);
+    return chain;
+  };
+  let best = [];
+  for (const request of requests) {
+    const chain = chainOf(request.id, /* @__PURE__ */ new Set([request.id]));
+    if (chain.length > best.length) best = chain;
+  }
+  if (best.length < 2) return null;
+  const first = byId.get(best[0]);
+  const last = byId.get(best[best.length - 1]);
+  return { ids: best, ms: round4(last.endTime - first.startTime) };
+}
+
 // src/avalanche/network-signals.ts
 var DEFAULT_NETWORK_WINDOW_MS = 250;
 var NETWORK_SORT_KEYS = ["start", "end", "duration"];
-var round4 = (value) => Math.round(value * 10) / 10;
+var round5 = (value) => Math.round(value * 10) / 10;
 function commitAnchors(commitTimings) {
   const anchors = [];
   for (const [id, timing] of Object.entries(commitTimings ?? {})) {
@@ -1182,7 +1303,7 @@ function linkRequest(request, anchors, windowMs) {
   const { startTime, endTime } = request;
   const afterIndex = firstAtOrAfter(anchors, startTime, "commitEnd") - 1;
   const after = afterIndex >= 0 ? anchors[afterIndex] : null;
-  const startedAfter = after && startTime - after.commitEnd <= windowMs ? { commitId: after.commitId, gapMs: round4(startTime - after.commitEnd) } : null;
+  const startedAfter = after && startTime - after.commitEnd <= windowMs ? { commitId: after.commitId, gapMs: round5(startTime - after.commitEnd) } : null;
   const rendering = anchors[firstAtOrAfter(anchors, startTime, "commitStart")];
   const startedDuringRender = rendering && rendering.renderStartKnown && rendering.renderStart <= startTime ? rendering.commitId : null;
   let landedBefore = null;
@@ -1190,7 +1311,7 @@ function linkRequest(request, anchors, windowMs) {
     const anchor = anchors[i];
     if (anchor.renderStart - endTime > windowMs) break;
     if (anchor.renderStart >= endTime) {
-      landedBefore = { commitId: anchor.commitId, gapMs: round4(anchor.renderStart - endTime) };
+      landedBefore = { commitId: anchor.commitId, gapMs: round5(anchor.renderStart - endTime) };
       break;
     }
   }
@@ -1225,13 +1346,28 @@ function networkView(report, options = {}) {
   const initiators = Array.isArray(options.initiators) ? options.initiators.map((value) => String(value).trim().toLowerCase()).filter(Boolean) : [];
   const top = Number.isFinite(Number(options.top)) && Number(options.top) > 0 ? Math.floor(Number(options.top)) : 20;
   const windowMs = windowOf(options.window);
-  const linked = linkNetworkRequests(report, windowMs).filter((request) => (!pattern || pattern.test(request.url)) && (initiators.length === 0 || initiators.includes(request.initiatorType.toLowerCase())));
+  const all = linkNetworkRequests(report, windowMs);
+  const relations = relateRequests(all);
+  const linked = all.filter((request) => (!pattern || pattern.test(request.url)) && (initiators.length === 0 || initiators.includes(request.initiatorType.toLowerCase()))).map((request) => ({ ...request, ...relations.get(request.id) }));
   const byInitiator = {};
   let landedBeforeCommit = 0;
   let startedAfterCommit = 0;
   let startedDuringRender = 0;
   let longest = null;
+  let repeats = 0;
+  let landedAfterNewer = 0;
+  let chained = 0;
+  const repeatGroups = /* @__PURE__ */ new Map();
   for (const request of linked) {
+    if (request.repeatOf) {
+      repeats += 1;
+      const key = request.initiatorType + " " + request.url;
+      const group = repeatGroups.get(key) ?? { url: request.url, count: 1 };
+      group.count += 1;
+      repeatGroups.set(key, group);
+    }
+    if (request.landedAfterNewer) landedAfterNewer += 1;
+    if (request.chainedAfter) chained += 1;
     byInitiator[request.initiatorType] = (byInitiator[request.initiatorType] || 0) + 1;
     if (request.landedBefore) landedBeforeCommit += 1;
     if (request.startedAfter) startedAfterCommit += 1;
@@ -1252,7 +1388,12 @@ function networkView(report, options = {}) {
         landedBeforeCommit,
         startedAfterCommit,
         startedDuringRender,
-        longest: longest ? { id: longest.id, url: longest.url, duration: longest.duration } : null
+        longest: longest ? { id: longest.id, url: longest.url, duration: longest.duration } : null,
+        repeats,
+        mostRepeated: [...sumByUrl(repeatGroups.values())].sort((a, b) => b[1] - a[1]).slice(0, 5).map(([url, count]) => ({ url, count })),
+        landedAfterNewer,
+        chained,
+        longestChain: longestChain(linked, relations)
       },
       rows: sorted.slice(0, top)
     }
@@ -1279,6 +1420,11 @@ function networkByCommit(report, windowMs) {
     const inFlight = linked.filter((request) => request.startTime <= anchor.commitStart && request.endTime >= anchor.commitStart).length;
     if (inFlight > 0) entry(anchor.commitId).inFlight = inFlight;
   }
+  return out;
+}
+function sumByUrl(groups) {
+  const out = /* @__PURE__ */ new Map();
+  for (const { url, count } of groups) out.set(url, (out.get(url) ?? 0) + count);
   return out;
 }
 
@@ -1738,6 +1884,7 @@ function runAvalanche(command, api, mod, report) {
           fromCommit: command?.fromCommit,
           toCommit: command?.toCommit,
           minRequestMs: command?.minRequestMs,
+          minIdleMs: command?.minIdleMs,
           maxRequests: command?.top,
           exclude: command?.exclude,
           settleMap: command?.format === "full" || command?.format === "map"
@@ -1796,7 +1943,8 @@ function isSavedReport(value) {
   return !!v && typeof v === "object" && !!v.meta && typeof v.commitStats === "object" && v.commitStats !== null;
 }
 function unwrapSavedReport(value) {
-  const candidates = [value, value?.payload, value?.result?.payload, value?.result];
+  const v = value;
+  const candidates = [value, v?.payload, v?.result?.payload, v?.result, v?.report];
   return candidates.find(isSavedReport) ?? null;
 }
 function commitIds(report) {
@@ -1935,6 +2083,7 @@ function analyzeSavedReport(report, command, args) {
         fromCommit: number("fromCommit", 0),
         toCommit: number("toCommit", 1),
         minRequestMs: number("minRequestMs", 2),
+        minIdleMs: number("minIdleMs", 99),
         top: number("top", 99),
         ...typeof exclude === "string" && exclude && { exclude },
         ...typeof args.format === "string" && { format: args.format }
@@ -2495,7 +2644,7 @@ Commands:
   perf          [types] [top] [match] [fromCommit] [toCommit]
                 (--types csv --top N --match regex --fromCommit N --toCommit N)
   timeline      [fromCommit] [toCommit] [minRequestMs] [exclude]
-                (--fromCommit N --toCommit N --minRequestMs ms --top N --exclude regex --format summary|map|full)
+                (--fromCommit N --toCommit N --minRequestMs ms --minIdleMs ms --top N --exclude regex --format summary|map|full)
   dom-diff      [fromCommit] [toCommit] [match] [maxItems]
                 (--fromCommit N --toCommit N --match regex --maxItems N --top N)
   source-search --name <regex> [--top N]
