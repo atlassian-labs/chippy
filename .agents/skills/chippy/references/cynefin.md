@@ -25,7 +25,7 @@ This is not theory. It is a guard against the two recurring Chippy failure modes
 
 - **Cause/effect:** knowable, but requires expertise and analysis. Multiple defensible answers may exist.
 - **Disposition:** sense → analyze → respond. Apply good practice.
-- **Chippy signature:** prop forwarding crosses several hops. A hook tree has 50+ hooks. A commit list shows a clear hot source but the upstream trigger needs walking. The probe data is real and stable; the question is *which* documented chain to follow.
+- **Chippy signature:** prop forwarding crosses several hops. A hook tree has 50+ hooks. A commit list shows a clear hot source but the upstream trigger needs walking. A single re-render cascade whose trigger is known (one click, one commit, one changed prop or hook) is Complicated, not Complex: read it with the documented chain. A wait with one candidate mechanism (a debounce, a late request start) is Complicated too. The probe data is real and stable; the question is *which* documented chain to follow.
 - **Verb:** investigate with documented commands — `probe-owners`, `describe-component`, `avalanche-commit-list` + `commit-peek`, `find-fibers`, source open at exact lines.
 - **Failure mode:** treating Complicated as Complex — running speculative experiments when a careful read of existing data would answer the question.
 
@@ -33,9 +33,9 @@ This is not theory. It is a guard against the two recurring Chippy failure modes
 
 - **Cause/effect:** emergent. No right answer up front. The answer is only visible *after* the system has been perturbed.
 - **Disposition:** probe → sense → respond. Run **safe-to-fail experiments** and watch what emerges.
-- **Chippy signature:** re-render cascades, avalanche storms, store-wave propagation, hook-order surprises, timing-dependent stability, "this only happens after the third click." The system has too many interacting parts to predict from static reading.
+- **Chippy signature:** re-render cascades whose trigger is not yet known or changes between repeats, avalanche storms, store-wave propagation, hook-order surprises, timing-dependent stability, "this only happens after the third click." The system has too many interacting parts to predict from static reading.
 - **Verb:** create the **observable SUT**. Build the smallest tapped white-box test or `eval-page` snippet that exposes the internals. Arm Avalanche, perform the stimulus under an anchor contract, read the emergent signal.
-- **Tap contract, one step at a time.** For no-rush Complex/Complicated work, tap one stable contract seam, observe whether the target signal moves there, then choose the next step. Each step should move, reproduce, or falsify the observed failure before a permanent fix is chosen.
+- **Tap contract, one step at a time.** For no-rush Complex/Complicated work (nothing is on fire, so there is time to learn before fixing), tap one stable contract seam, observe whether the target signal moves there, then choose the next step. Each step should move, reproduce, or falsify the observed failure before a permanent fix is chosen.
 - **Safe-to-fail criteria:** the experiment is bounded (timeout, commit cap), reversible (no source mutation, or HMR-reverted), and instrumented (you can read the result without re-running). Active-stimulus commands (`page-click`, `fiber-invoke`, `stability-nudge`) declare an anchor contract — what they touch, what becomes opaque, what the caller must guarantee.
 - **Confidence:** emergent systems usually return `likely` or `partial`. If certainty is required, run another bounded experiment and compare the same signal.
 

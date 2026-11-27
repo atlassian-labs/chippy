@@ -1,6 +1,8 @@
 # Fixing performance — avalanche-driven workflow
 
-Use a capture to classify render behavior and choose a fix for the three most common avalanche patterns. Investigate one Provider or one source at a time.
+Use a capture to classify render behavior and choose a fix. Investigate one Provider or one source at a time.
+
+This file owns three things: the [protection inventory](#protection-inventory), the [fix ladder](#fix-ladder) and the [report gate](#report-gate). The read order for a complaint lives in [perf-triage](perf-triage.md); the pattern cards live in [patterns-render](patterns-render.md), [patterns-effects](patterns-effects.md) and [patterns-latency](patterns-latency.md); the compiler decision lives in [react-compiler](react-compiler.md).
 
 Lifecycle stage: **commit analysis → attribution → fix-layer decision**. Enter after Avalanche has captured the real load/interaction and you have candidate commits/sources from `avalanche-commit-list` or `avalanche-hot-sources`.
 
@@ -44,8 +46,8 @@ Filter rule for low-hanging fruit: **focus on shallow-equal churn only**. If the
 
 Shallow-equal / identity-only candidates usually look like this:
 
-- `identity changed` on every commit for the same Provider
-- `object → object` with stable semantics and no meaningful field delta
+- the Provider's consumers receive `propChanges[]` with `sameShallow: true`, or their `changedHooks[]` show `sameContent: true`, on every commit
+- a large `rebuiltProps` group in `avalanche-summary` `topCommits[]` for the same value
 - Provider `value={...}` built inline in render
 - memoized wrapper exists, but the payload inside it still changes identity for no product reason
 
@@ -73,9 +75,11 @@ Every component avalanche sees is one of three roles. Never confuse them.
 | **Hotspot** | Appears in `sources` frequently across commits | Renders often — may or may not be a trigger. |
 | **Collateral** | `commit-peek N rendered` entry without `isSelfSource` | Re-rendered with no local change. Downstream blast victim. |
 
-A hotspot is not necessarily a trigger. A collateral is not a problem by itself — its parent is. Fix the trigger, not the collateral.
+A hotspot is not necessarily a trigger. A collateral render is not a problem by itself. Find the trigger first; fix the trigger when it is an unintended change, and contain the collateral when the trigger is a real change and the collateral cost is measured.
 
-> **Confirm hook kind and origin.** Once you have a source and a changed `hookIndex`, classification by primitive (`SyncExternalStore`, `State`, `Memo`, `Effect`, …) and custom-hook owner is the next decision. See [debug-hook](./debug-hook.md). Use it before picking a fix layer; the primitive narrows the remediation table to one row.
+A collateral row is waste only when it could have been skipped: it sits under a `memo` boundary and received only rebuilt props (`propChanges[]` with `sameShallow: true`), or its measured render time matters (about 1 ms or more per commit on a production or profiling build; Chippy measures time per commit, so attribute it with the React DevTools Profiler or an A/B). `rendered[]` does not say whether a component is wrapped in `memo`; confirm that from the owner chain or source.
+
+> **Confirm hook kind and origin.** Once you have a source and a changed `hookIndex`, classification by primitive (`SyncExternalStore`, `State`, `Memo`, `Effect`, …) and custom-hook owner is the next decision. See [debug-hook](./debug-hook.md). Use it before picking a fix; the primitive narrows the remediation table to one row.
 
 ### Cross-reference — per-commit metrics and restart attribution
 
@@ -142,10 +146,10 @@ Rule: a source may be legitimate. The bug can still be that it drags children wi
    - Avalanche clues: large repeated collateral with no local hook change in children.
    - Fiber clues: child subtree does not depend on the changed field, but still renders.
 
-5. **Pick the highest fix that removes the most waste**
+5. **Pick the lowest rung that removes the measured friction and keeps every protection**
    - If the source should not update, fix above.
    - If the source must update but children should not, fix boundary or children.
-   - Prefer the highest stable boundary that stops propagation cleanly.
+   - Among fixes that work, choose the lowest rung of the [fix ladder](#fix-ladder) and the boundary that stops propagation with the fewest changed lines.
 
 ### What to inspect above vs boundary vs below
 
@@ -278,94 +282,102 @@ Fix belongs above X or at the Y→X boundary, not inside X yet.
    raw work: component renders=<hooks+classes>, DOM=<domWorkCount>, mounts=<componentMountWorkCount>
    value/source path: <hook/prop/context/store> from <Owner/Parent/Provider> @ <file>:<line>
    cause: <one sentence using the evidence-backed category>
-   fix layer: above source | at boundary | below source | no fix yet
+   pattern: <card id, e.g. RW-2 or EF-1> (Confirmed | Needs evidence | Observation | Rejected) | unclassified
+   protections: <what the code here provides that a fix must keep>
+   fix: <lowest fix-ladder rung and the knob> | no fix yet
    confidence: confirmed | likely | partial
    next gap: <unknown field, or "none">
 ```
 
 ---
 
-## Pattern 1 — Context Provider emitting new value identity with equal data
+## Patterns
 
-**Signal:** `contextChanges[]` shows high `count` for one Provider. `changeSummary` says `"fields: ..."` or `"identity changed"` but values look the same.
+The pattern catalog lives in its own files. Each card says how to prove the problem, what the current code protects, the smallest fix, when the fix is wrong, and how to prove the fix.
 
-**Why it happens:** The Provider's parent re-renders and constructs a new object/array literal inline:
-```jsx
-// Bad — new object every render
-<MyContext.Provider value={{ user, settings }}>
-```
-
-**Fix: `useMemo` the context value.**
-```jsx
-const ctxValue = useMemo(() => ({ user, settings }), [user, settings]);
-<MyContext.Provider value={ctxValue}>
-```
-
-**How to find the Provider:**
-- `contextChanges[N].source.fileName` + `lineNumber` — open that file at that line.
-- Look at the JSX returned by that component. Find the `<X.Provider value={...}>` call.
-- If `value` is an inline literal, that is the bug.
-
-**Verify:** Re-arm, reload, re-read `contextChanges[]`. Count for that Provider should drop to 0 or 1 (initial mount only).
+| Family | Patterns | File |
+|---|---|---|
+| Render waste, expensive render, remount | RW-1 unstable identity to a memo child, RW-2 children as JSX, RW-3 context fan-out, RW-4 state held too high, RW-5 list append, RW-7 store selector, EX-1 expensive render, RM-1 key remount | [patterns-render](patterns-render.md) |
+| Effects | EF-1 effect re-fires from identity, EF-2 derived state via effect, EF-3 effect chains, EF-4 fetch in effect | [patterns-effects](patterns-effects.md) |
+| Waits and long tasks | LT-1 trailing-only debounce, LT-2 stacked debouncers, LT-3 apply vs persist, LT-4 long task, NW-1 late start, NW-2 waterfall, NW-3 stale response race | [patterns-latency](patterns-latency.md) |
+| Compiler adoption | When the compiler is the full, partial or irrelevant answer | [react-compiler](react-compiler.md) |
 
 ---
 
-## Pattern 2 — setState cascade (source → collateral blast)
+## Protection inventory
 
-**Signal:** One component appears in `sources` across many commits. Its `trashers` in `commit-peek N sources` show state flipping (often back and forth). Many `commit-peek N rendered` entries without `isSelfSource` sit below it (`parentSourceId` / `ownerSourceId`).
+Before changing a debounce, a memo, an Effect, a key, a cache, a selector or a loading boundary, write down what it protects. Typical protections: correctness of the final state, write ordering, save durability, server load, burst coalescing, focus and scroll, animation, accessibility, cleanup under StrictMode, and shared callers of the same mechanism.
 
-**Why it happens:** A `setState` fires on every render or in an effect with unstable deps, causing the component to re-render, which propagates to all its children.
+Then choose the smallest knob that removes the friction and keeps every protection: a leading edge instead of removing a debounce, `flush()` instead of `cancel()` for a pending save, a stable callback instead of deleting a dependency, a memoized provider value instead of a new store. Restructure a mechanism only when its protections are re-measured after the change. Never bypass a shared mechanism for one caller; change it at its owner or propose the change to the owner.
 
-**Sub-pattern A — unstable JSX passed as prop.**
-Parent re-renders → creates new JSX node → child sees new `children` prop → child re-renders.
-```jsx
-// Bad — new JSX identity every render
-<Child items={data.map(d => <Row key={d.id} {...d} />)} />
-```
-Fix: extract to a memoized variable or component:
-```jsx
-const rows = useMemo(() => data.map(d => <Row key={d.id} {...d} />), [data]);
-<Child items={rows} />
-```
-
-**Sub-pattern B — effect with missing or unstable deps.**
-```jsx
-// Bad — runs every render because `config` is new each render
-useEffect(() => { setState(derive(config)); }, [config]);
-```
-Fix: stabilize the dep (memoize `config`) or derive inside render without an effect.
-
-**How to find the source:**
-- Open `sources[N].source.fileName` + `lineNumber`.
-- Read `trashers` in `commit-peek N sources` — which hook index, what changed.
-- Match `hookIndex` to the component's hook chain (use `probe-hooks` if needed).
-- Trace why that hook fires: look at its deps or the dispatch call site.
+Each protection becomes a protected scenario: an `ab-capture` arm or a written manual step that must behave the same after the fix ([ab-testing](ab-testing.md#verifying-a-fix)).
 
 ---
 
-## Pattern 3 — Collateral blast with no data dependency (missing memo boundary)
+## Fix ladder
 
-**Signal:** A subtree appears as `commit-peek N rendered` entries without `isSelfSource` on every commit. The components have no local hook changes and are not data-dependent on what changed. The nearest common ancestor (`P3`) is the blast source.
+Climb from the top. Stop at the first rung that removes the measured friction and keeps every protection.
 
-**Why it happens:** A parent re-renders (for a legitimate reason) and pulls its entire subtree with it — even parts that don't care about the change. No `memo` boundary exists to stop the propagation.
+**Entry criteria.** The problem is Confirmed. Needs evidence goes back to Prove with the named capture; an Observation carries no fix. The protection inventory exists. The protected scenarios are written down.
 
-**Fix: `React.memo` on the subtree root.**
-```jsx
-// Wrap the expensive, stable subtree
-const StablePanel = React.memo(function StablePanel({ config }) {
-  return <ExpensiveTree config={config} />;
-});
-```
+| Rung | Fix | Use when | Wrong when |
+|---|---|---|---|
+| 0 | Measure in the right build | Always first: development builds, StrictMode double rendering and an attached profiler inflate cost | — (if the cost disappears in a production or profiling build, report an Observation) |
+| 1 | Remove work that should not exist: derive in render, move event logic into the handler, reset with `key` ([patterns-effects](patterns-effects.md#removing-an-effect)) | The Effect does not synchronize with anything outside React | The Effect does synchronize with a subscription, the DOM or the network |
+| 2 | Stabilize what should be stable, in the [dependency order](patterns-effects.md#fixing-effect-dependencies) | Identity changes, content does not (`sameShallow: true`, `sameContent: true`) | The value really changes, or the Effect must re-run on it |
+| 3 | Adjust the edge of a timing mechanism: leading edge for discrete actions, `flush()` on Enter, blur, submit, unmount and `pagehide`, `cancel()` only for reads, one coalescing layer ([patterns-latency](patterns-latency.md#timing-mechanisms-keep-them-change-the-edge)) | A timer-sized idle gap in `avalanche-timeline` | The leading edge would double requests the server cannot absorb (keep trailing-only and flush the discrete action; `maxWait` caps the delay but does not reduce calls) |
+| 4 | Start earlier or in parallel: start on intent, hoist queries, drop stale responses | Late start, waterfall or out-of-order rows in `avalanche-network` | Prefetch multiplies load for unlikely intents; B really needs A's result |
+| 5 | Contain collateral with structure: move state down, lift content up, split a context or use store selectors, add a `memo` boundary with stable props | The trigger is a real change and the collateral cost is measured | The collateral is cheap, or the boundary's props are always new |
+| 6 | Adopt or extend React Compiler ([react-compiler](react-compiler.md)) | Identity-driven waste across many components, or a compiled component that bails out | The cost is network, timing, Effects or a real value change |
+| 7 | Reduce or defer render cost: `useDeferredValue` with a memoized slow child, `useTransition`, virtualization, yielding in long handlers | EX-1 or LT-4 with measured render time | The work must finish before the next paint (`useTransition` cannot wrap a controlled input's setter; use `useDeferredValue` there); virtualization breaks find-in-page, accessibility or scroll restoration the product needs |
+| 8 | Restructure the mechanism: a new library, data flow or caching design | Rungs 1-7 cannot remove the friction, and every protection is re-measured after the change | A shared mechanism would be bypassed for one caller |
 
-**Rules for memo boundaries:**
-- Wrap at the highest stable point in the subtree, not deep inside it.
-- Props passed to the memoized component must themselves be stable (primitives or memoized objects). Passing an inline `{}` or `[]` defeats the memo.
-- If the memoized component receives callbacks, wrap those in `useCallback`.
+**Exit criteria.**
+- `ab-compare`: the target timing is `better` with at least 3 samples per arm, captured interleaved; behavior is `equivalent` on the protected scenarios, or `behavior-changed` only in keys announced before the capture. For waits, compare `avalanche-timeline` per arm, because `ab-compare` does not judge waits.
+- The triage line, re-read on the after-capture, no longer shows the pattern's signature.
+- No new Effect re-runs, remounts or console errors.
 
-**How to find where to place the boundary:**
-- Place P1 on a collateral component. Run `probe-owners` — walk the owner chain upward.
-- The memo boundary goes on the highest owner that does **not** need to re-render when the trigger fires.
-- Verify: after adding `memo`, re-capture. The component should disappear from the collateral `rendered` entries.
+---
+
+## Report gate
+
+A performance report or fix proposal may be sent only when all of these hold:
+
+1. **Complaint and capture named.** The user action, the symptom, the capture, and the build type (development, profiling, production). Development-only costs are labeled.
+2. **Waited vs worked stated** with the deciding numbers: the largest wait and what covered it (`perceived.waits[].waitedMs` when a fallback was shown, otherwise the idle gap from the input to the first commit or request in the timeline text or lanes); `worstInteractionMs` and its dominant phase (`inputDelay`, `processing`, `presentationDelay`); `totalBlockingMs`.
+3. **Triage line.** `trigger -> mechanism -> collateral -> cost`, with the trigger taken from `isSelfSource` rows, `changedHooks` or `latestAction` and the collateral from `rendered[]`. Hot components are not presented as causes.
+4. **Pattern and outcome.** A pattern id from the catalog, or "unclassified", and an outcome: Confirmed, Needs evidence, Observation or Rejected. Observations carry no fix.
+5. **Protection inventory** for any proposed change, and how the fix keeps each protection.
+6. **Smallest knob.** The proposed rung, and why a lower rung does not remove the friction.
+7. **Proof plan or proof.** For a proposal: the `ab-capture` arms, the protected scenarios, and the intended behavior changes announced in advance. For a verified fix: the `ab-compare` verdict and the timing change with at least 3 interleaved samples per arm, naming any `drifting` or `not-judged` timing.
+8. **Contested advice and gaps marked.** Version-dependent advice names the version; evidence Chippy cannot provide is named as a gap, not inferred.
+9. **No product edits unless asked.** The report proposes; the user decides.
+
+---
+
+## Worked examples
+
+These two examples show the role reading behind the cards. The cards in the pattern files are the reference for fixes.
+
+### Example — one source re-rendering a subtree on every commit
+
+**Signal:** one component appears in `sources` across many commits, and many `rendered[]` rows without `isSelfSource` sit below it (`parentSourceId`, `ownerSourceId`).
+
+**Read it:**
+- `avalanche-summary` `topCommits[].sources[].changedHooks[]` names the changed hook `index` and whether `sameContent` is true. In `full` or `amplifiers` mode, `commit-peek <clientId> <commitId> sources` adds `trashers[]` with `prevValue` and `currentValue`.
+- Map the hook index to its call with `avalanche-debug-hook` ([debug-hook](debug-hook.md)) or `probe-hooks`, then read why that hook changes: its dependencies, or the call site of its setter.
+- `sameContent: true` means equal content under a new identity: [RW-1](patterns-render.md#rw-1-unstable-identity-reaching-a-memo-child), [RW-7](patterns-render.md#rw-7-store-selector-returns-a-new-object), or, when the setter runs in an Effect, [EF-2](patterns-effects.md#ef-2-derived-state-via-effect).
+- `sameContent: false` means a real change. Leave the trigger and decide whether the collateral is worth containing.
+
+### Example — a subtree with no data dependency renders with its parent
+
+**Signal:** a subtree appears as `rendered[]` rows without `isSelfSource` on every commit, and its components do not read what changed. Their nearest common ancestor is a candidate trigger; confirm it with its `isSelfSource` row before naming it.
+
+**Read it:**
+- Is the collateral measured as costly? If not, report an Observation.
+- Is there a `memo` boundary? If one exists, its `propChanges[]` say which prop defeats it ([RW-1](patterns-render.md#rw-1-unstable-identity-reaching-a-memo-child), [RW-2](patterns-render.md#rw-2-children-passed-as-jsx-defeat-memo)). If none exists, consider moving state down or lifting content up ([RW-4](patterns-render.md#rw-4-state-held-too-high)) before adding `memo`.
+- A new `memo` boundary only helps when every prop it receives is stable. Place it on the highest owner that does not need to re-render when the trigger fires (walk `probe-owners` upward from a collateral component).
+- Verify: re-capture the same action; the subtree disappears from `rendered[]`.
 
 ---
 
@@ -459,10 +471,10 @@ Expected verification: later commits lose <collateral/context/restart/repeat> si
 
 400 context updates is a list of independent problems. Each fix is:
 
-1. Pick the highest-count Provider from `contextChanges` grouping.
-2. Classify (Pattern 1, 2, or 3).
+1. Rank commits with `avalanche-commit-list <clientId> 15 contextUpdates`, then find the provider with `eval-page <clientId> find-context-providers` and size it with `count-context-consumers` ([P-08](procedures.md)).
+2. Classify it with a pattern card (usually [RW-3](patterns-render.md#rw-3-context-fan-out)).
 3. Fix exactly that one Provider or source. No bundling.
-4. Re-arm, reload, verify count drops.
+4. Repeat the same capture and verify that its consumers leave `rendered[]`.
 5. PR. Then next.
 
 This keeps diffs reviewable and regressions attributable.
@@ -471,14 +483,13 @@ This keeps diffs reviewable and regressions attributable.
 
 ## Distinguishing shallow-equal churn from real data movement
 
-Look at `changeSummary` and `prevValue` / `currValue` in `contextChanges[]`:
+Chippy has no provider value diff. Read the identity question from the fields it does emit:
 
 | Pattern | Signal | Verdict |
 |---|---|---|
-| Value changes on every commit, content identical | `"identity changed"` or `object → object` with stable semantics | Pure churn — fix with memoization or cached object identity |
-| Value changes in registration-style fields | `"fields: placements"`, `"fields: targets"`, similar append/replace transport fields | Real data movement — skip for low-hanging pass |
-| Value changes in content fields | `"fields: avatarImage"`, text, IDs, flags, payload data | Real data movement — skip unless proven shallow-equal after inspection |
-| Value changes once, then stable | Single entry in `contextChanges` | Mount-time init — probably fine |
-| Value changes on every keystroke/click | Many entries, content actually changes | Intentional reactivity — needs deeper refactor |
+| New identity, equal content | `changedHooks[].sameContent: true` in `avalanche-summary`; `propChanges[]` with `sameShallow: true`; a large `rebuiltProps` group with `sameShallow: true` | Identity churn: stabilize the value ([fix ladder](#fix-ladder) rung 2) |
+| Real change in a few keys | `propChanges[].changedKeys` lists content keys (ids, text, flags, payload) | Real data movement: contain the collateral or accept it |
+| Changes once, then stable | Only the mount commit shows the change | Mount-time initialization: usually fine |
+| Changes on every keystroke or click with real content | `changedKeys` differ each commit | Intended reactivity: needs a structural fix (rung 5), not memoization |
 
-Rule: during the first perf pass, take only the shallow-equal / identity-only rows. Defer registration and transport churn to a separate refactor track.
+Rule: in the first perf pass, take only the identity-only rows. Defer real data movement to a separate change with its own protection inventory.

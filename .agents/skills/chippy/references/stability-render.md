@@ -50,7 +50,7 @@ What this means in practice:
 
 - **Any page connected through the extension, module import, or Storybook addon is a valid target.** The helper connection is the prerequisite, not a particular automation tool.
 - **No Playwright action is required.** The snippet itself is the stimulus.
-- **Reproducibility comes from the snippet, not the runner.** Same `--testId` + same React tree → same commit shape, every time. That is why the procedure is reliable for verification.
+- **Reproducibility comes from the snippet, not the runner.** Same `--testId` + same React tree → usually the same commit shape. Timers, network responses, and time-sliced renders can still vary it, so confirm the shape with two repeats before treating a difference as real.
 - **The snippet is a normal Chippy snippet.** It lives at `./snippets/stability-nudge.js` and obeys the standard `eval-page` `ctx` contract (`ctx.args`, `ctx.log`). Nothing about it is special-cased in the helper.
 - **Playwright is optional, not required.** If Playwright is driving the page, it can navigate before the agent runs the procedure. Once the page is connected, Playwright is no longer in the loop. The nudge itself never goes through Playwright.
 
@@ -216,7 +216,7 @@ The snippet uses one mechanism: the React DevTools renderer's **`scheduleUpdate(
 
 ### Capability vs procedure
 
-The mechanism is a **bundle capability**, not snippet logic. It ships in `avalanche.iife.js` (source `src/chippy-bridge/fiber-schedule-update.ts`) and is exposed two ways:
+The mechanism is a **bundle capability**, not snippet logic. It ships in `avalanche.iife.js` and is exposed two ways:
 
 - **Bridge command** — `fiber-schedule-update <clientId> <fiberId> [--ownerIndex N]`. Use this directly when you already have a `fiberId` from `find-fibers` and just want one re-render. Returns `{ ok, scheduled, fiberName, source, ownerIndex }`.
 - **`stability-nudge` snippet** — the **procedure** layer. It resolves a `--probeId` or `--testId` to a fiber (DOM context the bridge does not have), climbs `--ownerIndex`, then delegates the re-render to the same capability.
@@ -241,7 +241,7 @@ scheduleUpdate = function (fiber) {
 Why this is the only strategy:
 
 - **Universal.** Works on any composite fiber — function components (including **hookless** ones), `memo`, `forwardRef`, and class components alike. No `useState`/`useReducer` required.
-- **Zero pollution.** It marks a lane and schedules; it does **not** mutate any hook value or prop. There is no "nudge anchor" to keep clean, no opaque slot left behind.
+- **No state mutation.** It marks a lane and schedules; it does **not** mutate any hook value or prop. There is no "nudge anchor" to keep clean, no opaque slot left behind. The nudge still adds its own commit, and any Effects that commit runs are part of the stimulus.
 - **React-sanctioned.** It is the mechanism React ships for DevTools, not a hand-rolled lane write.
 
 ### Requirements
@@ -286,7 +286,7 @@ Returns:
 ```json
 {
   "ok": true,
-  "fiberName": "StabilityChain",
+  "fiberName": "Parent",
   "source": { "fileName": "...", "lineNumber": 88 },
   "ownerIndex": 0,
   "label": "parent-nudge"
@@ -323,8 +323,6 @@ Never report `clean` without a render-factor number. Never report `trasher` with
 
 ## Worked example — `memo → useCallback → useEffect` chain
 
-Fixture pattern: `StabilityChain` demonstrates the unfixed identity chain. Fixed companion pattern: `StabilityChainFixed` demonstrates the corrected chain.
-
 The chain Chippy is supposed to recognise:
 
 ```
@@ -340,7 +338,7 @@ Three separate things go wrong, but they are NOT three independent bugs. They ar
 
 ### What the capture should show
 
-Nudge target: `Parent` (`StabilityChain`). One nudge.
+Nudge target: `Parent`. One nudge, in `full` mode (only `full` and `amplifiers` record `trashers` and `trasherCounts`).
 
 | Signal | Expected reading |
 |---|---|
@@ -361,49 +359,20 @@ Chippy reads the chain in **damage order**, not in source order:
 
 This is **top → bottom in the codebase** (Parent at the top of the file owns the root cause) but **bottom → top in the avalanche reading** (the symptom shows up at the leaf, the cause is at the parent). Do not reverse the order.
 
-### Fix order — effect first, then memo/callback
+### Fixing the chain
 
 These are remediation candidates for the worked pattern. A source edit still requires user intent plus the P-15 proof packet and P-16 Apply gate; verify any authorized edit with the same nudge.
 
-Prioritize the effect retrigger as the correctness issue. Memo/callback fixes come afterward when they are still needed to prevent the wider avalanche.
+The chain is [EF-1](patterns-effects.md#ef-1-effect-re-fires-from-identity). Start at the Effect, because the re-attach is the correctness problem, and fix it with React's [dependency order](patterns-effects.md#fixing-effect-dependencies): change the code so the unstable value is no longer a dependency, and never suppress the linter. Every step keeps the dependency list honest: the Effect lists everything it reads.
 
-Why this order matters:
+1. **Ask whether the Effect should exist.** If its body only sets state derived from props, compute the value in render instead ([EF-2](patterns-effects.md#ef-2-derived-state-via-effect)) and the chain disappears.
+2. **Remove the object from the chain.** `handler` reads only `opts.mode`. Pass `mode` from `Parent` instead of `opts`, or read `opts.mode` into a local and list that primitive in the `useCallback` dependencies. The callback is now stable while `mode` is unchanged, so the Effect stops re-firing without touching its own list.
+3. **When the Effect must not re-subscribe on handler changes at all,** read the handler through `useEffectEvent` (React 19.2) or a ref to the latest callback, and keep the subscription keyed on what it subscribes to.
+4. **Only if the object must stay,** memoize it upstream: `useMemo(() => ({ mode }), [mode])`.
 
-- Fixing the memo/callback first hides the effect bug. The effect stops re-firing because its deps stop flipping — but if a future change reintroduces an unstable dep, the effect breaks again silently.
-- Fixing the effect first forces the question "why is this effect treating an unstable identity as semantic input?" — which usually reveals the effect was wrong about what its real dependency is (`opts.mode`, not `opts`).
+Changing `useEffect` to `useLayoutEffect` changes when the Effect runs, not how often; it is not a fix for this chain. Narrowing a dependency to one primitive while the Effect or callback still reads other fields is a stale-value bug.
 
-Three iterative steps. Each is verified with one stability-render capture before moving on.
-
-#### Step 1 — stop the effect from re-firing (correctness fix)
-
-The effect attaches a subscription and dispatches state. It depends on `handler`, but what it actually cares about is `opts.mode` — a primitive. The fix is one of:
-
-- Narrow the dep to the primitive: depend on `opts.mode`, not on `handler`.
-- Read the current `handler` via a ref inside the effect, so the effect attaches once and the body always uses the latest closure.
-- If the subscription is the only side effect, move attach/detach to a `useLayoutEffect` keyed on the stable subscription target rather than on a callback identity.
-
-**Pointer for the agent:**
-- Location: the `Leaf` component's `useEffect(..., [handler])`.
-- Question to answer before editing: *what does this effect semantically depend on — the function identity, or the data the function reads?*
-- After the fix, re-run stability-render. Expected: `commitCount` drops to 1; `attach/detach` no longer grows per nudge.
-
-#### Step 2 — stabilise the callback (avalanche prevention)
-
-After Step 1 the effect is fine, but the callback still flips identity every render. That is harmless on its own — but the moment a memoised child uses it as a prop, the cascade comes back. Fix this *before* memoising any children, not *after*.
-
-**Pointer for the agent:**
-- Location: `Leaf`'s `useCallback(handler, [opts])`.
-- Same dep narrowing logic as Step 1: depend on `opts.mode`, not on `opts`. The callback's body only uses `opts.mode`, so the wider dep is overcautious and breaks memoisation.
-- After the fix, re-run stability-render. Expected: callback identity stable across nudges; `Leaf`'s render count for the nudge stays at 1.
-
-#### Step 3 — stabilise the upstream object (defence in depth)
-
-`Parent` builds `opts = { mode }` inline. Step 1 + Step 2 made downstream consumers immune to that, but the next consumer added to this subtree will get the same trap. Wrap the object once.
-
-**Pointer for the agent:**
-- Location: the parent's `const opts = { mode };`.
-- Wrap with `useMemo(() => ({ mode }), [mode])` — or, if `mode` is the only field, pass `mode` directly and drop the object.
-- After the fix, re-run stability-render. Expected: same numbers as after Step 2. This step is *prevention*, not *repair* — measurable improvement is "no regression when a new memoised consumer is added".
+After each step, re-run stability-render with the same nudge. Expected: `commitCount` drops to 1; `attach/detach` no longer grows per nudge; `Leaf`'s render count for the nudge stays at 1.
 
 ### What "deep explanation" means here
 
@@ -418,14 +387,15 @@ If a pointer omits any of those, it is not a deep enough explanation. State the 
 ### What this section is NOT
 
 - Not a fix. Chippy proposes pointers; the agent edits.
-- Not a rewrite. Three small, independent diffs in one file.
-- Not a "boil the ocean" memoisation pass. Only the three identities on the chain that the capture proved are involved.
+- Not a rewrite. Usually one small diff at the step that breaks the chain.
+- Not a "boil the ocean" memoisation pass. Touch only the identities on the chain that the capture proved are involved.
 
 ---
 
 ## Cross-links
 
 - [avalanche-detector](./avalanche-detector.md) — capture surface, commit join, restart semantics.
-- [fixing-performance](./fixing-performance.md) — where the fix lives (above / boundary / below).
+- [fixing-performance](./fixing-performance.md) — protection inventory, fix ladder, report gate.
+- [patterns-effects](./patterns-effects.md) — Effect removal and the dependency order.
 - [browser-runtime-api](./browser-runtime-api.md) — `window.__CHIPPY.resolveProbes`, `window.__CHIPPY.inspectReact`.
 - [hooks-inspection](./hooks-inspection.md) — hook walk shape, used to read hook state after a nudge.

@@ -351,7 +351,7 @@ The **Sources | Full** toggle beside the pill sets the detection mode. `sources`
 chippy.sh avalanche-offline .chippy-captures/raf-1846.json summary
 chippy.sh avalanche-offline .chippy-captures/raf-1846.json commit-list 10 collateral
 chippy.sh avalanche-offline .chippy-captures/raf-1846.json commit-peek 42 stats,sources,rendered 20
-chippy.sh avalanche-offline .chippy-captures/raf-1846.json source-search --name 'Issue(Row|List)'
+chippy.sh avalanche-offline .chippy-captures/raf-1846.json source-search --name 'Todo(Row|List)'
 ```
 Use saved captures without a live page. `commit-list`, `commit-peek`, `hot-sources`, `describe-action`, `network`, `perf`, `timeline`, and `dom-diff` run the same code as the live commands and return the same shapes, so sort keys and include values match the live tables above (`unmounts` is live-only; a saved capture always returns it empty).
 
@@ -572,8 +572,9 @@ Saves made before this format use the older expanded entries: `prev`/`current` a
 Reading rules:
 - `trasherCounts.effects > 0` — at least one `useEffect` re-ran from changed deps.
 - `trasherCounts.callbacks > 0` — at least one `useCallback` produced a new function identity.
-- `trasherCounts.memos > 0` — at least one `useMemo` recomputed.
-- No `trasherCounts` in `renderedByCommit` while the component still appears in `sourcesByCommit` → render trigger is *not* amplifier-driven; look at `propChanges` for ref-changed props from above, or treat as self-update (`isSelfSource: true`).
+- `trasherCounts.memos > 0` — at least one `useMemo` recomputed. A recompute is waste only when its result has the same content as before; one that returns a new value for new inputs is the memo doing its job. Check whether the result's identity or its value changed before calling it churn.
+- No `trasherCounts` in `renderedByCommit` while the component still appears in `sourcesByCommit` → no amplifier was *counted*. Absence proves nothing in `sources` or `stats` mode, where the field is never filled. In `full` mode the detector's default `effectThrashMode` is `non-primitive`: an Effect re-run counts only when an object, array, or function dependency changed, so a re-run driven by a primitive dependency is not counted. Look at `propChanges` for ref-changed props from above, or treat as self-update (`isSelfSource: true`).
+- A `ref-changed` prop with `sameShallow: true` costs a render only when the child is a memo boundary (`memo`, `PureComponent`, or a compiled component) or its render is measurably expensive. `rendered[]` does not say whether the child is memoized; confirm from the owner chain or source before calling the prop a leak.
 - Same `sourceId` appears in `renderedByCommit` across many commits with persistent non-zero `trasherCounts` → confirmed trasher; trace the hook with `avalanche-debug-hook <clientId> <sourceId> <hookIndex>`.
 
 ### Reading `propChanges`
@@ -864,6 +865,8 @@ After a change:
 - fewer repeated commits from same source
 - fewer amplifiers or context waves
 - hot source drops or remains but with lower blast radius
+
+One before and one after capture shows direction, not proof. Confirm with `ab-compare` over at least 3 interleaved samples per arm, plus one protected scenario for each protection the old code had, and announce intended behavior changes first ([verifying a fix](ab-testing.md#verifying-a-fix)).
 
 ## Troubleshooting
 
