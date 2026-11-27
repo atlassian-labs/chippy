@@ -13,10 +13,13 @@
  *   landedBefore         the first commit whose render started after the
  *                        response finished: a state update from the response
  *                        may have scheduled it.
- * Every link is temporal proximity, not proof of cause.
+ * Every link is temporal proximity, not proof of cause. The `network` view also
+ * adds request-to-request relations (repeats, out-of-order responses, chains);
+ * see `request-relations.ts`.
  */
 
 import type { NetworkRequest } from './network-capture';
+import { longestChain, relateRequests } from './request-relations';
 
 export const DEFAULT_NETWORK_WINDOW_MS = 250;
 export const NETWORK_SORT_KEYS = ['start', 'end', 'duration'] as const;
@@ -163,16 +166,34 @@ export function networkView(report: ReportLike, options: NetworkViewOptions = {}
   const top = Number.isFinite(Number(options.top)) && Number(options.top) > 0 ? Math.floor(Number(options.top)) : 20;
   const windowMs = windowOf(options.window);
 
-  const linked = linkNetworkRequests(report, windowMs).filter((request) =>
+  // Relations are found over every request, so a chain still names a request the filter hides.
+  const all = linkNetworkRequests(report, windowMs);
+  const relations = relateRequests(all);
+  const linked = all.filter((request) =>
     (!pattern || pattern.test(request.url)) &&
-    (initiators.length === 0 || initiators.includes(request.initiatorType.toLowerCase())));
+    (initiators.length === 0 || initiators.includes(request.initiatorType.toLowerCase())))
+    .map((request) => ({ ...request, ...relations.get(request.id)! }));
 
   const byInitiator: Record<string, number> = {};
   let landedBeforeCommit = 0;
   let startedAfterCommit = 0;
   let startedDuringRender = 0;
   let longest: LinkedRequest | null = null;
+  let repeats = 0;
+  let landedAfterNewer = 0;
+  let chained = 0;
+  // Counts per initiator and URL (the repeatOf key), summed per URL for the report.
+  const repeatGroups = new Map<string, { url: string; count: number }>();
   for (const request of linked) {
+    if (request.repeatOf) {
+      repeats += 1;
+      const key = request.initiatorType + ' ' + request.url;
+      const group = repeatGroups.get(key) ?? { url: request.url, count: 1 };
+      group.count += 1;
+      repeatGroups.set(key, group);
+    }
+    if (request.landedAfterNewer) landedAfterNewer += 1;
+    if (request.chainedAfter) chained += 1;
     byInitiator[request.initiatorType] = (byInitiator[request.initiatorType] || 0) + 1;
     if (request.landedBefore) landedBeforeCommit += 1;
     if (request.startedAfter) startedAfterCommit += 1;
@@ -197,6 +218,11 @@ export function networkView(report: ReportLike, options: NetworkViewOptions = {}
         startedAfterCommit,
         startedDuringRender,
         longest: longest ? { id: longest.id, url: longest.url, duration: longest.duration } : null,
+        repeats,
+        mostRepeated: [...sumByUrl(repeatGroups.values())].sort((a, b) => b[1] - a[1]).slice(0, 5).map(([url, count]) => ({ url, count })),
+        landedAfterNewer,
+        chained,
+        longestChain: longestChain(linked, relations),
       },
       rows: sorted.slice(0, top),
     },
@@ -236,5 +262,11 @@ export function networkByCommit(report: ReportLike, windowMs?: unknown): Map<num
     const inFlight = linked.filter((request) => request.startTime <= anchor.commitStart && request.endTime >= anchor.commitStart).length;
     if (inFlight > 0) entry(anchor.commitId).inFlight = inFlight;
   }
+  return out;
+}
+
+function sumByUrl(groups: Iterable<{ url: string; count: number }>): Map<string, number> {
+  const out = new Map<string, number>();
+  for (const { url, count } of groups) out.set(url, (out.get(url) ?? 0) + count);
   return out;
 }

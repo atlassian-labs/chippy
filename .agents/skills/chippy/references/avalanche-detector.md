@@ -236,7 +236,7 @@ Sort keys: `start` and `end` ascending, `duration` descending. Any other key ret
 Output: `payload: {available, capture, windowMs, by, total, summary, rows}`.
 - `available` is `false` when the report has no network data (an export from an earlier release).
 - `capture` is `meta.network` (see [Report shape](#report-shape)).
-- `summary`: `byInitiator` counts, `landedBeforeCommit`, `startedAfterCommit`, `startedDuringRender`, and `longest` (`{id, url, duration}`), all over the filtered requests.
+- `summary`: `byInitiator` counts, `landedBeforeCommit`, `startedAfterCommit`, `startedDuringRender`, `longest` (`{id, url, duration}`), `repeats`, `mostRepeated` (up to 5 `{url, count}`), `landedAfterNewer`, `chained`, and `longestChain` (`{ids, ms}` or null), all over the filtered requests.
 - `rows[]`: `id`, `url` (cut to 300 characters), `initiatorType`, `startTime`, `endTime`, `duration`, `status` (null when the browser hides it), `cached` (true for a cache hit, false for a network transfer, null when cross-origin timing hides it), `startedBeforeCapture`, and the links below.
 
 Links, each bounded by the window:
@@ -244,6 +244,13 @@ Links, each bounded by the window:
 - `startedDuringRender: commitId` — the commit whose render was running when the request started, such as a render-time data read. Needs render-tick timing; `null` otherwise.
 - `landedBefore: {commitId, gapMs}` — the first commit whose render started at or after the response finished. A state update from the response may have scheduled it.
 - `commitsInFlight` — commits that committed while the request was in flight.
+
+Relations between requests, computed over every captured request before filtering (so an id may point at a row the filter hid). They are timing, not proof of cause:
+- `repeatOf: {id, gapMs}` — the previous request with the same URL and initiator. Resource Timing has no method or body, so POSTs with different bodies also match.
+- `landedAfterNewer: {id, lateMs}` — set on an older request to the same endpoint (path, plus a GraphQL `operation`/`operationName`/`opName` query parameter) that finished after a newer one started and finished: a stale-response race candidate.
+- `chainedAfter: {id, viaCommit, gapMs}` — the request this one most likely waited for: the latest response that landed before the commit this request started after (`viaCommit`), or with `viaCommit: null` a response that finished at most 15 ms before this request started, with no commit between them. A chain of these is a waterfall.
+
+Rows are URLs, not operations. `repeatOf` and `mostRepeated` key on the initiator type and the full URL, query string included, so they count different operations as repeats only when the URL is identical, as with GraphQL sent by POST to one endpoint. The timeline `label` (also in `perceived.waits[].lastRequests`) and the endpoint key behind `landedAfterNewer` ignore the query string apart from an `operation`, `operationName` or `opName` parameter, so two different operations to one endpoint, sent by POST or by GET, can share a label and be paired as a stale race. Chippy records no request body, so a read cannot be told from a write by its row. Confirm the operation from the source that issued the request, or from the browser's network panel.
 
 Every link is temporal proximity, not proof of cause. Confirm with the commit's sources (`commit-peek N sources,rendered`). The browser reports a request only when it finishes, so a request still in flight is not listed yet. Requests Chippy makes itself (module and source-map fetches, Chippy assets) are excluded and counted in `meta.network.ignoredOwn`.
 
@@ -269,11 +276,15 @@ Lock, unlock, and swap commits are always kept. Updates are ranked by rendered c
 
 Console entries are part of the story: errors (including uncaught errors and unhandled rejections) and warnings appear as `error` and `warn` rows at the time they were logged, with the caller's `file:line:column`, a `×N` repeat count, and the first line of the message that has text. Other levels follow, up to `maxLogs` (default 20); errors and warnings are kept up to 50, and the rest are counted in `omitted.logs`. The console span runs from the origin until the commit after the window starts, or to the end of the capture, so an error logged after the last commit is still shown. The text header adds `Console: N errors, M warnings; first error +t (after cX): …`. Chippy's own messages are left out; read them, stacks, and every entry with `avalanche-console`.
 
+The shortest reported idle gap is 100 ms. To change it, pass `minIdleMs` in the helper or MCP request body, or `--minIdleMs <ms>` to `avalanche-offline … timeline`; there is no positional argument for it.
+
 Output: `payload: {origin, window, perceived, screen, boundaries, console, omitted, mermaid, text}`. `console` is `{errors, warnings, other, firstError}` over the console span, or null when the report has no console entries. `format map` adds `settleMapSvg`; `format full` adds `settleMapSvg` and `lanes`.
 - `screen`: Visually Complete times from the recorded screen changes (null when the capture recorded none). `vc50`, `vc90`, `vc100` are the times by which 50%, 90%, and 100% of the viewport reached its final state; VC90 is when the page looks mostly finished, and lower is better. Areas that never changed count as complete from the origin. `changedShare` is the share of the viewport that changed at all, `changedVc90` is VC90 over that changed area only, and `late[]` lists the regions (`label`, `at`, `commitId`, `share`) that kept changing after it.
 - `boundaries[]`: one entry per Suspense boundary with `boundary` (key `b<id>`), `depth`, `label`, and `location`. Waits carry the same `boundary` key, and `perceived.stillWaiting` lists these keys. `location.chain` lists five component parents, then up to five owners not already listed (`via: parent | owner | both`), each with `name`, `source` when known, and identifying string props such as `name`, `team`, `packageName`, or `testId`. `label` is the boundary's own `name` prop or key when set, else the first chain entry the other boundaries do not share, so a common wrapper is skipped. Waits, commits, and the chart use the label instead of `@depth`. Owners exist only in development builds.
 - `settleMapSvg` (`format map` or `full`): an SVG of the viewport with each area colored by when it last changed, grey where nothing changed, and the last three regions labelled. Save it to a `.svg` file to view it.
 - `perceived.waits[]`, longest first: `depth`, `from`, `until` (null while still shown), `waitedMs`, `lockedBy`, `unlockedBy`, `lastRequests` (up to three requests that overlapped the wait and finished before it cleared, latest first, with `gapMs` before the unlock), and `updatesDuring` (`{commits, rendered}` of update commits while the fallback was on screen).
+- `perceived.firstResponse`: `{t, commitId, rendered}` of the first commit at or after the action (`t` is its paint time when known), or null.
+- `perceived.idleGaps[]`, longest first (up to 10): `from`, `until`, `ms`, and `endedBy` (`{kind: 'request', label, requestId}`, `{kind: 'commit', commitId}`, or `{kind: 'frame', label}`). A gap is a stretch after the action, up to the window end, with no request in flight, no long frame, and no React render or commit, at least `minIdleMs` long (default 100). A pause that a user input ends is the user's own and is not a gap; the next gap starts at that input, so for typing the debounce gap is measured from the last keystroke. The quiet tail after the last activity is not a gap. Requests removed by `exclude` do not count as in flight, so run without `exclude` before calling a gap idle. Use it for waits without a Suspense fallback: debounces, timers, and work Chippy does not see.
 - `perceived.firstLockAt`, `settledAt`, `stillWaiting`, `updatesAfterSettled`: waits that start after the next input belong to that input, so `settledAt` is the last unlock of the opening interaction, or null while one of its fallbacks is still shown.
 - `mermaid`: a gantt chart with sections Input, Network (the three longest are `crit`), User waits, Screen (lock and unlock milestones), Screen changed (one milestone per commit that changed at least 1% of the viewport, with its share and region, plus a `VC90` milestone), Updates (the three heaviest are `crit`; each shows its screen share), and Console (up to 15 error and warning milestones; errors are `crit`). Render it in a ```` ```mermaid ```` block.
 - `text`: the `perceived` summary followed by one aligned row per event. Waits that repeat exactly (same label, same span, same commits), as sibling boundaries rendered by one component do, appear once with `×N` in the summary, the rows, and the chart; `perceived.waits` and `lanes.suspense` still list each one.
@@ -351,9 +362,9 @@ The **Sources | Full** toggle beside the pill sets the detection mode. `sources`
 chippy.sh avalanche-offline .chippy-captures/raf-1846.json summary
 chippy.sh avalanche-offline .chippy-captures/raf-1846.json commit-list 10 collateral
 chippy.sh avalanche-offline .chippy-captures/raf-1846.json commit-peek 42 stats,sources,rendered 20
-chippy.sh avalanche-offline .chippy-captures/raf-1846.json source-search --name 'Issue(Row|List)'
+chippy.sh avalanche-offline .chippy-captures/raf-1846.json source-search --name 'Todo(Row|List)'
 ```
-Use saved captures without a live page. `commit-list`, `commit-peek`, `hot-sources`, `describe-action`, `network`, `perf`, `timeline`, and `dom-diff` run the same code as the live commands and return the same shapes, so sort keys and include values match the live tables above (`unmounts` is live-only; a saved capture always returns it empty).
+Use saved captures without a live page. `<path>` is an `avalanche-save` file or an `ab-capture` sample file. `commit-list`, `commit-peek`, `hot-sources`, `describe-action`, `network`, `perf`, `timeline`, and `dom-diff` run the same code as the live commands and return the same shapes, so sort keys and include values match the live tables above (`unmounts` is live-only; a saved capture always returns it empty).
 
 Offline arguments: `commit-list [top] [by]`, `commit-peek <commitId> [include] [maxItems]` (no `depth`; the third value is maxItems, default 50), `hot-sources [limit]`, `describe-action <actionId>`, `network [top] [by] [match] [initiators] [windowMs]`, `perf [types] [top] [match] [fromCommit] [toCommit]`, `console [levels] [top] [match] [fromCommit] [toCommit]`, `timeline [fromCommit] [toCommit] [minRequestMs] [exclude]` (`--top N` keeps the N longest requests, `--format full` adds lanes), `dom-diff [fromCommit] [toCommit] [match] [maxItems]` (`--top N` caps commits), and `source-search --name <regex> [--top N]` (default top 50). Flags such as `--top`, `--by`, `--include`, `--maxItems`, `--match`, `--initiators`, and `--window` are accepted in place of positional values.
 
@@ -572,8 +583,9 @@ Saves made before this format use the older expanded entries: `prev`/`current` a
 Reading rules:
 - `trasherCounts.effects > 0` — at least one `useEffect` re-ran from changed deps.
 - `trasherCounts.callbacks > 0` — at least one `useCallback` produced a new function identity.
-- `trasherCounts.memos > 0` — at least one `useMemo` recomputed.
-- No `trasherCounts` in `renderedByCommit` while the component still appears in `sourcesByCommit` → render trigger is *not* amplifier-driven; look at `propChanges` for ref-changed props from above, or treat as self-update (`isSelfSource: true`).
+- `trasherCounts.memos > 0` — at least one `useMemo` recomputed. A recompute is waste only when its result has the same content as before; one that returns a new value for new inputs is the memo doing its job. Check whether the result's identity or its value changed before calling it churn.
+- No `trasherCounts` in `renderedByCommit` while the component still appears in `sourcesByCommit` → no amplifier was *counted*. Absence proves nothing in `sources` or `stats` mode, where the field is never filled. In `full` mode the detector's default `effectThrashMode` is `non-primitive`: an Effect re-run counts only when an object, array, or function dependency changed, so a re-run driven by a primitive dependency is not counted. Look at `propChanges` for ref-changed props from above, or treat as self-update (`isSelfSource: true`).
+- A `ref-changed` prop with `sameShallow: true` costs a render only when the child is a memo boundary (`memo`, `PureComponent`, or a compiled component) or its render is measurably expensive. `rendered[]` does not say whether the child is memoized; confirm from the owner chain or source before calling the prop a leak.
 - Same `sourceId` appears in `renderedByCommit` across many commits with persistent non-zero `trasherCounts` → confirmed trasher; trace the hook with `avalanche-debug-hook <clientId> <sourceId> <hookIndex>`.
 
 ### Reading `propChanges`
@@ -597,7 +609,7 @@ Reading rules:
 | 2 | `added` / `removed` optional props | Parent toggled a feature or branch. | **conditional prop / branch change** | Verify the toggle is intentional; inspect the parent conditional if unexpected. |
 | 3 | no `propChanges` and no `isSelfSource` | Parent/ancestor rendered and this component came along. | **cascade collateral** | Walk to `parentSourceId`; do not blame this component. |
 | 4 | `ref-changed` function prop | Callback identity changed. | **identity churn** or legitimate callback update. | Walk to parent; inspect `useCallback` deps or inline function creation. |
-| 5 | `ref-changed` object/array prop | Object identity changed. `sameShallow: true` means the contents are equal; `changedKeys` names the keys that changed. | `sameShallow`: **identity leak**. `changedKeys`: legitimate data change for those keys, unless the component reads none of them. | Walk to parent; inspect literal creation, selectors, `useMemo`, data normalization. |
+| 5 | `ref-changed` object/array prop | Object identity changed. `sameShallow: true` means the contents are equal; `changedKeys` names the keys that changed. | `sameShallow`: **identity leak**. `changedKeys`: legitimate data change for those keys, unless the component reads none of them. Only nested `ref-changed` keys and no `scalar-changed` key on every row of a list, in the commit after a response lands: candidate **items recreated by the data layer**; the diff does not go deeper, so confirm in the data layer's source or by comparing values before calling the data unchanged. | Walk to parent; inspect literal creation, selectors, `useMemo`, data normalization. For recreated items, fix upstream with structural sharing or a normalized store so unchanged items keep their identity; memoizing the row does not help while its item is new. |
 | 6 | `ref-changed` `children` | JSX children identity changed. | **caller-created ReactElement churn** | Caller-only fix: hoist/memoize children at the caller. |
 | 7 | any prop changes plus `trasherCounts > 0` | Prop churn and local hook churn are both present. | **mixed leak + amplifier** | Separate caller leak from local amplifier; prove both before editing. |
 
@@ -864,6 +876,8 @@ After a change:
 - fewer repeated commits from same source
 - fewer amplifiers or context waves
 - hot source drops or remains but with lower blast radius
+
+One before and one after capture shows direction, not proof. Confirm with `ab-compare` over at least 3 interleaved samples per arm, plus one protected scenario for each protection the old code had, and announce intended behavior changes first ([verifying a fix](ab-testing.md#verifying-a-fix)).
 
 ## Troubleshooting
 

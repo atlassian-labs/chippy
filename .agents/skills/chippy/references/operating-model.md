@@ -1,6 +1,6 @@
 # Chippy Operating Model
 
-Chippy works in four separated phases: **Observe → Define → Prove → Apply**. This is the enforcement layer for evidence-first work. Do not collapse these phases.
+Chippy works in separated phases: **Mise en Place → Observe → Define → Prove → Maybe Apply → Verify**. This is the enforcement layer for evidence-first work. Do not collapse these phases. Mise en Place stages the page and connection; Verify repeats the measurement after Apply. The four middle phases are described here.
 
 Cynefin positions the work; OODA drives repeated evidence steps inside Prove. See [cynefin](cynefin.md) for the full positioning and iteration rules.
 
@@ -9,14 +9,14 @@ Cynefin positions the work; OODA drives repeated evidence steps inside Prove. Se
 | Observe | Use read-only orientation to exit ❓ Disorder and name the domain. If it is 🔥, stabilize before further analysis. |
 | Define | Frame the case in the language of the named domain — sensor question for 🔍, experiment hypothesis for 🌀. |
 | Prove | Repeat OODA inside the named domain. Run sensors in 🔍; run safe-to-fail experiments through an observable SUT in 🌀. Never demand 🔍 certainty from a 🌀 system. |
-| Apply | Separate from OODA Act. Allowed only when the proof packet meets the per-domain confidence rule, identifies a fix layer, and supplies repeatable verification. |
+| Apply | Separate from OODA Act. Allowed only when the proof packet meets the per-domain confidence rule, names the fix and the protections it keeps, and supplies repeatable verification. |
 
 | Phase | Purpose | Question | Output | May edit? |
 |---|---|---|---|---|
 | **Observe** | Anchor the symptom in runtime or source reality | What is actually there? | Observation anchor: page/client, probe/fiber/testId/interaction/load window, first signal | No |
 | **Define** | Name the observed thing and the invariant under test | What case did observation reveal? | Case definition: target, scope, invariant, suspected dimensions | No |
 | **Prove** | Gather evidence until the case is confirmed, falsified, or bounded | What does runtime/source evidence prove? | Proof packet: runtime + structure + source + signal facts, confidence, next gap | No |
-| **Apply** | Change source only after proof identifies a fix layer | What is the smallest source change that preserves the invariant? | Edit + same-signal verification | Yes, only after explicit proof |
+| **Apply** | Change source only after proof identifies the fix | What is the smallest source change that preserves the invariant? | Edit + same-signal verification | Yes, only after explicit proof |
 
 ## OODA inside Prove
 
@@ -40,7 +40,7 @@ Observation: <probe/fiber/interaction/load window/page state> shows <first concr
 Examples:
 
 ```text
-Observation: probe 1 resolves to a status label with text "Done" under IssueHeader.
+Observation: probe 1 resolves to a status label with text "Done" under TaskHeader.
 ```
 
 ```text
@@ -64,7 +64,7 @@ Need to prove: whether the trigger is local state, context propagation, store re
 ```
 
 ```text
-Case: this status label says Done; invariant is that displayed text comes from issue status data, not presentation fallback.
+Case: this status label says Done; invariant is that displayed text comes from task status data, not presentation fallback.
 Need to prove: which owner passes the label prop and where the value is derived.
 ```
 
@@ -93,12 +93,15 @@ Decision:
 
 ## Apply gate
 
-Apply is allowed when the proof packet answers four questions:
+Apply is allowed when the proof packet answers these questions:
 
 1. **Case + evidence** — what invariant is in scope, and which runtime/source facts support it?
-2. **Signal movement** — for no-rush or emergent work, did the last tapped contract or safe-to-fail experiment move, reproduce, or falsify the observed failure?
-3. **Fix layer** — is the change above source, at a boundary, or below source?
-4. **Verification** — can the same measurement be repeated after edit, with confidence appropriate to the domain?
+2. **Signal movement** — for no-rush or emergent work (no incident forcing an immediate stabilizer), did the last tapped contract or safe-to-fail experiment move, reproduce, or falsify the observed failure?
+3. **Protections** — which behaviors does the code being changed provide (a debounce, a cancel, a memo, a guard, an Effect's synchronization)? Each is kept, or its removal is the user's explicit decision. See [fixing-performance](fixing-performance.md#protection-inventory).
+4. **Fix** — is it the lowest rung of the [fix ladder](fixing-performance.md#fix-ladder) that removes the friction, with the smallest knob (an option, a dependency, a start point) instead of a rewrite? A mechanism shared by several callers is changed at its owner, not patched per caller.
+5. **Verification** — can the same measurement be repeated after edit, with confidence appropriate to the domain? For performance, that is A/B arms with one protected scenario per protection and the intended differences announced ([ab-testing](ab-testing.md#verifying-a-fix)).
+
+If the change ships, report it through the [report gate](fixing-performance.md#report-gate): friction, evidence, mechanism kept, change, protections verified, residual risk.
 
 If any gate fails, Chippy continues proving or reports the gap. Chippy does not patch while still discovering the essence.
 
@@ -110,7 +113,7 @@ Confidence is not a free-floating field. It is bounded by the Cynefin domain Obs
 |---|---|---|
 | ✅ Clear | `confirmed` | Sense → categorize → respond. The answer is deterministic; anything less than `confirmed` means the situation was misclassified. Reposition first. |
 | 🔍 Complicated | `confirmed` | Sense → analyze → respond. The chain is knowable; `likely`/`partial` means analysis is incomplete — keep proving, do not apply. |
-| 🌀 Complex | `likely` is sufficient **iff** the experiment is repeatable | Probe → sense → respond. Emergent systems rarely produce `confirmed`. Apply is allowed when (a) the same safe-to-fail experiment yields the same outcome on rerun, and (b) the verification command in gate 4 *is* that repeatable experiment. Never apply on `partial` in 🌀. |
+| 🌀 Complex | `likely` is sufficient **iff** the experiment is repeatable | Probe → sense → respond. Emergent systems rarely produce `confirmed`. Apply is allowed when (a) the same safe-to-fail experiment yields the same outcome on rerun, and (b) the verification command in gate 5 *is* that repeatable experiment. Never apply on `partial` in 🌀. |
 | 🔥 Chaotic | — | Apply is forbidden. Stabilize first, then re-classify. |
 | ❓ Disorder | — | Apply is forbidden. Use read-only orientation to position first. |
 

@@ -67,7 +67,7 @@ export function registerChippyTools(server: McpServer, helper: HelperConnection)
     include: z.array(id).optional(), depth: index.optional(), maxItems: positive.optional(),
     sourceId: id.optional(), hookIndex: index.optional(), window: index.optional(), actionId: index.optional(),
     match: id.optional(), initiators: z.array(id).optional(), types: z.array(id).optional(), levels: z.array(z.enum(['error', 'warn', 'info', 'log', 'debug'])).optional(), includeChippy: z.boolean().optional(),
-    fromCommit: index.optional(), toCommit: index.optional(), minRequestMs: index.optional(), exclude: id.optional(), format: z.enum(['summary', 'map', 'full']).optional(),
+    fromCommit: index.optional(), toCommit: index.optional(), minRequestMs: index.optional(), minIdleMs: index.optional(), exclude: id.optional(), format: z.enum(['summary', 'map', 'full']).optional(),
     timeoutMs: timeout,
   }, ({ clientId, ...args }, signal) => helper.request(`${pagePath(clientId)}/avalanche`, args, signal, args.timeoutMs + 2000));
   tool('chippy_interact', 'Apply one explicit stimulus. Name the exact target and stimulus first. invoke requires source inspection and a proven callback contract; schedule-update runs render/effect code without changing props/hooks.', {

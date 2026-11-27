@@ -79,6 +79,8 @@ export type AvalancheCommand = {
   toCommit?: number;
   /** `timeline`: requests shorter than this are left out. */
   minRequestMs?: number;
+  /** `timeline`: shortest idle gap reported in `perceived.idleGaps`. */
+  minIdleMs?: number;
   /** `timeline`: case-insensitive regex of request URLs to leave out. */
   exclude?: string;
   /** `timeline`: `full` adds the structured lanes to the summary and renderings. */
@@ -557,6 +559,7 @@ function runAvalanche(
           fromCommit: command?.fromCommit,
           toCommit: command?.toCommit,
           minRequestMs: command?.minRequestMs,
+          minIdleMs: command?.minIdleMs,
           maxRequests: command?.top,
           exclude: command?.exclude,
           settleMap: command?.format === 'full' || command?.format === 'map',

@@ -2722,7 +2722,7 @@ this.__AVALANCHE__ = (function() {
   }
   const DEFAULT_MAX_NETWORK_REQUESTS = 500;
   const MAX_URL_LENGTH = 300;
-  const round$9 = (value) => Math.round(value * 10) / 10;
+  const round$a = (value) => Math.round(value * 10) / 10;
   function cacheUse(entry) {
     if (entry.deliveryType === "cache") return true;
     const transfer = entry.transferSize ?? 0;
@@ -2761,9 +2761,9 @@ this.__AVALANCHE__ = (function() {
         id: nextId++,
         url: entry.name.length > MAX_URL_LENGTH ? entry.name.slice(0, MAX_URL_LENGTH) : entry.name,
         initiatorType: entry.initiatorType || "other",
-        startTime: round$9(entry.startTime),
-        endTime: round$9(endTime),
-        duration: round$9(endTime - entry.startTime),
+        startTime: round$a(entry.startTime),
+        endTime: round$a(endTime),
+        duration: round$a(endTime - entry.startTime),
         status: typeof entry.responseStatus === "number" && entry.responseStatus > 0 ? entry.responseStatus : null,
         cached: cacheUse(entry),
         startedBeforeCapture: entry.startTime < windowStart
@@ -2829,11 +2829,11 @@ this.__AVALANCHE__ = (function() {
         return {
           supported: observerConstructor() !== null,
           enabled,
-          windowStart: round$9(windowStart),
+          windowStart: round$a(windowStart),
           requests: requests.length,
           dropped,
           ignoredOwn,
-          pausedAt: pausedAt === null ? null : round$9(pausedAt)
+          pausedAt: pausedAt === null ? null : round$a(pausedAt)
         };
       }
     };
@@ -2888,7 +2888,7 @@ this.__AVALANCHE__ = (function() {
   const MAX_TEXT = 200;
   const MAX_SCRIPTS = 5;
   const MAX_SHIFT_SOURCES = 5;
-  const round$8 = (value) => typeof value === "number" && Number.isFinite(value) ? Math.round(value * 10) / 10 : 0;
+  const round$9 = (value) => typeof value === "number" && Number.isFinite(value) ? Math.round(value * 10) / 10 : 0;
   const cut$1 = (text) => text.length > MAX_TEXT ? text.slice(0, MAX_TEXT) + "…" : text;
   function detailOf(value) {
     if (value === void 0 || value === null) return null;
@@ -2901,7 +2901,7 @@ this.__AVALANCHE__ = (function() {
     return cut$1(typeof text === "string" ? text : String(value));
   }
   function rectOf(rect) {
-    return rect ? [round$8(rect.x), round$8(rect.y), round$8(rect.width), round$8(rect.height)] : null;
+    return rect ? [round$9(rect.x), round$9(rect.y), round$9(rect.width), round$9(rect.height)] : null;
   }
   function owner(node, nameOf) {
     try {
@@ -2915,8 +2915,8 @@ this.__AVALANCHE__ = (function() {
     return scripts.sort((a, b) => ((b == null ? void 0 : b.duration) ?? 0) - ((a == null ? void 0 : a.duration) ?? 0)).slice(0, MAX_SCRIPTS).map((s) => {
       const sourceURL = typeof (s == null ? void 0 : s.sourceURL) === "string" && s.sourceURL ? cut$1(s.sourceURL) : null;
       return {
-        duration: round$8(s == null ? void 0 : s.duration),
-        forcedStyleAndLayoutDuration: typeof (s == null ? void 0 : s.forcedStyleAndLayoutDuration) === "number" ? round$8(s.forcedStyleAndLayoutDuration) : null,
+        duration: round$9(s == null ? void 0 : s.duration),
+        forcedStyleAndLayoutDuration: typeof (s == null ? void 0 : s.forcedStyleAndLayoutDuration) === "number" ? round$9(s.forcedStyleAndLayoutDuration) : null,
         invoker: typeof (s == null ? void 0 : s.invoker) === "string" && s.invoker ? cut$1(s.invoker) : null,
         invokerType: (s == null ? void 0 : s.invokerType) || null,
         sourceURL,
@@ -2929,7 +2929,7 @@ this.__AVALANCHE__ = (function() {
   function shapePerfEntry(raw, nameOf) {
     if (!raw || typeof raw.startTime !== "number") return null;
     const entryType = String(raw.entryType || "");
-    const base = { entryType, name: cut$1(String(raw.name ?? "")), startTime: round$8(raw.startTime), duration: round$8(raw.duration) };
+    const base = { entryType, name: cut$1(String(raw.name ?? "")), startTime: round$9(raw.startTime), duration: round$9(raw.duration) };
     switch (entryType) {
       case "mark":
       case "measure":
@@ -2937,9 +2937,9 @@ this.__AVALANCHE__ = (function() {
       case "long-animation-frame":
         return {
           ...base,
-          blockingDuration: round$8(raw.blockingDuration),
-          renderStart: round$8(raw.renderStart),
-          styleAndLayoutStart: round$8(raw.styleAndLayoutStart),
+          blockingDuration: round$9(raw.blockingDuration),
+          renderStart: round$9(raw.renderStart),
+          styleAndLayoutStart: round$9(raw.styleAndLayoutStart),
           scripts: scriptsOf(raw)
         };
       case "layout-shift":
@@ -2957,16 +2957,16 @@ this.__AVALANCHE__ = (function() {
         return {
           ...base,
           interactionId: Number(raw.interactionId) || 0,
-          inputDelay: round$8(raw.processingStart - raw.startTime),
-          processing: round$8(raw.processingEnd - raw.processingStart),
-          presentationDelay: round$8(raw.startTime + (raw.duration ?? 0) - raw.processingEnd),
+          inputDelay: round$9(raw.processingStart - raw.startTime),
+          processing: round$9(raw.processingEnd - raw.processingStart),
+          presentationDelay: round$9(raw.startTime + (raw.duration ?? 0) - raw.processingEnd),
           target: owner(raw.target, nameOf)
         };
       case "largest-contentful-paint":
         return {
           ...base,
-          renderTime: round$8(raw.renderTime),
-          loadTime: round$8(raw.loadTime),
+          renderTime: round$9(raw.renderTime),
+          loadTime: round$9(raw.loadTime),
           size: Number(raw.size) || 0,
           url: typeof raw.url === "string" && raw.url ? cut$1(raw.url) : null,
           element: owner(raw.element, nameOf)
@@ -2975,9 +2975,9 @@ this.__AVALANCHE__ = (function() {
         return {
           ...base,
           navigationType: String(raw.type || ""),
-          ttfb: round$8(raw.responseStart),
-          domContentLoaded: round$8(raw.domContentLoadedEventEnd),
-          load: round$8(raw.loadEventEnd),
+          ttfb: round$9(raw.responseStart),
+          domContentLoaded: round$9(raw.domContentLoadedEventEnd),
+          load: round$9(raw.loadEventEnd),
           transferSize: Number(raw.transferSize) || 0
         };
       case "paint":
@@ -3097,11 +3097,11 @@ this.__AVALANCHE__ = (function() {
           enabled,
           observed,
           unsupported,
-          windowStart: round$8(windowStart),
+          windowStart: round$9(windowStart),
           entries: entries.length,
           byType,
           dropped: Object.fromEntries(dropped),
-          pausedAt: pausedAt === null ? null : round$8(pausedAt)
+          pausedAt: pausedAt === null ? null : round$9(pausedAt)
         };
       }
     };
@@ -3113,7 +3113,7 @@ this.__AVALANCHE__ = (function() {
   const MAX_STACK_FRAMES = 8;
   const STACK_LEVELS = /* @__PURE__ */ new Set(["error", "warn"]);
   const OWN_PREFIXES = ["[avalanche] ", "[Chippy ", "[chippy"];
-  const round$7 = (value) => Math.round(value * 10) / 10;
+  const round$8 = (value) => Math.round(value * 10) / 10;
   const cut = (text, max) => text.length > max ? text.slice(0, max) + "…" : text;
   function errorText(error) {
     const name = typeof error.name === "string" && error.name ? error.name : "Error";
@@ -3262,7 +3262,7 @@ this.__AVALANCHE__ = (function() {
       if (!accepting()) return;
       busy = true;
       try {
-        const time = round$7(performance.now());
+        const time = round$8(performance.now());
         const message = formatConsoleArgs(args);
         const own = OWN_PREFIXES.some((prefix) => message.startsWith(prefix));
         let stack = null;
@@ -3298,7 +3298,7 @@ this.__AVALANCHE__ = (function() {
         const location = typeof event.filename === "string" && event.filename ? `${event.filename}:${event.lineno ?? 0}:${event.colno ?? 0}` : null;
         const stack = isError(error) ? stackText(parseFrames(error.stack ?? "")) : null;
         const chippy = !!location && isChippyAssetUrl(event.filename) || isError(error) && !!((_a2 = parseFrames(error.stack ?? "")[0]) == null ? void 0 : _a2.chippy);
-        add({ level: "error", source: "uncaught", time: round$7(performance.now()), message, stack, location, ...chippy && { chippy: true } });
+        add({ level: "error", source: "uncaught", time: round$8(performance.now()), message, stack, location, ...chippy && { chippy: true } });
       } catch {
       } finally {
         busy = false;
@@ -3313,7 +3313,7 @@ this.__AVALANCHE__ = (function() {
         const message = cut(`Uncaught (in promise) ${isError(reason) ? errorText(reason) : previewValue$1(reason)}`, MAX_MESSAGE);
         const frames = isError(reason) ? parseFrames(reason.stack ?? "") : [];
         const location = ((_a2 = frames.find((frame2) => !frame2.chippy && frame2.location)) == null ? void 0 : _a2.location) ?? null;
-        add({ level: "error", source: "rejection", time: round$7(performance.now()), message, stack: stackText(frames), location, ...!!((_b2 = frames[0]) == null ? void 0 : _b2.chippy) && { chippy: true } });
+        add({ level: "error", source: "rejection", time: round$8(performance.now()), message, stack: stackText(frames), location, ...!!((_b2 = frames[0]) == null ? void 0 : _b2.chippy) && { chippy: true } });
       } catch {
       } finally {
         busy = false;
@@ -3385,11 +3385,11 @@ this.__AVALANCHE__ = (function() {
         return {
           enabled,
           installed: recording,
-          windowStart: round$7(windowStart),
+          windowStart: round$8(windowStart),
           entries: entries.length,
           byLevel,
           dropped: Object.fromEntries(dropped),
-          pausedAt: pausedAt === null ? null : round$7(pausedAt)
+          pausedAt: pausedAt === null ? null : round$8(pausedAt)
         };
       }
     };
@@ -3786,7 +3786,7 @@ this.__AVALANCHE__ = (function() {
     }
     return ((_c2 = element == null ? void 0 : element.tagName) == null ? void 0 : _c2.toLowerCase()) || "unknown";
   }
-  const round$6 = (n) => Math.round(n);
+  const round$7 = (n) => Math.round(n);
   const MAX_DESCENT = 32;
   function isEmptyBox(box) {
     return !box || box.right - box.left <= 0 || box.bottom - box.top <= 0;
@@ -3850,16 +3850,16 @@ this.__AVALANCHE__ = (function() {
       }
       if (rects.length === 0) return;
       const full = Math.max(1, rectArea(viewport));
-      const area = round$6(changed.area());
-      const removedArea = round$6(removed.area());
+      const area = round$7(changed.area());
+      const removedArea = round$7(removed.area());
       rects.sort((a, b) => b.area - a.area);
       byCommit[commitId] = {
-        viewport: [round$6(viewport.right - viewport.left), round$6(viewport.bottom - viewport.top)],
+        viewport: [round$7(viewport.right - viewport.left), round$7(viewport.bottom - viewport.top)],
         area,
         removedArea,
         share: Math.min(1, Math.round((area + removedArea) / full * 1e3) / 1e3),
-        rects: rects.slice(0, MAX_RECTS_PER_COMMIT).map(({ rect }) => [round$6(rect.left), round$6(rect.top), round$6(rect.right), round$6(rect.bottom)]),
-        regions: [...regions.entries()].sort((a, b) => b[1] - a[1]).slice(0, MAX_REGIONS).map(([label, regionArea]) => ({ label, area: round$6(Math.min(regionArea, full)) })),
+        rects: rects.slice(0, MAX_RECTS_PER_COMMIT).map(({ rect }) => [round$7(rect.left), round$7(rect.top), round$7(rect.right), round$7(rect.bottom)]),
+        regions: [...regions.entries()].sort((a, b) => b[1] - a[1]).slice(0, MAX_REGIONS).map(([label, regionArea]) => ({ label, area: round$7(Math.min(regionArea, full)) })),
         nodes: found.length,
         ...truncated && { truncated: true },
         ms: Math.round((geometry.now() - started) * 100) / 100
@@ -7928,6 +7928,90 @@ this.__AVALANCHE__ = (function() {
     const tokens = nameTokensIn(value);
     return renames.filter((rename) => isRename(rename) && tokens.has(rename.name));
   }
+  const DIRECT_CHAIN_GAP_MS = 15;
+  const OPERATION_PARAMS = ["operation", "operationName", "opName"];
+  const round$6 = (value) => Math.round(value * 10) / 10;
+  function endpointKey(url) {
+    try {
+      const parsed = new URL(url, "http://local.invalid");
+      const op = OPERATION_PARAMS.map((name) => parsed.searchParams.get(name)).find(Boolean);
+      return parsed.origin + parsed.pathname + (op ? "?op=" + op : "");
+    } catch (_) {
+      return url.split("?")[0];
+    }
+  }
+  function relateRequests(requests) {
+    var _a2;
+    const byStart = requests.slice().sort((a, b) => a.startTime - b.startTime || a.id - b.id);
+    const out = /* @__PURE__ */ new Map();
+    const lastByUrl = /* @__PURE__ */ new Map();
+    const byEndpoint = /* @__PURE__ */ new Map();
+    const landedBeforeCommit = /* @__PURE__ */ new Map();
+    for (const request of byStart) {
+      if (request.landedBefore) {
+        const prior = landedBeforeCommit.get(request.landedBefore.commitId);
+        if (!prior || request.endTime > prior.endTime) landedBeforeCommit.set(request.landedBefore.commitId, request);
+      }
+    }
+    for (const request of byStart) {
+      const urlKey = request.initiatorType + " " + request.url;
+      const previous = lastByUrl.get(urlKey);
+      lastByUrl.set(urlKey, request);
+      let chainedAfter = null;
+      const viaCommit = (_a2 = request.startedAfter) == null ? void 0 : _a2.commitId;
+      const landed = viaCommit === void 0 ? void 0 : landedBeforeCommit.get(viaCommit);
+      if (viaCommit !== void 0 && landed && landed.id !== request.id && landed.endTime <= request.startTime) {
+        chainedAfter = { id: landed.id, viaCommit, gapMs: round$6(request.startTime - landed.endTime) };
+      } else {
+        const commitEnd = request.startedAfter ? request.startTime - request.startedAfter.gapMs : -Infinity;
+        let best = null;
+        for (const other of byStart) {
+          if (other.startTime >= request.startTime) break;
+          const gap = request.startTime - other.endTime;
+          if (gap >= 0 && gap <= DIRECT_CHAIN_GAP_MS && other.endTime >= commitEnd && (!best || other.endTime > best.endTime)) best = other;
+        }
+        if (best) chainedAfter = { id: best.id, viaCommit: null, gapMs: round$6(request.startTime - best.endTime) };
+      }
+      out.set(request.id, {
+        repeatOf: previous ? { id: previous.id, gapMs: round$6(request.startTime - previous.startTime) } : null,
+        landedAfterNewer: null,
+        chainedAfter
+      });
+      const endpoint = endpointKey(request.url) + " " + request.initiatorType;
+      const peers = byEndpoint.get(endpoint) ?? [];
+      for (const older of peers) {
+        if (older.endTime <= request.endTime || older.startTime >= request.startTime) continue;
+        const relation = out.get(older.id);
+        const lateMs = round$6(older.endTime - request.endTime);
+        if (!relation.landedAfterNewer || lateMs > relation.landedAfterNewer.lateMs) relation.landedAfterNewer = { id: request.id, lateMs };
+      }
+      peers.push(request);
+      byEndpoint.set(endpoint, peers);
+    }
+    return out;
+  }
+  function longestChain(requests, relations) {
+    const byId = new Map(requests.map((request) => [request.id, request]));
+    const depth = /* @__PURE__ */ new Map();
+    const chainOf = (id, seen) => {
+      var _a2, _b2;
+      const cached = depth.get(id);
+      if (cached) return cached;
+      const parent = (_b2 = (_a2 = relations.get(id)) == null ? void 0 : _a2.chainedAfter) == null ? void 0 : _b2.id;
+      const chain = parent !== void 0 && byId.has(parent) && !seen.has(parent) ? [...chainOf(parent, new Set(seen).add(id)), id] : [id];
+      depth.set(id, chain);
+      return chain;
+    };
+    let best = [];
+    for (const request of requests) {
+      const chain = chainOf(request.id, /* @__PURE__ */ new Set([request.id]));
+      if (chain.length > best.length) best = chain;
+    }
+    if (best.length < 2) return null;
+    const first = byId.get(best[0]);
+    const last = byId.get(best[best.length - 1]);
+    return { ids: best, ms: round$6(last.endTime - first.startTime) };
+  }
   const DEFAULT_NETWORK_WINDOW_MS = 250;
   const NETWORK_SORT_KEYS = ["start", "end", "duration"];
   const round$5 = (value) => Math.round(value * 10) / 10;
@@ -8008,13 +8092,28 @@ this.__AVALANCHE__ = (function() {
     const initiators = Array.isArray(options.initiators) ? options.initiators.map((value) => String(value).trim().toLowerCase()).filter(Boolean) : [];
     const top = Number.isFinite(Number(options.top)) && Number(options.top) > 0 ? Math.floor(Number(options.top)) : 20;
     const windowMs = windowOf(options.window);
-    const linked = linkNetworkRequests(report, windowMs).filter((request) => (!pattern || pattern.test(request.url)) && (initiators.length === 0 || initiators.includes(request.initiatorType.toLowerCase())));
+    const all = linkNetworkRequests(report, windowMs);
+    const relations = relateRequests(all);
+    const linked = all.filter((request) => (!pattern || pattern.test(request.url)) && (initiators.length === 0 || initiators.includes(request.initiatorType.toLowerCase()))).map((request) => ({ ...request, ...relations.get(request.id) }));
     const byInitiator = {};
     let landedBeforeCommit = 0;
     let startedAfterCommit = 0;
     let startedDuringRender = 0;
     let longest = null;
+    let repeats = 0;
+    let landedAfterNewer = 0;
+    let chained = 0;
+    const repeatGroups = /* @__PURE__ */ new Map();
     for (const request of linked) {
+      if (request.repeatOf) {
+        repeats += 1;
+        const key = request.initiatorType + " " + request.url;
+        const group = repeatGroups.get(key) ?? { url: request.url, count: 1 };
+        group.count += 1;
+        repeatGroups.set(key, group);
+      }
+      if (request.landedAfterNewer) landedAfterNewer += 1;
+      if (request.chainedAfter) chained += 1;
       byInitiator[request.initiatorType] = (byInitiator[request.initiatorType] || 0) + 1;
       if (request.landedBefore) landedBeforeCommit += 1;
       if (request.startedAfter) startedAfterCommit += 1;
@@ -8035,7 +8134,12 @@ this.__AVALANCHE__ = (function() {
           landedBeforeCommit,
           startedAfterCommit,
           startedDuringRender,
-          longest: longest ? { id: longest.id, url: longest.url, duration: longest.duration } : null
+          longest: longest ? { id: longest.id, url: longest.url, duration: longest.duration } : null,
+          repeats,
+          mostRepeated: [...sumByUrl(repeatGroups.values())].sort((a, b) => b[1] - a[1]).slice(0, 5).map(([url, count]) => ({ url, count })),
+          landedAfterNewer,
+          chained,
+          longestChain: longestChain(linked, relations)
         },
         rows: sorted.slice(0, top)
       }
@@ -8063,6 +8167,34 @@ this.__AVALANCHE__ = (function() {
       if (inFlight > 0) entry(anchor.commitId).inFlight = inFlight;
     }
     return out;
+  }
+  function sumByUrl(groups) {
+    const out = /* @__PURE__ */ new Map();
+    for (const { url, count } of groups) out.set(url, (out.get(url) ?? 0) + count);
+    return out;
+  }
+  const MIN_IDLE_GAP_MS = 100;
+  const MAX_IDLE_GAPS = 10;
+  function idleGaps(spans2, from, until, minMs = MIN_IDLE_GAP_MS, max = MAX_IDLE_GAPS, restarts = []) {
+    const gaps = [];
+    let cursor = from;
+    const events = [...spans2, ...restarts.filter((t) => t > from).map((t) => ({ start: t, end: t, cause: null }))].sort((a, b) => a.start - b.start || Number(a.cause !== null) - Number(b.cause !== null) || b.end - a.end);
+    for (const span of events) {
+      if (span.start > until) break;
+      if (span.cause === null) {
+        cursor = Math.max(cursor, span.start);
+        continue;
+      }
+      if (span.end <= cursor) continue;
+      if (span.start > cursor && span.start - cursor >= minMs) gaps.push({ from: cursor, until: span.start, ms: span.start - cursor, endedBy: span.cause });
+      cursor = Math.max(cursor, span.end);
+    }
+    return gaps.sort((a, b) => b.ms - a.ms || a.from - b.from).slice(0, max);
+  }
+  function describeGapEnd(end) {
+    if (end.kind === "request") return `request ${end.label}`;
+    if (end.kind === "commit") return `commit c${end.commitId}`;
+    return `long frame ${end.label}`;
   }
   const GRID_COLUMNS = 48;
   function grid(frames) {
@@ -8380,6 +8512,12 @@ this.__AVALANCHE__ = (function() {
     const stillWaiting = ownWaits.filter((s) => s.end === null).map((s) => s.boundary);
     const unlocks = ownWaits.filter((s) => s.end !== null).map((s) => s.end);
     const settledAt = stillWaiting.length === 0 && unlocks.length ? Math.max(...unlocks) : null;
+    const busy = [
+      ...allRequests.map((r) => ({ start: r.start, end: r.end, cause: { kind: "request", label: r.label, requestId: r.id } })),
+      ...perfLane.lane.filter((p) => p.kind === "frame").map((p) => ({ start: p.start, end: p.end, cause: { kind: "frame", label: `+${p.start} ${p.durationMs}ms` } })),
+      ...allCommits.map((c) => ({ start: c.renderStart ?? c.t, end: Math.max(c.t, c.paintAt ?? c.t), cause: { kind: "commit", commitId: c.commitId } }))
+    ];
+    const firstCommit = allCommits.find((c) => c.t >= 0);
     const result = {
       ok: true,
       origin: { at: Math.round(origin * 10) / 10, kind: originInput ? "interaction" : "commit" },
@@ -8389,7 +8527,9 @@ this.__AVALANCHE__ = (function() {
         settledAt,
         stillWaiting,
         waits,
-        updatesAfterSettled: sumUpdates(settledAt === null ? [] : updates.filter((c) => c.t > settledAt && (!nextInput || c.t < nextInput.t)))
+        updatesAfterSettled: sumUpdates(settledAt === null ? [] : updates.filter((c) => c.t > settledAt && (!nextInput || c.t < nextInput.t))),
+        firstResponse: firstCommit ? { t: firstCommit.paintAt ?? firstCommit.t, commitId: firstCommit.commitId, rendered: firstCommit.rendered } : null,
+        idleGaps: idleGaps(busy, 0, rel(windowEnd), options.minIdleMs ?? MIN_IDLE_GAP_MS, void 0, input.map((i) => i.t))
       },
       boundaries: boundaryKeys.map((key) => ({ boundary: key, depth: boundaryInfo.get(key).depth, label: labelByKey.get(key) ?? null, location: boundaryInfo.get(key).location })),
       screen: screenStability(frames),
@@ -8601,8 +8741,9 @@ this.__AVALANCHE__ = (function() {
   function renderText(result) {
     const p = result.perceived;
     const header = [];
-    if (p.waits.length === 0) header.push("No Suspense fallback was shown in this window.");
-    else {
+    if (p.waits.length === 0) {
+      header.push("No Suspense fallback was shown in this window" + (p.firstResponse ? `; first commit c${p.firstResponse.commitId} at +${p.firstResponse.t} (${p.firstResponse.rendered} rendered).` : "."));
+    } else {
       header.push(p.settledAt !== null ? `Fallbacks first shown at +${p.firstLockAt}, all cleared at +${p.settledAt}; ${p.updatesAfterSettled.commits} updates (${p.updatesAfterSettled.rendered} rendered) ran after that, before the next input.` : `Fallbacks first shown at +${p.firstLockAt}; still waiting at the end: ${Array.from(new Set(p.stillWaiting.map((key) => {
         var _a2;
         return ((_a2 = result.boundaries.find((b) => b.boundary === key)) == null ? void 0 : _a2.label) || key;
@@ -8611,6 +8752,9 @@ this.__AVALANCHE__ = (function() {
         const last = w.lastRequests[0];
         header.push(`  wait ${w.label || "@" + w.depth}${times(count)} ${w.waitedMs}ms (+${w.from} → ${w.until === null ? "end" : "+" + w.until}), ${w.updatesDuring.commits} updates (${w.updatesDuring.rendered} rendered) meanwhile` + (last ? `, last request before unlock: ${last.label} (+${last.end}, ${last.gapMs}ms before)` : ""));
       }
+    }
+    for (const gap of p.idleGaps.slice(0, 3)) {
+      header.push(`Idle +${gap.from} → +${gap.until} (${gap.ms}ms): no request, render, or long frame; ended by ${describeGapEnd(gap.endedBy)}.`);
     }
     const sc = result.screen;
     const painted = result.lanes.commits.some((c) => c.paintAt !== null);
@@ -9541,6 +9685,7 @@ this.__AVALANCHE__ = (function() {
             fromCommit: command == null ? void 0 : command.fromCommit,
             toCommit: command == null ? void 0 : command.toCommit,
             minRequestMs: command == null ? void 0 : command.minRequestMs,
+            minIdleMs: command == null ? void 0 : command.minIdleMs,
             maxRequests: command == null ? void 0 : command.top,
             exclude: command == null ? void 0 : command.exclude,
             settleMap: (command == null ? void 0 : command.format) === "full" || (command == null ? void 0 : command.format) === "map"
