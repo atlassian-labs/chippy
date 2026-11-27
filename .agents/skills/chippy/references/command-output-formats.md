@@ -745,7 +745,7 @@ Prepared hook summary for the exact probe fiber. Use this before raw `probe-hook
 {
   "ok": true,
   "result": {
-    "name": "StatusServiceWithoutAriId",
+    "name": "StatusPanel",
     "fiberId": null,
     "hookCount": 102,
     "truncated": false,
@@ -773,11 +773,11 @@ Raw `--json` response:
   "ok": true,
   "result": {
     "ok": true,
-    "componentName": "StatusServiceWithoutAriId",
+    "componentName": "StatusPanel",
     "fiberId": "fiber:7",
     "resolvedBy": "probe",
     "hookCount": 102,
-    "text": "StatusServiceWithoutAriId @ /path/StatusService.tsx:64\nhooks: 102 (Callback=40, Effect=14, Ref=14, State=19)\neffects with cleanup: 10\nstructure:\n  └─ useOpenIssueTransitionModal\n     └─ useResource\n        ├─ hook 0 Ref\n        └─ hook 1 Memo"
+    "text": "StatusPanel @ /path/StatusPanel.tsx:64\nhooks: 102 (Callback=40, Effect=14, Ref=14, State=19)\neffects with cleanup: 10\nstructure:\n  └─ useTransitionDialog\n     └─ useResource\n        ├─ hook 0 Ref\n        └─ hook 1 Memo"
   }
 }
 ```
@@ -869,9 +869,9 @@ Each item gains `hits` (at most 10; `hitsTruncated` says when the cap was reache
     "items": [
       {
         "fiberId": "fiber:1",
-        "name": "StatusServiceWithoutAriId",
-        "source": { "fileName": "…/StatusService.tsx", "lineNumber": 64 },
-        "owner": "StatusServiceForMigrateIssueTransitionEnabled",
+        "name": "StatusPanel",
+        "source": { "fileName": "…/StatusPanel.tsx", "lineNumber": 64 },
+        "owner": "StatusPanelContainer",
         "domTag": null,
         "domTestId": null
       }
@@ -1074,17 +1074,17 @@ Returns a nested folder `text`, a `target` block with `parents`/`parentsWithLoc`
   "result": {
     "ok": true,
     "status": "ok",
-    "componentName": "StatusServiceWithoutAriId",
+    "componentName": "StatusPanel",
     "fiberId": "fiber:1",
     "requestedHookIndex": 1,
     "hookCount": 11,
-    "text": "StatusServiceWithoutAriId\n└─ useCloudId\n   └─ useTenantContext\n      └─ useSweetState\n         └─ hook 1 Memo ← target",
+    "text": "StatusPanel\n└─ useAccountId\n   └─ useWorkspaceContext\n      └─ useStoreState\n         └─ hook 1 Memo ← target",
     "target": {
       "hookId": 1,
       "type": "Memo",
       "value": "[function:DEFAULT_SELECTOR]",
-      "parents": ["StatusServiceWithoutAriId", "useCloudId", "useTenantContext", "useSweetState"],
-      "parentsWithLoc": [{ "name": "useCloudId", "loc": "17226:33" }, "…"]
+      "parents": ["StatusPanel", "useAccountId", "useWorkspaceContext", "useStoreState"],
+      "parentsWithLoc": [{ "name": "useAccountId", "loc": "17226:33" }, "…"]
     },
     "captureEngineOk": true,
     "warnings": []
@@ -1147,7 +1147,7 @@ On a production build, `describe-component` and `explain-component` add `minifie
 ```
 
 Field semantics:
-- `tree[]` — folders in first-seen order. Each folder has `path` (custom-hook ancestry, outer→inner) and `hooks[]` with `{ hookId, primitive, debugLabel? }`. `hookId` is `null` for `Context`, `DebugValue`, `MemoCache` (no `memoizedState` slot). For `DebugValue`, `debugLabel` carries the serialized `useDebugValue` value and should be treated as a named landmark, for example a Sweet State store label.
+- `tree[]` — folders in first-seen order. Each folder has `path` (custom-hook ancestry, outer→inner) and `hooks[]` with `{ hookId, primitive, debugLabel? }`. `hookId` is `null` for `Context`, `DebugValue`, `MemoCache` (no `memoizedState` slot). A `MemoCache` entry means the component was compiled by React Compiler ([react-compiler](react-compiler.md#is-this-component-compiled)). For `DebugValue`, `debugLabel` carries the serialized `useDebugValue` value and should be treated as a named landmark, for example a store's label.
 - `hookCount` — number of indexable primitive hooks (excludes `Context`, `DebugValue`, `MemoCache`).
 - `resolvedBy` — `"fiberId"` when the registry hit, `"name"` when name-walk hit.
 - `text` — pre-rendered tree for log readability. It prints `debugLabel` inline after the primitive, for example `hook · DebugValue — RSS: JWMFormStore__1xxy1q6`.

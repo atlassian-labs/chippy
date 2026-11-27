@@ -45,7 +45,7 @@ Note: if you hit `truncated: true` at 500 in practice, that is a signal to impro
 - `hooks[N].note` — optional note on synthetic break entries such as cycle detection
 
 **Reading very deep results**:
-- Default reading is **collapsed by repetition**: group consecutive hooks belonging to the same custom-hook family (e.g. `useSweetState [12..16]`) instead of listing each leaf. Expand a family fully when it is the only instance, or when the user explicitly asks for the raw list (`dump`, `expanded`, `every hook`).
+- Default reading is **collapsed by repetition**: group consecutive hooks belonging to the same custom-hook family (e.g. `useStoreState [12..16]`) instead of listing each leaf. Expand a family fully when it is the only instance, or when the user explicitly asks for the raw list (`dump`, `expanded`, `every hook`).
 - For "where exactly is complexity" asks, produce a concentration view first: hook ranges, top-level custom-hook/subtree label, primitive counts, cleanup counts, and landmarks such as `State`, `Ref`, or `useDebugValue`.
 - find a stable hook anchor first (`State` value, `Ref.current`, `useDebugValue`)
 - then use surrounding indexes to orient
