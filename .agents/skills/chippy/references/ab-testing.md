@@ -12,6 +12,8 @@ Chippy does not switch the condition. The user, the page, or the harness sets th
 
 Take at least 2 samples per arm, and 3 when timings matter. The first runs after a cold start often do extra work (module evaluation, caches, lazy chunks). Read `ab-arm` to see where an arm settled, then drop warm-up samples with `--skip N`.
 
+When the complaint is the first open or the first load, the cold sample is the subject, not warm-up. Do not drop it with `--skip`. Compare a cold arm, where each sample starts from a fresh reload (a reload needs the user's permission), with a warm arm, where each sample repeats the stimulus without a reload. Run the stimulus once in that page load before the first warm sample, or leave that sample out of the warm arm by listing the arm's sample files (`--skip` drops samples from both arms). Between warm samples, return the view to its starting state without reloading, for example by closing it or navigating away and back. Then read `avalanche-offline <sample> network --initiators script,link` for a sample of each arm: code that loads only in the cold arm is the cost the user sees on the first open.
+
 ## Workflow
 
 1. Set condition A. For each sample, reset to the same starting state. A reload needs the user's permission, or the page can be returned to that state by other means; then run `avalanche-clear <clientId>` or `reload-with-avalanche`.

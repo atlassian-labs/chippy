@@ -173,10 +173,43 @@ One extra setup/cleanup pair on mount is expected and is not EF-1.
   loader.
 - **Compiler:** partly; it can stop identity-driven refetches, not races.
 - **Wrong when:** the inputs really changed; the data must refresh (a cache
-  freshness question, not identity).
+  freshness question: see
+  [NW-5](patterns-latency.md#nw-5-refetch-of-data-already-shown)).
 - **Prove the fix:** one request per real key change in `avalanche-network`;
   announce the fewer requests before `ab-compare`; the final DOM matches the last
   input.
+
+### Shared query
+
+The same request can repeat without any Effect re-running: sibling consumers
+each fetch it, every row fetches the same list or lookup, or one consumer fetches
+twice because its inputs settled after mount. For sibling and per-row duplicates,
+the `avalanche-network` rows share a URL and overlap in time, and each repeat's
+`repeatOf` has a small `gapMs`. `repeatOf` links only an identical URL and
+initiator, so a fetch with a placeholder followed by one with the real value
+usually has no `repeatOf`: look for two rows to the same endpoint with different
+query values close together, the first one's `startedAfter` being the mount
+commit. Chippy does not say which component started a request; find the
+consumers of that query in source.
+
+- **Smallest fix:** let one owner fetch and pass the result down, or give every
+  consumer the same query key and fetch policy so the query library dedupes them
+  (check the API names for the installed version). Differing options on the same
+  key can defeat deduplication.
+- **Larger fixes:** wait for the final inputs before the first fetch: skip or
+  disable the query while a route param or a feature flag is still unresolved,
+  instead of fetching with a placeholder and again with the real value. Gate on
+  a parent's data only when the query needs it and the placeholder result is
+  thrown away anyway; otherwise start the query in parallel, because gating
+  serializes the requests
+  ([NW-2](patterns-latency.md#nw-2-request-waterfall)). Key the query on the
+  minimal inputs it reads (the route params it uses, not the full URL or a whole
+  options object), so unrelated changes do not create a new key.
+- **Wrong when:** consumers need different freshness or fetch policies; rows
+  fetch different ids (different URLs, no `repeatOf`): that is a batching
+  question, not this card.
+- **Prove the fix:** one request per key in `avalanche-network`, with no
+  `repeatOf` at a small `gapMs`; announce the fewer requests before `ab-compare`.
 
 ## Sources
 

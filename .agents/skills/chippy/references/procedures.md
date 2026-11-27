@@ -1,6 +1,6 @@
 # Chippy Procedures — Ceremonies, Procedures, Plays
 
-The P-01..P-22 procedures turn routed Chippy cases into executable evidence and verification chains. Use one after [bdd-router](bdd-router.md) selects it.
+The P-01..P-23 procedures turn routed Chippy cases into executable evidence and verification chains. Use one after [bdd-router](bdd-router.md) selects it.
 
 Canonical phase contracts and apply gate live in [operating-model](operating-model.md). This file only defines executable procedure chains.
 
@@ -544,20 +544,20 @@ Outputs:
 **When:** the user waited: a click, Enter or toggle feels late by a fixed amount; a spinner or fallback stays up; data appears late; results flip to an older input. [Perf triage](perf-triage.md) Step 1 classified the complaint as waited.
 
 ```
-capture → avalanche-timeline → avalanche-network → avalanche-perf → pattern card → source confirms the mechanism → P-15 → P-16 → P-12
+capture → avalanche-timeline → avalanche-network → avalanche-perf → pattern card (→ P-23 when a candidate gate is unproven) → source confirms the mechanism → P-15 → P-16 → P-12
 ```
 
-1. Capture the interaction (P-04 steps 1–3) or the load (P-05 steps 1–2).
-2. `avalanche-timeline <clientId>` — read `perceived.waits[]`: `waitedMs`, `lockedBy`, `lastRequests`, `updatesDuring`. `waits[]` lists Suspense fallbacks only; with no fallback on screen it is empty, so read `perceived.idleGaps[]` (`from`, `until`, `ms`, `endedBy`) and `perceived.firstResponse`. An idle gap has no request in flight, no long frame, and no render; one that starts at the action points at a timer or debounce.
-3. `avalanche-network <clientId> 30 start` — for each request in the wait: `startedAfter` (and its gap), `landedBefore`, `commitsInFlight`. Look for a late start, a chain of sequential requests (`chainedAfter`, summary `longestChain`), a repeated URL (`repeatOf`, `mostRepeated`), or an earlier request that lands later (`landedAfterNewer`).
+1. Capture the interaction (P-04 steps 1–3) or the load (P-05 steps 1–2). When the complaint is about opening something again or coming back to a view, record both actions in one capture: open, close and reopen, or view, leave and return. `repeatOf` links repeats only within one capture. When the complaint is the first open, the cold run is the subject: capture it after a fresh load (a reload needs the user's permission; use `reload-with-avalanche`), not after a warm-up.
+2. `avalanche-timeline <clientId>` — read `perceived.waits[]`: `waitedMs`, `lockedBy`, `lastRequests`, `updatesDuring`. `waits[]` lists Suspense fallbacks only; with no fallback on screen it is empty, so read `perceived.idleGaps[]` (`from`, `until`, `ms`, `endedBy`) and `perceived.firstResponse`. An idle gap has no request in flight, no long frame, and no render; one that starts at the action points at a timer or debounce. For typing, the gap starts at the last keystroke. A spinner or skeleton driven by state is not a wait in `waits[]`: find the commits that inserted and removed it with `avalanche-dom-diff <clientId>` (narrow it with `match`), and report whether any pending indicator was visible. The dom-diff `t` counts from the first listed commit, not from the action; for the time after the action, look up those `commitId`s in `lanes.commits[]` of `avalanche-timeline <clientId> "" "" "" "" full`. The lane keeps every lock, unlock and swap commit but only the 25 update commits that rendered the most; when a commit is missing, take its `startTime` from `avalanche-commit-peek <clientId> <commitId> timing` and subtract the timeline's `origin.at`.
+3. `avalanche-network <clientId> 30 start` — for each request in the wait: `startedAfter` (and its gap), `landedBefore`, `commitsInFlight`, `cached`, `initiatorType`. Look for a late start, a prompt start whose own duration covers the wait, a chain of sequential requests (`chainedAfter`, summary `longestChain`), a repeated URL (`repeatOf`, `mostRepeated`), an earlier request that lands later (`landedAfterNewer`), or `script` and `link` rows (code loading, not data). These links are timing: they name candidates, not causes.
 4. `avalanche-perf <clientId>` — confirm the main thread was free during the wait. A large `inputDelay` or `processing` is work, not a wait: switch to P-04.
-5. Match the evidence to a card in [patterns-latency](patterns-latency.md): LT-1 trailing debounce, LT-2 stacked debouncers, LT-3 apply vs persist, NW-1 late start, NW-2 waterfall, NW-3 stale race, or [EF-4](patterns-effects.md#ef-4-fetch-in-effect-refetch-and-race) refetch.
+5. Match the evidence to a card in [patterns-latency](patterns-latency.md): LT-1 trailing debounce, LT-2 stacked debouncers, LT-3 apply vs persist, [LT-5](patterns-latency.md#lt-5-debounce-in-front-of-continuous-input) debounce in front of continuous input, NW-1 late start, NW-2 waterfall, NW-3 stale race, [NW-4](patterns-latency.md#nw-4-lazy-code-on-interaction) lazy code on interaction, [NW-5](patterns-latency.md#nw-5-refetch-of-data-already-shown) refetch of data already shown, [NW-6](patterns-latency.md#nw-6-non-critical-content-on-the-critical-path) non-critical content on the critical path, [NW-7](patterns-latency.md#nw-7-fallback-replaces-content-already-shown) fallback replaces content already shown, [NW-8](patterns-latency.md#nw-8-refetch-after-write) refetch after write, or [EF-4](patterns-effects.md#ef-4-fetch-in-effect-refetch-and-race) refetch. To prove that one request or chunk gates the view, run P-23.
 6. Read source only to confirm the mechanism the timeline shows (the debounce options, the fetch site, the key). Name what the mechanism protects.
 7. Build P-15, pass P-16 (keep the mechanism; change its edge or start point), verify with P-12. The proof is the gap or `waitedMs` across at least 3 interleaved samples, with request counts unchanged or announced.
 
 **NEVER:** explain a wait with render counts, or remove a debounce, cache or batch to remove a delay its edge or start point can fix.
 
-**Done when:** the wait is attributed to one mechanism with timeline and network evidence, or declared a real server cost.
+**Done when:** the wait is attributed to one mechanism with timeline and network evidence, or declared a real server cost. Declare a server cost only after the earlier-start option ([NW-1](patterns-latency.md#nw-1-late-start-fetch-on-mount)) and the cache option ([NW-5](patterns-latency.md#nw-5-refetch-of-data-already-shown)) are each rejected with a reason, and report the request's start offset from the action and its duration. Chippy records no per-request time to first byte, so it cannot split the duration into server time and transfer. Read TTFB or `Server-Timing` for that request in the browser's network panel when the split matters.
 
 ---
 
@@ -577,5 +577,28 @@ triage line → identity-driven? → compiled? → A/B with 'use no memo' → de
 6. Report the decision: adopt the compiler for the affected code, fix at the library boundary, or continue triage.
 
 **Done when:** the compiler is shown to remove the measured waste, or the remaining cost is named as outside what it changes.
+
+---
+
+### P-23 · Critical-Path Test (Procedure)
+
+**When:** P-21 named a request or code chunk as a candidate gate (`lastRequests`, `landedBefore`, `chainedAfter`), and timing alone cannot say whether the view waits for it. Typical cases: non-critical content suspected of holding the main view (NW-6), or one link of a waterfall (NW-2).
+
+```
+name the candidate → arm A unchanged → arm B with the candidate delayed or blocked → avalanche-timeline per arm → compare unlock and settle times
+```
+
+1. Name one candidate by URL and initiator from `avalanche-network`. Test one candidate per pair of arms.
+2. Chippy cannot delay or block a request. The harness sets the condition, as for any [A/B condition](ab-testing.md): it routes that one URL with a fixed added delay (for example 2000 ms) in arm B, or fails it. Arm A runs unchanged. Everything else stays the same in both arms: page, data, viewport, stimulus.
+3. Capture each sample with `ab-capture <clientId> <armDir> [label]`, interleaved a, b, a, b, at least 3 samples per arm. Before each sample, reset to the same starting state and clear the capture (`avalanche-clear <clientId>`, or `reload-with-avalanche` with the user's permission), as in the [A/B workflow](ab-testing.md#workflow).
+4. Read `avalanche-offline <sample> timeline` for each sample. For the boundary in question, compare `perceived.waits[].until` and `waitedMs`, and which commit unlocked it (`unlockedBy`); then `perceived.settledAt` and `screen.vc90`. With no fallback, compare `perceived.idleGaps[]` and when the content appeared: take the `commitId` of its insertion from `avalanche-offline <sample> dom-diff`, then that commit's `t` in `lanes.commits[]` of `avalanche-offline <sample> timeline --format full` (when the lane leaves it out, use the `startTime` from `avalanche-offline <sample> commit-peek <commitId> timing` minus `origin.at`). The dom-diff `t` counts from the first listed commit, so it does not compare across samples.
+5. Decide:
+   - the unlock time or `settledAt` moves by about the added delay: the candidate is on the critical path;
+   - it moves by clearly less than the added delay: the candidate gates the view only together with another request or chunk that overlaps it; name that one from `lastRequests` or `landedBefore` and test it in its own pair of arms;
+   - nothing moves: the candidate is not on the path, so look for the gate elsewhere;
+   - with a blocked request, the boundary stays in `perceived.stillWaiting` or an error boundary shows: the view depends on it, and the failure path is now visible too.
+6. Return to P-21 step 5 with the result. `ab-compare` does not judge waits, so report the per-arm timeline numbers.
+
+**Done when:** each tested candidate is shown to move the unlock or settle time, or shown not to.
 
 ---

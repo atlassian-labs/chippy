@@ -1,9 +1,12 @@
 # Render patterns
 
-These are the patterns for render waste, expensive renders and remounts. Reach
-them from [perf-triage.md](perf-triage.md) Step 3W once the trigger and the
-collateral are separated. Effects are in [patterns-effects.md](patterns-effects.md);
-waits are in [patterns-latency.md](patterns-latency.md).
+These are the patterns for render waste, expensive renders, mount cost, remounts
+and layout shifts. Reach them from [perf-triage.md](perf-triage.md): render waste
+and remounts from Step 3W once the trigger and the collateral are separated,
+expensive renders and mount cost (EX-1, EX-2) from Step 2W, and layout shifts
+(LS-1) from the Step 1 "Moved" row. Effects are in
+[patterns-effects.md](patterns-effects.md); waits are in
+[patterns-latency.md](patterns-latency.md).
 
 Every card has the same fields:
 
@@ -153,6 +156,24 @@ Observation.
 - **Prove the fix:** the append commit renders only the new row and the container;
   `renderMs` stays flat as the list grows.
 
+**Virtual window shift.** In a virtualized list, scrolling moves the window: some
+rows mount and the rest stay mounted. Only the entering rows have to render.
+Entering rows are the `+` ops in `avalanche-dom-diff` for the scroll commit. In
+that commit's `rendered[]`, a row whose `sourceId` already appeared in any
+earlier commit of the capture stayed mounted; `rendered[]` lists only the
+components that rendered, so do not compare with the previous commit alone.
+Rows that stayed mounted and rendered with `sameShallow: true` props, or with no
+`propChanges` under an unmemoized row, are the memo waste. When every
+stayed-mounted row instead shows a `scalar-changed` or `ref-changed` item or id
+prop, the rows are keyed by window position and receive new items on each
+scroll. Scroll is not an input by default (`interactionEvents: ['scroll']` in
+an in-page install records it, see [R-11F](bdd-router.md)), so without it the
+`avalanche-timeline` origin is an earlier
+click or the window's first commit (`origin.kind`), not the scroll. Fixes:
+memoize rows on the item's identity, key rows by item id rather than by window
+position, and render a cheap read-only cell until hover or focus needs the
+interactive one.
+
 ## RW-7. Store selector returns a new object
 
 - **Symptom:** components subscribed to a store re-render on every store update,
@@ -202,6 +223,38 @@ Observation.
   with at least 3 interleaved samples per arm, `renders <Name>` not worse, and
   behavior `equivalent`.
 
+## EX-2. Large mount commit
+
+- **Symptom:** opening a view, switching a route or using a feature for the first
+  time produces one long frame with little or no wasted re-rendering.
+- **Prove the problem:** `avalanche-perf <clientId> long-animation-frame` gives the
+  frame; its `commits.during` lists the commits that ran in it. The shipped
+  capture does not count mounts per commit (only a commit metrics adapter adds
+  `mountWorkCount`): read `avalanche-dom-diff <clientId> <fromCommit> <toCommit>`
+  for those commits, where a mount commit is mostly `+` ops (inserted subtrees)
+  rather than `~` updates. A `scripts[]` entry whose `sourceURL` matches
+  a `script` row in `avalanche-network <clientId> '' '' '' script` that landed just
+  before the frame is module evaluation of a newly loaded chunk
+  ([NW-4](patterns-latency.md#nw-4-lazy-code-on-interaction)). When the first
+  input is slower than a repeat of the same input in one capture (`event` entries:
+  `processing`), the extra cost is one-time initialization.
+- **What it protects:** the whole view appears at once and consistent, without
+  sections popping in.
+- **Smallest fix:** defer secondary or offscreen subtrees until after the first
+  paint or until idle; render the route switch in a transition so the current
+  view stays responsive while the next one mounts.
+- **Larger fixes:** keep a shared layout mounted across sibling routes so only the
+  leaf mounts; virtualize the first mount of a long list; move first-use
+  initialization to open or idle; preload the chunk before the action (NW-4).
+- **Compiler:** no; a first mount has nothing to reuse.
+- **Wrong when:** the cost exists only in development; the deferred subtree is what
+  the user opened the view for; deferral moves content after paint and adds a
+  layout shift ([LS-1](#ls-1-late-or-resized-content-shifts-layout)).
+- **Prove the fix:** the long frame for the action is shorter (`blockingDuration`);
+  `worstInteractionMs` or `totalBlockingMs` `better` in `ab-compare`. When the
+  complaint is the first open, compare cold samples instead of dropping them with
+  `--skip`.
+
 ## RM-1. Key-induced remount
 
 - **Symptom:** focus, scroll or local state is lost on update; a subtree flickers or
@@ -227,6 +280,33 @@ Observation.
   `fiber-added` pair for the subtree; mount-time requests disappear from
   `avalanche-network`. Announce the fewer requests before `ab-compare` so the
   change reads as intended.
+
+## LS-1. Late or resized content shifts layout
+
+- **Symptom:** content jumps after it appears: a section arrives late and pushes
+  the rest down, or a toolbar wraps when an item is added.
+- **Prove the problem:** read the entries, not the summary:
+  `avalanche-perf <clientId> layout-shift` lists each shift with `value`,
+  `hadRecentInput`, and up to five `sources` (`component`, `testId`,
+  `previousRect`, `currentRect`). `summary.cls` and the `avalanche-timeline` shift
+  lane leave out shifts with `hadRecentInput: true`, so a shift right after the
+  click is missing there. The entry's `commits.before` names the commit that moved
+  the DOM; `avalanche-commit-peek <clientId> <commitId> dom,network` shows what it
+  inserted or resized and which response landed before it.
+- **What it protects:** content shows as soon as it is ready; elements size to
+  content whose size is not known in advance.
+- **Smallest fix:** reserve the space: a `min-height`, an `aspect-ratio`, or a
+  skeleton of the final size.
+- **Larger fixes:** hoist the late fetch so the content arrives with the first
+  paint; replace wrapping with an overflow menu; size from container queries
+  instead of the content.
+- **Compiler:** no.
+- **Wrong when:** the move is the expected answer to the input (a section the user
+  expanded); the reserved space stays empty in the common case.
+- **Prove the fix:** the shift entries for the action are gone or have smaller
+  `value`. `ab-compare` judges `cls`, which skips shifts with recent input; for
+  those, compare the entries per arm with `avalanche-offline <sample> perf
+  layout-shift`.
 
 ## Sources
 
